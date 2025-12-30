@@ -11,7 +11,7 @@ on:
 
 jobs:
   scrape-prices:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     
     steps:
       # Стъпка 1: Изтегля кода от хранилището
