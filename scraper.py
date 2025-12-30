@@ -72,7 +72,11 @@ def get_claude_client():
     if not api_key:
         print("    [DEBUG] ANTHROPIC_API_KEY не е зададен")
         return None
-    return anthropic.Anthropic(api_key=api_key)
+    try:
+        return anthropic.Anthropic(api_key=api_key)
+    except Exception as e:
+        print(f"    [DEBUG] Грешка при Claude клиент: {str(e)[:50]}")
+        return None
 
 
 def extract_prices_with_claude(page_text, store_name):
@@ -191,12 +195,13 @@ def scrape_store(page, store_key, store_config):
     prices = {}
     url = store_config['url']
     store_name = store_config['name_in_sheet']
+    body_text = ""
+    
+    print(f"\n{'='*60}")
+    print(f"{store_name}: Зареждане")
+    print(f"{'='*60}")
     
     try:
-        print(f"\n{'='*60}")
-        print(f"{store_name}: Зареждане")
-        print(f"{'='*60}")
-        
         page.goto(url, timeout=60000, wait_until="domcontentloaded")
         page.wait_for_timeout(3000)
         
@@ -219,24 +224,33 @@ def scrape_store(page, store_key, store_config):
         body_text = page.inner_text('body')
         print(f"  Заредени {len(body_text)} символа")
         
-        # Claude
+    except Exception as e:
+        print(f"  ✗ Грешка при зареждане: {str(e)[:80]}")
+        return prices
+    
+    # Claude AI (с отделен try-catch)
+    try:
         print(f"  Claude AI...")
         claude_prices = extract_prices_with_claude(body_text, store_name)
         print(f"    Намерени: {len(claude_prices)}")
         prices.update(claude_prices)
-        
-        # Fallback
+    except Exception as e:
+        print(f"  Claude грешка: {str(e)[:50]}")
+    
+    # Fallback ВИНАГИ се изпълнява
+    try:
         print(f"  Fallback...")
         fallback_prices = extract_prices_with_keywords(body_text)
+        added = 0
         for name, price in fallback_prices.items():
             if name not in prices:
                 prices[name] = price
-        
-        print(f"  ✓ Общо: {len(prices)} продукта")
-        
+                added += 1
+        print(f"    Добавени: {added}")
     except Exception as e:
-        print(f"  ✗ ГРЕШКА: {str(e)[:80]}")
+        print(f"  Fallback грешка: {str(e)[:50]}")
     
+    print(f"  ✓ Общо: {len(prices)} продукта")
     return prices
 
 
