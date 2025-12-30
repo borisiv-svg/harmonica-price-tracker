@@ -1,0 +1,61 @@
+name: Weekly Price Scraper
+
+# Кога да се изпълнява workflow-то
+on:
+  # Автоматично всеки понеделник в 7:00 сутринта (българско време, 5:00 UTC)
+  schedule:
+    - cron: '0 5 * * 1'
+  
+  # Позволява ръчно стартиране от GitHub интерфейса
+  workflow_dispatch:
+
+jobs:
+  scrape-prices:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # Стъпка 1: Изтегля кода от хранилището
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      # Стъпка 2: Настройва Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      # Стъпка 3: Кешира Playwright браузърите (ускорява следващите изпълнения)
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+      
+      # Стъпка 4: Инсталира Python зависимостите
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      # Стъпка 5: Инсталира Playwright браузъра (Chromium)
+      - name: Install Playwright browsers
+        run: playwright install chromium --with-deps
+      
+      # Стъпка 6: Изпълнява скрейпъра
+      - name: Run price scraper
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+        run: python scraper.py
+      
+      # Стъпка 7: Качва лог файл като artifact (за debugging)
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scraper-logs-${{ github.run_number }}
+          path: "*.log"
+          retention-days: 30
