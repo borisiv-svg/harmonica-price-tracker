@@ -1,6 +1,6 @@
 """
-Harmonica Price Tracker v5.1
-Разширен с 4 магазина: eBag, Кашон, Zoya, Balev Bio Market
+Harmonica Price Tracker v5.2
+3 магазина: eBag, Кашон, Balev Bio Market
 Използва Claude AI за интелигентно съпоставяне на продукти.
 """
 
@@ -40,12 +40,8 @@ STORES = {
         "url": "https://kashonharmonica.bg/bg/products/field_producer/harmonica-144",
         "name_in_sheet": "Кашон"
     },
-    "Zoya": {
-        "url": "https://zoya.bg/shop/Zoya-BG-Organic-Natural-super-store.1/Harmonica-m238",
-        "name_in_sheet": "Zoya"
-    },
     "Balev": {
-        "url": "https://balevbiomarket.com/search?q=harmonica",
+        "url": "https://balevbiomarket.com/brands/harmonica",
         "name_in_sheet": "Balev"
     }
 }
@@ -77,6 +73,7 @@ def get_claude_client():
     """Създава клиент за Claude API."""
     api_key = os.environ.get('ANTHROPIC_API_KEY')
     if not api_key:
+        print("    [DEBUG] ANTHROPIC_API_KEY не е зададен")
         return None
     return anthropic.Anthropic(api_key=api_key)
 
@@ -86,6 +83,7 @@ def extract_prices_with_claude(page_text, store_name):
     Използва Claude AI за интелигентно извличане на цени.
     """
     if not CLAUDE_AVAILABLE:
+        print("    [DEBUG] Anthropic не е наличен")
         return {}
     
     client = get_claude_client()
@@ -110,16 +108,24 @@ def extract_prices_with_claude(page_text, store_name):
 
 ИНСТРУКЦИИ:
 1. Намери всеки продукт от списъка в текста на страницата
-2. Продуктите може да са изписани по различен начин (на български, на английски, съкратено, с различен словоред)
-3. Обърни внимание на грамажа/обема - той трябва да съвпада
-4. Извлечи цената в лева (формат: XX.XX лв или XX,XX лв)
+2. Продуктите може да са изписани по различен начин (на български, на английски, съкратено)
+3. Обърни внимание на грамажа/обема - той трябва да съвпада приблизително
+4. Извлечи цената в лева (може да е във формат: 3.81, 3,81, 3.81 лв, 3,81лв)
 5. Ако продукт не е намерен или цената не е ясна, пропусни го
 
-ФОРМАТ НА ОТГОВОРА:
-Върни САМО JSON обект без допълнителен текст. Формат:
-{{"Био Локум роза": 3.81, "Айран harmonica": 2.90}}
+Примери за съвпадения:
+- "Локум роза 140" = "Био Локум роза 140г"
+- "Turkish Delight Rose" = "Био Локум роза"
+- "вафла без захар 40г" = "Био Тунквана вафла без захар 40г"
+- "оризови топчета шоколад" = "Био Оризови топчета с черен шоколад"
+- "претцели сол 80" = "Био тънки претцели с морска сол 80г"
+- "сироп липа" = "Био сироп от липа"
+- "пасирани домати" = "Био Пасирани домати"
 
-Ако не намериш никакви продукти, върни празен обект: {{}}"""
+МНОГО ВАЖНО - ФОРМАТ НА ОТГОВОРА:
+Върни САМО чист JSON обект. Без ```json```, без markdown, без обяснения.
+Пример: {{"Био Локум роза": 3.81, "Айран harmonica": 2.90}}
+Ако не намериш нищо: {{}}"""
 
     try:
         message = client.messages.create(
@@ -129,85 +135,123 @@ def extract_prices_with_claude(page_text, store_name):
         )
         
         response_text = message.content[0].text.strip()
+        print(f"    [DEBUG] Claude raw response: {response_text[:300]}...")
         
-        # Почистваме markdown форматиране
-        if response_text.startswith("```"):
-            response_text = re.sub(r'^```(?:json)?\s*', '', response_text)
-            response_text = re.sub(r'\s*```$', '', response_text)
+        # Почистваме markdown форматиране ако има
+        cleaned = response_text
+        if cleaned.startswith("```"):
+            # Премахваме ```json или ``` от началото
+            cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
+            # Премахваме ``` от края
+            cleaned = re.sub(r'\s*```$', '', cleaned)
         
-        prices = json.loads(response_text)
+        # Опит да намерим JSON обект в текста
+        json_match = re.search(r'\{[^{}]*\}', cleaned)
+        if json_match:
+            cleaned = json_match.group(0)
         
+        print(f"    [DEBUG] Claude cleaned: {cleaned[:200]}")
+        
+        prices = json.loads(cleaned)
+        
+        # Валидираме цените
         validated_prices = {}
         for product_name, price in prices.items():
             if isinstance(price, (int, float)) and 0.5 < price < 200:
                 validated_prices[product_name] = float(price)
         
+        print(f"    [DEBUG] Claude validated: {len(validated_prices)} продукта")
         return validated_prices
         
+    except json.JSONDecodeError as e:
+        print(f"    [DEBUG] JSON parse error: {str(e)}")
+        print(f"    [DEBUG] Attempted to parse: {cleaned[:100] if 'cleaned' in dir() else 'N/A'}")
+        return {}
     except Exception as e:
-        print(f"    Claude грешка: {str(e)[:50]}")
+        print(f"    [DEBUG] Claude error: {type(e).__name__}: {str(e)[:100]}")
         return {}
 
 
 # =============================================================================
-# FALLBACK ТЪРСЕНЕ
+# FALLBACK ТЪРСЕНЕ С КЛЮЧОВИ ДУМИ
 # =============================================================================
 
 PRODUCT_KEYWORDS = {
-    "Био Локум роза": ["локум роза", "локум", "роза 140", "turkish delight rose"],
-    "Био Обикновени бисквити с краве масло": ["бисквити краве масло", "butter biscuits", "бисквити 150"],
-    "Айран harmonica": ["айран 500", "айран", "ayran"],
-    "Био Тунквана вафла без захар": ["вафла без захар", "wafer sugar free", "тунквана без захар"],
-    "Био Оризови топчета с черен шоколад": ["оризови топчета", "rice balls", "топчета шоколад"],
-    "Био лимонада": ["лимонада 330", "lemonade", "лимонада"],
-    "Био тънки претцели с морска сол": ["претцели", "pretzels", "grizzeti"],
-    "Био тунквана вафла Класика": ["вафла класика", "classic wafer", "тунквана класика"],
-    "Био вафла без добавена захар": ["вафла 30г", "вафла 30", "crispy wafer 30"],
-    "Био сироп от липа": ["сироп липа", "linden syrup", "липа 750"],
-    "Био Пасирани домати": ["пасирани домати", "passata", "домати 680"],
-    "Smiles с нахут и морска сол": ["smiles", "смайлс", "нахут сол"],
-    "Био Крема сирене": ["крема сирене", "cream cheese", "крема 125"],
-    "Козе сирене harmonica": ["козе сирене", "goat cheese", "козе 200"],
+    "Био Локум роза": ["локум роза", "локум 140", "turkish delight rose", "локум натурален роза"],
+    "Био Обикновени бисквити с краве масло": ["бисквити краве масло", "обикновени бисквити", "butter biscuits", "бисквити 150"],
+    "Айран harmonica": ["айран 500", "айран", "ayran", "айран хармоника"],
+    "Био Тунквана вафла без захар": ["вафла без захар 40", "тунквана без захар", "wafer sugar free", "вафла без добавена захар 40"],
+    "Био Оризови топчета с черен шоколад": ["оризови топчета", "rice balls", "топчета шоколад 50", "шоко топчета"],
+    "Био лимонада": ["лимонада 330", "lemonade", "лимонада harmonica", "газирана лимонада"],
+    "Био тънки претцели с морска сол": ["претцели 80", "претцели сол", "pretzels", "grizzeti", "гризети"],
+    "Био тунквана вафла Класика": ["вафла класика 40", "classic wafer", "тунквана класика", "вафла класик"],
+    "Био вафла без добавена захар": ["вафла 30г", "вафла 30", "crispy wafer 30", "хрупкава вафла 30"],
+    "Био сироп от липа": ["сироп липа", "linden syrup", "липа 750", "липов сироп"],
+    "Био Пасирани домати": ["пасирани домати", "passata", "домати 680", "доматено пюре"],
+    "Smiles с нахут и морска сол": ["smiles", "смайлс", "нахут сол 50", "smiles нахут"],
+    "Био Крема сирене": ["крема сирене 125", "cream cheese", "крема 125", "кремообразно сирене"],
+    "Козе сирене harmonica": ["козе сирене 200", "goat cheese", "козе сирене harmonica", "козе 200"],
 }
 
 
-def extract_price_from_context(text):
-    """Извлича цена от текст."""
+def extract_price_from_context(text, product_name=""):
+    """Извлича цена от текст около намерена ключова дума."""
     if not text:
         return None
     
-    matches = re.findall(r'(\d+)[,.](\d{2})\s*(?:лв|€|EUR|BGN)', text, re.IGNORECASE)
-    for match in matches:
-        try:
-            price = float(f"{match[0]}.{match[1]}")
-            if 0.50 < price < 200:
-                return price
-        except:
-            continue
+    # Търсим цени в различни формати
+    patterns = [
+        r'(\d+)[,.](\d{2})\s*(?:лв|лева|BGN)',  # 3.81 лв, 3,81 лева
+        r'(\d+)[,.](\d{2})\s*€',                 # 1.95 €
+        r'(?:цена|price)[:\s]*(\d+)[,.](\d{2})', # цена: 3.81
+        r'(\d+)[,.](\d{2})\s*лв\./бр',           # 3.81 лв./бр
+        r'>(\d+)[,.](\d{2})<',                   # HTML тагове >3.81<
+    ]
+    
+    for pattern in patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        for match in matches:
+            try:
+                price = float(f"{match[0]}.{match[1]}")
+                if 0.50 < price < 200:
+                    return price
+            except:
+                continue
+    
     return None
 
 
 def extract_prices_with_keywords(page_text):
-    """Fallback метод за извличане на цени."""
+    """Fallback метод за извличане на цени с ключови думи."""
     prices = {}
     page_text_lower = page_text.lower()
     
     for product in PRODUCTS:
-        keywords = PRODUCT_KEYWORDS.get(product['name'], [])
+        product_name = product['name']
+        keywords = PRODUCT_KEYWORDS.get(product_name, [])
+        
+        best_price = None
         
         for keyword in keywords:
             keyword_lower = keyword.lower()
             idx = page_text_lower.find(keyword_lower)
             
             if idx != -1:
-                start = max(0, idx - 50)
-                end = min(len(page_text), idx + len(keyword) + 100)
+                # Взимаме контекст около ключовата дума
+                start = max(0, idx - 100)
+                end = min(len(page_text), idx + len(keyword) + 150)
                 context = page_text[start:end]
                 
-                price = extract_price_from_context(context)
+                price = extract_price_from_context(context, product_name)
                 if price:
-                    prices[product['name']] = price
-                    break
+                    # Проверка за разумна цена спрямо референтната
+                    ref_price = product['ref_price_bgn']
+                    if 0.3 * ref_price < price < 3 * ref_price:
+                        best_price = price
+                        break
+        
+        if best_price:
+            prices[product_name] = best_price
     
     return prices
 
@@ -228,10 +272,11 @@ def scrape_store(page, store_key, store_config):
         print(f"\n{'='*60}")
         print(f"{store_name}: Зареждане")
         print(f"{'='*60}")
-        print(f"  URL: {url[:70]}...")
+        print(f"  URL: {url[:80]}...")
         
-        page.goto(url, timeout=60000)
-        page.wait_for_timeout(5000)
+        # Навигация с по-дълъг timeout
+        page.goto(url, timeout=60000, wait_until="domcontentloaded")
+        page.wait_for_timeout(3000)
         
         # Приемане на бисквитки
         try:
@@ -240,46 +285,75 @@ def scrape_store(page, store_key, store_config):
                 'button:has-text("Съгласен")',
                 'button:has-text("Accept")',
                 'button:has-text("Разбрах")',
+                'button:has-text("OK")',
                 '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
                 '[class*="cookie"] button',
                 '[class*="consent"] button',
+                '.cc-btn',
             ]
             for selector in cookie_selectors:
-                btn = page.query_selector(selector)
-                if btn:
-                    btn.click()
-                    page.wait_for_timeout(2000)
-                    print(f"  Бисквитки приети")
-                    break
+                try:
+                    btn = page.query_selector(selector)
+                    if btn and btn.is_visible():
+                        btn.click()
+                        page.wait_for_timeout(1500)
+                        print(f"  ✓ Бисквитки приети")
+                        break
+                except:
+                    continue
         except:
             pass
         
-        # Скролване за зареждане на продукти
-        for _ in range(5):
-            page.evaluate("window.scrollBy(0, 1000)")
-            page.wait_for_timeout(800)
+        # Изчакване за динамично съдържание
+        page.wait_for_timeout(2000)
         
+        # Скролване за lazy loading
+        print(f"  Скролване за зареждане на продукти...")
+        for i in range(7):
+            page.evaluate("window.scrollBy(0, 800)")
+            page.wait_for_timeout(600)
+        
+        # Връщане в началото
+        page.evaluate("window.scrollTo(0, 0)")
+        page.wait_for_timeout(1000)
+        
+        # Извличане на текст
         body_text = page.inner_text('body')
         print(f"  Заредени {len(body_text)} символа")
         
+        # Показваме малко от текста за debug
+        if len(body_text) < 2000:
+            print(f"  [DEBUG] Малко текст! Първи 500 символа:")
+            print(f"  {body_text[:500]}")
+        
         # Claude AI извличане
         print(f"  Извличане с Claude AI...")
-        prices = extract_prices_with_claude(body_text, store_name)
-        print(f"    Claude намери: {len(prices)} продукта")
+        claude_prices = extract_prices_with_claude(body_text, store_name)
+        print(f"    Claude намери: {len(claude_prices)} продукта")
         
-        # Fallback ако Claude не намери достатъчно
-        if len(prices) < len(PRODUCTS) * 0.3:
-            print(f"  Допълване с fallback...")
-            fallback_prices = extract_prices_with_keywords(body_text)
-            for name, price in fallback_prices.items():
-                if name not in prices:
-                    prices[name] = price
-            print(f"    След fallback: {len(prices)} продукта")
+        # Добавяме Claude резултатите
+        prices.update(claude_prices)
         
-        print(f"  Резултат: {len(prices)} продукта")
+        # Fallback с ключови думи за допълване
+        print(f"  Допълване с ключови думи...")
+        fallback_prices = extract_prices_with_keywords(body_text)
+        
+        # Добавяме само липсващите от fallback
+        added_from_fallback = 0
+        for name, price in fallback_prices.items():
+            if name not in prices:
+                prices[name] = price
+                added_from_fallback += 1
+        
+        print(f"    Добавени от fallback: {added_from_fallback}")
+        print(f"  ✓ Общо намерени: {len(prices)} продукта")
+        
+        # Показваме какво сме намерили
+        if prices:
+            print(f"  Продукти: {list(prices.keys())[:5]}...")
         
     except Exception as e:
-        print(f"  ГРЕШКА: {str(e)[:80]}")
+        print(f"  ✗ ГРЕШКА: {type(e).__name__}: {str(e)[:100]}")
     
     return prices
 
@@ -291,10 +365,14 @@ def collect_prices():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             locale="bg-BG",
             viewport={"width": 1920, "height": 1080}
         )
+        
+        # Блокираме изображения за по-бързо зареждане
+        context.route("**/*.{png,jpg,jpeg,gif,webp,svg}", lambda route: route.abort())
+        
         page = context.new_page()
         
         # Събираме от всички магазини
@@ -312,7 +390,7 @@ def collect_prices():
         
         # Събираме цени от всички магазини
         product_prices = {}
-        for store_key, store_config in STORES.items():
+        for store_key in STORES.keys():
             price = all_store_prices.get(store_key, {}).get(name)
             product_prices[store_key] = price
         
@@ -335,7 +413,7 @@ def collect_prices():
             "weight": product['weight'],
             "ref_price_bgn": product['ref_price_bgn'],
             "ref_price_eur": product['ref_price_eur'],
-            "prices": product_prices,  # Dict с цени от всички магазини
+            "prices": product_prices,
             "avg_price_bgn": round(avg_price, 2) if avg_price else None,
             "avg_price_eur": round(avg_price_eur, 2) if avg_price_eur else None,
             "deviation": round(deviation, 1) if deviation is not None else None,
@@ -368,21 +446,20 @@ def format_worksheet(sheet, num_products, num_stores):
     """Прилага визуално форматиране."""
     try:
         # Заглавие
-        sheet.format('A1:O1', {
+        sheet.format('A1:L1', {
             'backgroundColor': {'red': 0.2, 'green': 0.5, 'blue': 0.3},
             'textFormat': {'bold': True, 'fontSize': 14, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}},
             'horizontalAlignment': 'CENTER'
         })
         
         # Метаданни
-        sheet.format('A2:O2', {
+        sheet.format('A2:L2', {
             'backgroundColor': {'red': 0.9, 'green': 0.95, 'blue': 0.9},
             'textFormat': {'italic': True, 'fontSize': 10}
         })
         
         # Заглавия на колони
-        last_col = chr(ord('A') + 4 + num_stores + 4)  # A + № + Продукт + Грамаж + Реф + Магазини + Статистики
-        sheet.format(f'A4:{last_col}4', {
+        sheet.format('A4:L4', {
             'backgroundColor': {'red': 0.3, 'green': 0.6, 'blue': 0.4},
             'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}},
             'horizontalAlignment': 'CENTER'
@@ -402,23 +479,20 @@ def update_main_sheet(gc, spreadsheet_id, results):
         store_names = [s['name_in_sheet'] for s in STORES.values()]
         
         # Заглавие
-        sheet.update(range_name='A1:O1', values=[
-            [f'HARMONICA - Ценови Тракер ({len(STORES)} магазина)', '', '', '', '', '', '', '', '', '', '', '', '', '', '']
-        ])
+        title = f'HARMONICA - Ценови Тракер ({len(STORES)} магазина)'
+        sheet.update([[title]], 'A1')
+        sheet.merge_cells('A1:L1')
         
         # Метаданни
-        sheet.update(range_name='A2:O2', values=[
-            ['Последна актуализация:', now, '', '', 'Курс:', f'{EUR_RATE} лв/EUR', '', 'Магазини:', ', '.join(store_names), '', '', '', '', '', '']
-        ])
+        meta_row = ['Последна актуализация:', now, '', 'Курс:', f'{EUR_RATE} лв/EUR', '', 
+                    'Магазини:', ', '.join(store_names), '', '', '', '']
+        sheet.update([meta_row], 'A2')
         
-        # Заглавия на колони - динамично базирано на броя магазини
+        # Заглавия на колони
         headers = ['№', 'Продукт', 'Грамаж', 'Реф. BGN', 'Реф. EUR']
         headers.extend(store_names)
         headers.extend(['Ср. BGN', 'Ср. EUR', 'Откл. %', 'Статус'])
-        
-        # Определяме диапазона за заглавията
-        end_col = chr(ord('A') + len(headers) - 1)
-        sheet.update(range_name=f'A4:{end_col}4', values=[headers])
+        sheet.update([headers], 'A4')
         
         # Данни
         rows = []
@@ -443,29 +517,37 @@ def update_main_sheet(gc, spreadsheet_id, results):
             ])
             rows.append(row)
         
-        sheet.update(range_name=f'A5:{end_col}{4 + len(rows)}', values=rows)
+        # Записваме данните
+        if rows:
+            end_col = chr(ord('A') + len(headers) - 1)
+            sheet.update(rows, f'A5:{end_col}{4 + len(rows)}')
         
         # Форматиране
         format_worksheet(sheet, len(rows), len(STORES))
         
         # Оцветяване на статус колоната
-        status_col = chr(ord('A') + len(headers) - 1)
+        status_col_idx = len(headers) - 1  # Последната колона
+        status_col = chr(ord('A') + status_col_idx)
+        
         for i, r in enumerate(results, 5):
-            if r['status'] == 'OK':
-                sheet.format(f'{status_col}{i}', {
-                    'backgroundColor': {'red': 0.85, 'green': 0.95, 'blue': 0.85},
-                    'textFormat': {'bold': True, 'foregroundColor': {'red': 0, 'green': 0.5, 'blue': 0}}
-                })
-            elif r['status'] == 'ВНИМАНИЕ':
-                sheet.format(f'{status_col}{i}', {
-                    'backgroundColor': {'red': 1, 'green': 0.9, 'blue': 0.9},
-                    'textFormat': {'bold': True, 'foregroundColor': {'red': 0.8, 'green': 0, 'blue': 0}}
-                })
-            else:
-                sheet.format(f'{status_col}{i}', {
-                    'backgroundColor': {'red': 0.95, 'green': 0.95, 'blue': 0.95},
-                    'textFormat': {'italic': True, 'foregroundColor': {'red': 0.5, 'green': 0.5, 'blue': 0.5}}
-                })
+            try:
+                if r['status'] == 'OK':
+                    sheet.format(f'{status_col}{i}', {
+                        'backgroundColor': {'red': 0.85, 'green': 0.95, 'blue': 0.85},
+                        'textFormat': {'bold': True, 'foregroundColor': {'red': 0, 'green': 0.5, 'blue': 0}}
+                    })
+                elif r['status'] == 'ВНИМАНИЕ':
+                    sheet.format(f'{status_col}{i}', {
+                        'backgroundColor': {'red': 1, 'green': 0.9, 'blue': 0.9},
+                        'textFormat': {'bold': True, 'foregroundColor': {'red': 0.8, 'green': 0, 'blue': 0}}
+                    })
+                else:
+                    sheet.format(f'{status_col}{i}', {
+                        'backgroundColor': {'red': 0.95, 'green': 0.95, 'blue': 0.95},
+                        'textFormat': {'italic': True, 'foregroundColor': {'red': 0.5, 'green': 0.5, 'blue': 0.5}}
+                    })
+            except:
+                pass
         
         print(f"✓ Главният лист е актуализиран")
         
@@ -482,12 +564,12 @@ def update_history_sheet(gc, spreadsheet_id, results):
         try:
             history_sheet = spreadsheet.worksheet("История")
         except gspread.exceptions.WorksheetNotFound:
-            history_sheet = spreadsheet.add_worksheet(title="История", rows=2000, cols=15)
+            history_sheet = spreadsheet.add_worksheet(title="История", rows=2000, cols=12)
             headers = ['Дата', 'Час', 'Продукт', 'Грамаж']
             headers.extend(store_names)
             headers.extend(['Средна', 'Откл. %', 'Статус'])
-            history_sheet.update(range_name='A1:N1', values=[headers])
-            history_sheet.format('A1:N1', {
+            history_sheet.update([headers], 'A1')
+            history_sheet.format('A1:L1', {
                 'backgroundColor': {'red': 0.2, 'green': 0.4, 'blue': 0.6},
                 'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}},
                 'horizontalAlignment': 'CENTER'
@@ -617,7 +699,7 @@ def main():
     store_names = [s['name_in_sheet'] for s in STORES.values()]
     
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v5.1")
+    print("HARMONICA PRICE TRACKER v5.2")
     print(f"Време: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
     print(f"Продукти: {len(PRODUCTS)}")
     print(f"Магазини: {len(STORES)} ({', '.join(store_names)})")
@@ -641,8 +723,8 @@ def main():
         print(f"  {store_config['name_in_sheet']}: {count}/{len(results)} продукта")
     
     products_with_any = len([r for r in results if any(r['prices'].values())])
-    print(f"\nОбщо продукти с цени: {products_with_any}/{len(results)}")
-    print(f"Продукти с отклонения: {len(alerts)}")
+    print(f"\nОбщо продукти с поне една цена: {products_with_any}/{len(results)}")
+    print(f"Продукти с отклонения >10%: {len(alerts)}")
     
     print(f"\n{'='*60}")
     print("✓ Готово!")
