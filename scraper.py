@@ -1,9 +1,9 @@
 """
-Harmonica Price Tracker v6.0
+Harmonica Price Tracker v6.1
 - Claude Haiku 4.5 с визуална верификация
-- Screenshots на продукти за потвърждение на идентификацията
-- eBag: "покажи повече" бутон за пълно зареждане
-- Годишни табове за история
+- Ценова валидация за защита от грешни идентификации
+- Подобрени CSS селектори за продуктови карти
+- Филтриране по ключови думи от името
 """
 
 import os
@@ -240,10 +240,14 @@ def get_product_card_selectors(store_name):
     """
     selectors = {
         "eBag": [
-            ".product-card",
-            ".hit",
-            "[data-insights-object-id]",
-            ".ais-Hits-item"
+            # Algolia InstantSearch структура
+            ".ais-InfiniteHits-item",
+            ".ais-Hits-item", 
+            "[class*='hit-']",
+            "[class*='Hit']",
+            "article[class*='product']",
+            "div[class*='product-card']",
+            "li[class*='product']"
         ],
         "Кашон": [
             ".views-row",
@@ -253,18 +257,98 @@ def get_product_card_selectors(store_name):
         "Balev": [
             ".product-card",
             ".product-item",
-            "[class*='product']"
+            "div.product",
+            "[class*='ProductCard']"
         ]
     }
     return selectors.get(store_name, [".product-card", ".product-item"])
+
+
+def validate_visual_price(product_id, visual_price, tolerance_percent=50):
+    """
+    Валидира дали визуално намерената цена е в разумен диапазон
+    спрямо референтната цена на продукта.
+    
+    Args:
+        product_id: ID на продукта (1-14)
+        visual_price: Цената намерена визуално
+        tolerance_percent: Допустимо отклонение в проценти (default 50%)
+    
+    Returns:
+        tuple: (is_valid, reason)
+    """
+    # Намираме референтната цена
+    ref_price = None
+    for p in PRODUCTS:
+        if p['id'] == product_id:
+            ref_price = p['ref_price_bgn']
+            break
+    
+    if not ref_price:
+        return False, "Непознат продукт"
+    
+    if visual_price <= 0:
+        return False, "Невалидна цена"
+    
+    # Изчисляваме отклонението
+    deviation = abs(visual_price - ref_price) / ref_price * 100
+    
+    if deviation > tolerance_percent:
+        return False, "Цена извън диапазон ({:.1f}% отклонение, ref={:.2f}, visual={:.2f})".format(
+            deviation, ref_price, visual_price)
+    
+    return True, "OK"
+
+
+def get_product_keywords(product_id):
+    """
+    Връща ключови думи за търсене на продукт по ID.
+    Използва се за валидация на визуална идентификация.
+    """
+    keywords = {
+        1: ["локум", "роза", "rose", "lokum"],
+        2: ["бисквит", "краве", "масло", "обикновен"],
+        3: ["айран", "ayran"],
+        4: ["вафла", "захар", "40"],  # без захар 40г
+        5: ["оризов", "топчет", "шоколад", "черен"],
+        6: ["лимонад", "lemonade"],
+        7: ["претцел", "сол", "pretzel"],
+        8: ["вафла", "класик", "classic", "40"],  # класика 40г
+        9: ["вафла", "захар", "30"],  # без захар 30г
+        10: ["сироп", "липа", "linden", "750"],
+        11: ["пасиран", "домат", "passata", "680"],
+        12: ["smiles", "нахут", "chickpea"],
+        13: ["крема", "сирене", "cream", "cheese", "125"],
+        14: ["козе", "сирене", "goat", "200"],
+    }
+    return keywords.get(product_id, [])
+
+
+def text_contains_product_keywords(text, product_id, min_matches=1):
+    """
+    Проверява дали текстът съдържа достатъчно ключови думи за продукта.
+    
+    Args:
+        text: Текст за проверка
+        product_id: ID на продукта
+        min_matches: Минимален брой съвпадения
+    
+    Returns:
+        bool: True ако има достатъчно съвпадения
+    """
+    text_lower = text.lower()
+    keywords = get_product_keywords(product_id)
+    
+    matches = sum(1 for kw in keywords if kw.lower() in text_lower)
+    return matches >= min_matches
 
 
 def visual_verify_products(page, client, store_name, text_products, max_verify=5):
     """
     Визуално верифицира продукти чрез screenshots.
     
-    Използва се селективно - само за продукти, които имат неясна идентификация
-    или за случаен sampling за контрол на качеството.
+    Включва валидация на цените и филтриране по ключови думи
+    за защита от грешни идентификации.
     
     Args:
         page: Playwright page
@@ -288,12 +372,14 @@ def visual_verify_products(page, client, store_name, text_products, max_verify=5
     
     # Опитваме различни селектори
     product_elements = []
+    used_selector = None
     for selector in selectors:
         try:
             elements = page.query_selector_all(selector)
             if elements and len(elements) > 0:
                 product_elements = elements
-                print(f"      [VISION] Намерени {len(elements)} продуктови карти с '{selector}'")
+                used_selector = selector
+                print("      [VISION] Намерени " + str(len(elements)) + " продуктови карти с '" + selector + "'")
                 break
         except:
             continue
@@ -304,6 +390,9 @@ def visual_verify_products(page, client, store_name, text_products, max_verify=5
     
     # Верифицираме до max_verify продукта
     verified_count = 0
+    skipped_price = 0
+    skipped_keywords = 0
+    
     for i, element in enumerate(product_elements):
         if verified_count >= max_verify:
             break
@@ -328,13 +417,28 @@ def visual_verify_products(page, client, store_name, text_products, max_verify=5
             result = verify_product_with_vision(
                 client, 
                 screenshot_base64, 
-                product_name[:100],  # Ограничаваме дължината
+                product_name[:100],
                 price, 
                 store_name
             )
             
             if result.get('product_id') and result.get('confidence') in ['high', 'medium']:
                 product_id = result['product_id']
+                
+                # ВАЛИДАЦИЯ 1: Проверка на цената
+                price_valid, price_reason = validate_visual_price(product_id, price)
+                if not price_valid:
+                    skipped_price += 1
+                    print("      [VISION] Отхвърлен #" + str(product_id) + ": " + price_reason[:50])
+                    continue
+                
+                # ВАЛИДАЦИЯ 2: Проверка на ключови думи (поне 1 съвпадение)
+                if not text_contains_product_keywords(element_text, product_id, min_matches=1):
+                    skipped_keywords += 1
+                    print("      [VISION] Отхвърлен #" + str(product_id) + ": липсват ключови думи в текста")
+                    continue
+                
+                # Всичко е OK - добавяме към верифицираните
                 verified[product_id] = {
                     'price': price,
                     'confidence': result.get('confidence'),
@@ -342,12 +446,14 @@ def visual_verify_products(page, client, store_name, text_products, max_verify=5
                     'text_name': product_name[:50]
                 }
                 verified_count += 1
-                print(f"      [VISION] #{product_id}: {result.get('confidence')} - {result.get('reason', '')[:40]}")
+                print("      [VISION] #" + str(product_id) + ": " + result.get('confidence', '') + " - " + result.get('reason', '')[:40])
         
         except Exception as e:
             continue
     
-    print(f"      [VISION] Верифицирани: {len(verified)} продукта")
+    total_checked = verified_count + skipped_price + skipped_keywords
+    print("      [VISION] Верифицирани: " + str(len(verified)) + ", Отхвърлени (цена): " + str(skipped_price) + ", Отхвърлени (ключови думи): " + str(skipped_keywords))
+    return verified
     return verified
 
 
@@ -1049,7 +1155,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v6.0', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v6.1', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([f'Актуализация: {now}', '', f'Курс: {EUR_RATE}', '', f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', ''])
@@ -1235,7 +1341,7 @@ def send_email_alert(alerts):
     body_lines.append(sheets_url)
     body_lines.append("")
     body_lines.append("Poздрави,")
-    body_lines.append("Harmonica Price Tracker v6.0")
+    body_lines.append("Harmonica Price Tracker v6.1")
     
     body = "\n".join(body_lines)
     
@@ -1262,8 +1368,8 @@ def send_email_alert(alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v6.0")
-    print("Claude Haiku 4.5 + Визуална верификация")
+    print("HARMONICA PRICE TRACKER v6.1")
+    print("Claude Haiku 4.5 + Визуална верификация + Ценова валидация")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
     print("Магазини: " + str(len(STORES)))
