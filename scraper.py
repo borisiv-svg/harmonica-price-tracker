@@ -1,7 +1,7 @@
 """
-Harmonica Price Tracker v5.8
+Harmonica Price Tracker v5.9
 3 магазина: eBag, Кашон, Balev Bio Market
-Двуфазен Claude анализ - само храни, строга валидация ±50%.
+Двуфазен Claude анализ + pagination за Кашон + HTML имейли.
 """
 
 import os
@@ -34,17 +34,21 @@ STORES = {
     "eBag": {
         "url": "https://www.ebag.bg/search/?products%5BrefinementList%5D%5Bbrand_name_bg%5D%5B0%5D=%D0%A5%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
         "name_in_sheet": "eBag",
-        "scroll_times": 12  # Повече скролиране за infinite scroll
+        "scroll_times": 12,
+        "has_pagination": False
     },
     "Kashon": {
         "url": "https://kashonharmonica.bg/bg/products/field_producer/harmonica-144",
         "name_in_sheet": "Кашон",
-        "scroll_times": 10
+        "scroll_times": 10,
+        "has_pagination": True,
+        "max_pages": 3
     },
     "Balev": {
         "url": "https://balevbiomarket.com/productBrands/harmonica",
         "name_in_sheet": "Balev",
-        "scroll_times": 8
+        "scroll_times": 8,
+        "has_pagination": False
     }
 }
 
@@ -462,56 +466,87 @@ def scroll_for_all_products(page, scroll_times):
 
 
 def scrape_store(page, store_key, store_config):
-    """Извлича цени от един магазин с двуфазен Claude анализ."""
+    """Извлича цени от един магазин с двуфазен Claude анализ и pagination поддръжка."""
     prices = {}
     url = store_config['url']
     store_name = store_config['name_in_sheet']
     scroll_times = store_config.get('scroll_times', 10)
-    body_text = ""
+    has_pagination = store_config.get('has_pagination', False)
+    max_pages = store_config.get('max_pages', 1)
+    all_body_text = ""
     
     print(f"\n{'='*60}")
     print(f"{store_name}: Зареждане")
     print(f"{'='*60}")
     
-    try:
-        page.goto(url, timeout=60000, wait_until="domcontentloaded")
-        page.wait_for_timeout(3000)
+    # Определяме колко страници да заредим
+    pages_to_load = max_pages if has_pagination else 1
+    
+    for page_num in range(pages_to_load):
+        # Формираме URL-а за съответната страница
+        if page_num == 0:
+            current_url = url
+        else:
+            # Кашон използва ?page=N (0-indexed: page=0 е първа, page=1 е втора)
+            current_url = f"{url}?page={page_num}"
         
-        # Приемане на бисквитки
-        cookie_selectors = [
-            'button:has-text("Приемам")',
-            'button:has-text("Съгласен")',
-            'button:has-text("Accept")',
-            'button:has-text("OK")',
-            '.cc-btn',
-            '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll'
-        ]
-        for sel in cookie_selectors:
-            try:
-                btn = page.query_selector(sel)
-                if btn and btn.is_visible():
-                    btn.click()
-                    page.wait_for_timeout(1500)
-                    print(f"  ✓ Бисквитки приети")
-                    break
-            except:
-                pass
+        if pages_to_load > 1:
+            print(f"  Страница {page_num + 1}/{pages_to_load}...")
         
-        # Подобрено скролиране
-        print(f"  Скролиране за зареждане на всички продукти...")
-        scroll_for_all_products(page, scroll_times)
-        
-        body_text = page.inner_text('body')
-        print(f"  Заредени {len(body_text)} символа")
-        
-        # Debug: показваме малко от текста ако е твърде кратък
-        if len(body_text) < 2000:
-            print(f"  [DEBUG] Малко текст! Първи 300 символа:")
-            print(f"  {body_text[:300]}")
-        
-    except Exception as e:
-        print(f"  ✗ Грешка при зареждане: {str(e)[:80]}")
-        return prices
+        try:
+            page.goto(current_url, timeout=60000, wait_until="domcontentloaded")
+            page.wait_for_timeout(2500)
+            
+            # Приемане на бисквитки (само на първата страница)
+            if page_num == 0:
+                cookie_selectors = [
+                    'button:has-text("Приемам")',
+                    'button:has-text("Разбрах")',
+                    'button:has-text("Съгласен")',
+                    'button:has-text("Accept")',
+                    'button:has-text("OK")',
+                    '.cc-btn',
+                    '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll'
+                ]
+                for sel in cookie_selectors:
+                    try:
+                        btn = page.query_selector(sel)
+                        if btn and btn.is_visible():
+                            btn.click()
+                            page.wait_for_timeout(1500)
+                            print(f"  ✓ Бисквитки приети")
+                            break
+                    except:
+                        pass
+            
+            # Скролиране за зареждане на всички продукти на текущата страница
+            if page_num == 0:
+                print(f"  Скролиране за зареждане на всички продукти...")
+            scroll_for_all_products(page, scroll_times)
+            
+            page_text = page.inner_text('body')
+            all_body_text += "\n" + page_text
+            
+            if page_num == 0:
+                print(f"  Заредени {len(page_text)} символа")
+            else:
+                print(f"    +{len(page_text)} символа от страница {page_num + 1}")
+            
+        except Exception as e:
+            print(f"  ✗ Грешка при зареждане на страница {page_num + 1}: {str(e)[:60]}")
+            if page_num == 0:
+                return prices  # Ако първата страница не се зареди, спираме
+            # Ако е следваща страница, просто продължаваме
+    
+    body_text = all_body_text.strip()
+    
+    if has_pagination and pages_to_load > 1:
+        print(f"  Общо заредени: {len(body_text)} символа от {pages_to_load} страници")
+    
+    # Debug: показваме малко от текста ако е твърде кратък
+    if len(body_text) < 2000:
+        print(f"  [DEBUG] Малко текст! Първи 300 символа:")
+        print(f"  {body_text[:300]}")
     
     # Двуфазен Claude анализ
     try:
@@ -634,7 +669,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v5.8', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v5.9', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([f'Актуализация: {now}', '', f'Курс: {EUR_RATE}', '', f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', ''])
@@ -750,10 +785,11 @@ def update_google_sheets(results):
 # =============================================================================
 
 def send_email_alert(alerts):
-    """Изпраща имейл известие при отклонения."""
+    """Изпраща имейл известие при отклонения с HTML форматиране."""
     gmail_user = os.environ.get('GMAIL_USER')
     gmail_pass = os.environ.get('GMAIL_APP_PASSWORD')
     recipients = os.environ.get('ALERT_EMAIL', gmail_user)
+    spreadsheet_id = os.environ.get('SPREADSHEET_ID', '')
     
     if not gmail_user or not gmail_pass:
         print("Gmail credentials не са зададени")
@@ -765,26 +801,102 @@ def send_email_alert(alerts):
     
     subject = f"🚨 Harmonica: {len(alerts)} продукта с ценови промени над {ALERT_THRESHOLD}%"
     
-    body = f"""Здравей,
+    # HTML версия на имейла
+    html_body = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2 style="color: #d9534f;">🚨 Ценово известие</h2>
+        <p>Открити са <strong>{len(alerts)} продукта</strong> с ценови отклонения над {ALERT_THRESHOLD}%:</p>
+        <hr style="border: 1px solid #eee;">
+    """
+    
+    for a in alerts:
+        # Определяме цвета на отклонението
+        dev_color = "#d9534f" if a['deviation'] > 0 else "#5cb85c"
+        
+        html_body += f"""
+        <div style="margin: 15px 0; padding: 15px; background-color: #f9f9f9; border-left: 4px solid {dev_color}; border-radius: 4px;">
+            <h3 style="margin: 0 0 10px 0; color: #333;">📦 {a['name']} ({a['weight']})</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                    <td style="padding: 5px 0;"><strong>Референтна цена:</strong></td>
+                    <td style="padding: 5px 0;">{a['ref_bgn']:.2f} лв</td>
+                </tr>
+                <tr>
+                    <td style="padding: 5px 0;"><strong>Средна цена:</strong></td>
+                    <td style="padding: 5px 0;">{a['avg_bgn']:.2f} лв</td>
+                </tr>
+                <tr>
+                    <td style="padding: 5px 0;"><strong>Отклонение:</strong></td>
+                    <td style="padding: 5px 0; color: {dev_color}; font-weight: bold;">{a['deviation']:+.1f}%</td>
+                </tr>
+                <tr>
+                    <td style="padding: 5px 0;"><strong>Цени по магазини:</strong></td>
+                    <td style="padding: 5px 0;">
+                        eBag: {a['prices'].get('eBag') or 'N/A'} лв | 
+                        Кашон: {a['prices'].get('Kashon') or 'N/A'} лв | 
+                        Balev: {a['prices'].get('Balev') or 'N/A'} лв
+                    </td>
+                </tr>
+            </table>
+        </div>
+        """
+    
+    # Линк към Google Sheets
+    sheets_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}" if spreadsheet_id else ""
+    
+    html_body += f"""
+        <hr style="border: 1px solid #eee;">
+        <p>
+            <strong>📊 Пълен отчет:</strong><br>
+            <a href="{sheets_url}" style="color: #337ab7; text-decoration: none;">
+                Отвори в Google Sheets →
+            </a>
+        </p>
+        <p style="color: #888; font-size: 12px; margin-top: 20px;">
+            Harmonica Price Tracker v5.9<br>
+            Автоматично генерирано известие
+        </p>
+    </body>
+    </html>
+    """
+    
+    # Plain text версия (за клиенти без HTML поддръжка)
+    plain_body = f"""Здравей,
 
 Открити са {len(alerts)} продукта с ценови отклонения над {ALERT_THRESHOLD}%:
 
 """
     for a in alerts:
-        body += f"📦 {a['name']} ({a['weight']})\n"
-        body += f"   Референтна: {a['ref_bgn']:.2f} лв\n"
-        body += f"   Средна: {a['avg_bgn']:.2f} лв\n"
-        body += f"   Отклонение: {a['deviation']:+.1f}%\n"
-        body += f"   eBag: {a['prices'].get('eBag') or 'N/A'} | Кашон: {a['prices'].get('Kashon') or 'N/A'} | Balev: {a['prices'].get('Balev') or 'N/A'}\n\n"
+        plain_body += f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📦 {a['name']} ({a['weight']})
+   Референтна: {a['ref_bgn']:.2f} лв
+   Средна: {a['avg_bgn']:.2f} лв
+   Отклонение: {a['deviation']:+.1f}%
+   eBag: {a['prices'].get('eBag') or 'N/A'} | Кашон: {a['prices'].get('Kashon') or 'N/A'} | Balev: {a['prices'].get('Balev') or 'N/A'}
+
+"""
     
-    body += "\nПроверете Google Sheets за пълния отчет.\n\nПоздрави,\nHarmonica Price Tracker v5.8"
+    plain_body += f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 Пълен отчет в Google Sheets:
+{sheets_url}
+
+Поздрави,
+Harmonica Price Tracker v5.9"""
     
     try:
-        msg = MIMEMultipart()
+        msg = MIMEMultipart('alternative')
         msg['From'] = gmail_user
         msg['To'] = recipients
         msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        
+        # Добавяме и двете версии - plain text и HTML
+        part1 = MIMEText(plain_body, 'plain', 'utf-8')
+        part2 = MIMEText(html_body, 'html', 'utf-8')
+        
+        msg.attach(part1)
+        msg.attach(part2)
         
         with smtplib.SMTP('smtp.gmail.com', 587) as server:
             server.starttls()
@@ -802,8 +914,8 @@ def send_email_alert(alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v5.8")
-    print("Двуфазен анализ + строга валидация ±50%")
+    print("HARMONICA PRICE TRACKER v5.9")
+    print("Двуфазен анализ + Pagination + HTML имейли")
     print(f"Време: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
     print(f"Продукти: {len(PRODUCTS)}")
     print(f"Магазини: {len(STORES)}")
