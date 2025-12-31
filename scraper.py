@@ -1,9 +1,9 @@
 """
-Harmonica Price Tracker v6.1
+Harmonica Price Tracker v6.2
 - Claude Haiku 4.5 с визуална верификация
-- Ценова валидация за защита от грешни идентификации
-- Подобрени CSS селектори за продуктови карти
-- Филтриране по ключови думи от името
+- Подобрено скролиране при зареждане на изображения
+- Debug функция за CSS селектори
+- Увеличено scroll_times за пълно покритие
 """
 
 import os
@@ -37,15 +37,15 @@ STORES = {
     "eBag": {
         "url": "https://www.ebag.bg/search/?products%5BrefinementList%5D%5Bbrand_name_bg%5D%5B0%5D=%D0%A5%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
         "name_in_sheet": "eBag",
-        "scroll_times": 12,
+        "scroll_times": 15,  # Увеличено за по-пълно зареждане
         "has_pagination": False,
-        "has_load_more": True,  # Използва "покажи повече" бутон
+        "has_load_more": True,
         "load_more_selector": 'button:has-text("покажи повече"), button:has-text("Покажи повече"), .load-more-button, [data-testid="load-more"]'
     },
     "Kashon": {
         "url": "https://kashonharmonica.bg/bg/products/field_producer/harmonica-144",
         "name_in_sheet": "Кашон",
-        "scroll_times": 10,
+        "scroll_times": 15,  # Увеличено от 10 за пълно зареждане на всички продукти
         "has_pagination": True,
         "max_pages": 3,
         "has_load_more": False
@@ -53,7 +53,7 @@ STORES = {
     "Balev": {
         "url": "https://balevbiomarket.com/productBrands/harmonica",
         "name_in_sheet": "Balev",
-        "scroll_times": 8,
+        "scroll_times": 12,  # Увеличено от 8
         "has_pagination": False,
         "has_load_more": False
     }
@@ -237,31 +237,82 @@ def verify_product_with_vision(client, screenshot_base64, text_name, text_price,
 def get_product_card_selectors(store_name):
     """
     Връща CSS селектори за продуктови карти според магазина.
+    Подредени по приоритет - първо специфични, после общи.
     """
     selectors = {
         "eBag": [
-            # Algolia InstantSearch структура
+            # Algolia InstantSearch специфични селектори
             ".ais-InfiniteHits-item",
-            ".ais-Hits-item", 
-            "[class*='hit-']",
-            "[class*='Hit']",
-            "article[class*='product']",
-            "div[class*='product-card']",
-            "li[class*='product']"
+            ".ais-Hits-item",
+            # Общи продуктови селектори
+            "[data-insights-object-id]",
+            "article.hit",
+            ".hit",
+            # Fallback селектори
+            "[class*='product-card']",
+            "[class*='ProductCard']",
+            "li[class*='hit']",
+            "div[class*='hit']"
         ],
         "Кашон": [
             ".views-row",
-            ".product-teaser",
-            ".node--type-product"
+            ".product-teaser", 
+            ".node--type-product",
+            "article.product",
+            "[class*='product-item']"
         ],
         "Balev": [
-            ".product-card",
+            # Специфични за Balev
             ".product-item",
+            ".product-card",
             "div.product",
-            "[class*='ProductCard']"
+            # Grid/list item селектори
+            ".products-grid .item",
+            ".product-list .item",
+            "[class*='product-item']",
+            "[class*='productItem']",
+            # Общи fallback
+            "li.product",
+            "article.product"
         ]
     }
     return selectors.get(store_name, [".product-card", ".product-item"])
+
+
+def debug_page_elements(page, store_name):
+    """
+    Debug функция за идентифициране на HTML елементи на страницата.
+    Помага при намиране на правилните CSS селектори.
+    """
+    try:
+        # Опитваме различни общи селектори
+        test_selectors = [
+            "article",
+            "[class*='product']",
+            "[class*='item']",
+            "[class*='card']",
+            "[class*='hit']",
+            "li",
+            "div[class]"
+        ]
+        
+        print("      [DEBUG] Търсене на елементи за " + store_name + ":")
+        
+        for sel in test_selectors:
+            try:
+                elements = page.query_selector_all(sel)
+                if elements and len(elements) > 0 and len(elements) < 200:
+                    # Вземаме класовете на първия елемент
+                    first_class = page.evaluate(
+                        "(sel) => document.querySelector(sel)?.className || 'no-class'",
+                        sel
+                    )
+                    print("        " + sel + ": " + str(len(elements)) + " елемента, class='" + str(first_class)[:50] + "'")
+            except:
+                continue
+                
+    except Exception as e:
+        print("      [DEBUG] Грешка: " + str(e)[:50])
 
 
 def validate_visual_price(product_id, visual_price, tolerance_percent=50):
@@ -386,6 +437,8 @@ def visual_verify_products(page, client, store_name, text_products, max_verify=5
     
     if not product_elements:
         print("      [VISION] Не са намерени продуктови карти за screenshot")
+        # Debug: показваме какви елементи има на страницата
+        debug_page_elements(page, store_name)
         return {}
     
     # Верифицираме до max_verify продукта
@@ -800,23 +853,27 @@ def scroll_for_all_products(page, scroll_times):
     """
     Подобрено скролиране за зареждане на всички продукти.
     Следи дали се появяват нови продукти при скролиране.
+    Адаптирано за работа с изображения (когато визуална верификация е активна).
     """
     previous_height = 0
     no_change_count = 0
     
+    # По-дълго чакане когато изображенията се зареждат
+    wait_time = 800 if ENABLE_VISUAL_VERIFICATION else 500
+    
     for i in range(scroll_times):
         # Скролираме
         page.evaluate("window.scrollBy(0, 800)")
-        page.wait_for_timeout(500)
+        page.wait_for_timeout(wait_time)
         
         # Проверяваме дали страницата се е удължила
         current_height = page.evaluate("document.body.scrollHeight")
         
         if current_height == previous_height:
             no_change_count += 1
-            # Ако 3 пъти няма промяна, спираме
-            if no_change_count >= 3:
-                print(f"    Скролиране: спряно след {i+1} опита (няма нови продукти)")
+            # Ако 4 пъти няма промяна, спираме (увеличено от 3)
+            if no_change_count >= 4:
+                print("    Скролиране: спряно след " + str(i+1) + " опита (няма нови продукти)")
                 break
         else:
             no_change_count = 0
@@ -1155,7 +1212,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v6.1', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v6.2', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([f'Актуализация: {now}', '', f'Курс: {EUR_RATE}', '', f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', ''])
@@ -1341,7 +1398,7 @@ def send_email_alert(alerts):
     body_lines.append(sheets_url)
     body_lines.append("")
     body_lines.append("Poздрави,")
-    body_lines.append("Harmonica Price Tracker v6.1")
+    body_lines.append("Harmonica Price Tracker v6.2")
     
     body = "\n".join(body_lines)
     
@@ -1368,8 +1425,8 @@ def send_email_alert(alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v6.1")
-    print("Claude Haiku 4.5 + Визуална верификация + Ценова валидация")
+    print("HARMONICA PRICE TRACKER v6.2")
+    print("Подобрено скролиране + Debug селектори")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
     print("Магазини: " + str(len(STORES)))
