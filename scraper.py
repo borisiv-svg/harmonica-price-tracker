@@ -1,8 +1,9 @@
 """
-Harmonica Price Tracker v6.4
+Harmonica Price Tracker v7.0
+- 24 продукта от Balev като референция (разширен списък)
+- Нов магазин: T Market Online
 - eBag: използва 'article' селектор (Tailwind CSS структура)
 - Подобрено logging за неразпознати продукти
-- Debug информация за Balev визуална верификация
 """
 
 import os
@@ -36,7 +37,7 @@ STORES = {
     "eBag": {
         "url": "https://www.ebag.bg/search/?products%5BrefinementList%5D%5Bbrand_name_bg%5D%5B0%5D=%D0%A5%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
         "name_in_sheet": "eBag",
-        "scroll_times": 15,  # Увеличено за по-пълно зареждане
+        "scroll_times": 15,
         "has_pagination": False,
         "has_load_more": True,
         "load_more_selector": 'button:has-text("покажи повече"), button:has-text("Покажи повече"), .load-more-button, [data-testid="load-more"]'
@@ -44,7 +45,7 @@ STORES = {
     "Kashon": {
         "url": "https://kashonharmonica.bg/bg/products/field_producer/harmonica-144",
         "name_in_sheet": "Кашон",
-        "scroll_times": 15,  # Увеличено от 10 за пълно зареждане на всички продукти
+        "scroll_times": 15,
         "has_pagination": True,
         "max_pages": 3,
         "has_load_more": False
@@ -52,47 +53,74 @@ STORES = {
     "Balev": {
         "url": "https://balevbiomarket.com/productBrands/harmonica",
         "name_in_sheet": "Balev",
-        "scroll_times": 12,  # Увеличено от 8
+        "scroll_times": 12,
+        "has_pagination": False,
+        "has_load_more": False
+    },
+    "TMarket": {
+        "url": "https://tmarketonline.bg/vendor/harmonica-1881705916",
+        "name_in_sheet": "T Market",
+        "scroll_times": 10,
         "has_pagination": False,
         "has_load_more": False
     }
 }
 
-# Продукти с референтни цени от Кашон и номера за двуфазен анализ
+# Продукти с референтни цени от Balev Bio Market (24 продукта)
 PRODUCTS = [
-    {"id": 1, "name": "Био Локум роза", "weight": "140г", "ref_price_bgn": 3.81, "ref_price_eur": 1.95},
-    {"id": 2, "name": "Био Обикновени бисквити с краве масло", "weight": "150г", "ref_price_bgn": 4.18, "ref_price_eur": 2.14},
-    {"id": 3, "name": "Айран harmonica", "weight": "500мл", "ref_price_bgn": 2.90, "ref_price_eur": 1.48},
-    {"id": 4, "name": "Био Тунквана вафла без захар", "weight": "40г", "ref_price_bgn": 2.62, "ref_price_eur": 1.34},
-    {"id": 5, "name": "Био Оризови топчета с черен шоколад", "weight": "50г", "ref_price_bgn": 4.99, "ref_price_eur": 2.55},
-    {"id": 6, "name": "Био лимонада", "weight": "330мл", "ref_price_bgn": 3.48, "ref_price_eur": 1.78},
-    {"id": 7, "name": "Био тънки претцели с морска сол", "weight": "80г", "ref_price_bgn": 2.50, "ref_price_eur": 1.28},
-    {"id": 8, "name": "Био тунквана вафла Класика", "weight": "40г", "ref_price_bgn": 2.00, "ref_price_eur": 1.02},
-    {"id": 9, "name": "Био вафла без добавена захар", "weight": "30г", "ref_price_bgn": 1.44, "ref_price_eur": 0.74},
-    {"id": 10, "name": "Био сироп от липа", "weight": "750мл", "ref_price_bgn": 14.29, "ref_price_eur": 7.31},
-    {"id": 11, "name": "Био Пасирани домати", "weight": "680г", "ref_price_bgn": 5.90, "ref_price_eur": 3.02},
-    {"id": 12, "name": "Smiles с нахут и морска сол", "weight": "50г", "ref_price_bgn": 2.81, "ref_price_eur": 1.44},
-    {"id": 13, "name": "Био Крема сирене", "weight": "125г", "ref_price_bgn": 5.46, "ref_price_eur": 2.79},
-    {"id": 14, "name": "Козе сирене harmonica", "weight": "200г", "ref_price_bgn": 10.70, "ref_price_eur": 5.47},
+    {"id": 1, "name": "Био вафла с лимонов крем", "weight": "30г", "ref_price_bgn": 1.39, "ref_price_eur": 0.71},
+    {"id": 2, "name": "Био вафла без добавена захар", "weight": "30г", "ref_price_bgn": 1.49, "ref_price_eur": 0.76},
+    {"id": 3, "name": "Био сирене козе", "weight": "200г", "ref_price_bgn": 10.99, "ref_price_eur": 5.62},
+    {"id": 4, "name": "Био лютеница Илиеви", "weight": "260г", "ref_price_bgn": 8.99, "ref_price_eur": 4.60},
+    {"id": 5, "name": "Био кисело мляко 3,6%", "weight": "400г", "ref_price_bgn": 2.79, "ref_price_eur": 1.43},
+    {"id": 6, "name": "Био лютеница Хаджиеви", "weight": "260г", "ref_price_bgn": 8.99, "ref_price_eur": 4.60},
+    {"id": 7, "name": "Био пълнозърнест сусамов тахан", "weight": "700г", "ref_price_bgn": 18.79, "ref_price_eur": 9.61},
+    {"id": 8, "name": "Био кашкавал от краве мляко", "weight": "300г", "ref_price_bgn": 13.49, "ref_price_eur": 6.90},
+    {"id": 9, "name": "Био крема сирене", "weight": "125г", "ref_price_bgn": 5.69, "ref_price_eur": 2.91},
+    {"id": 10, "name": "Био вафла с лимец и кокос", "weight": "30г", "ref_price_bgn": 1.39, "ref_price_eur": 0.71},
+    {"id": 11, "name": "Био краве сирене", "weight": "400г", "ref_price_bgn": 12.59, "ref_price_eur": 6.44},
+    {"id": 12, "name": "Био пълнозърнести кори за баница", "weight": "400г", "ref_price_bgn": 7.99, "ref_price_eur": 4.09},
+    {"id": 13, "name": "Био фъстъчено масло", "weight": "250г", "ref_price_bgn": 9.39, "ref_price_eur": 4.80},
+    {"id": 14, "name": "Био слънчогледово масло", "weight": "500мл", "ref_price_bgn": 8.29, "ref_price_eur": 4.24},
+    {"id": 15, "name": "Био тунквана вафла Chocobiotic", "weight": "40г", "ref_price_bgn": 2.29, "ref_price_eur": 1.17},
+    {"id": 16, "name": "Био сироп от бъз", "weight": "750мл", "ref_price_bgn": 15.49, "ref_price_eur": 7.92},
+    {"id": 17, "name": "Био прясно мляко 3,6%", "weight": "1л", "ref_price_bgn": 5.39, "ref_price_eur": 2.76},
+    {"id": 18, "name": "Био солети от лимец", "weight": "50г", "ref_price_bgn": 2.59, "ref_price_eur": 1.32},
+    {"id": 19, "name": "Био пълнозърнести солети", "weight": "60г", "ref_price_bgn": 2.09, "ref_price_eur": 1.07},
+    {"id": 20, "name": "Био кисело пълномаслено мляко", "weight": "400г", "ref_price_bgn": 2.79, "ref_price_eur": 1.43},
+    {"id": 21, "name": "Био извара", "weight": "500г", "ref_price_bgn": 3.69, "ref_price_eur": 1.89},
+    {"id": 22, "name": "Био студено пресовано слънчогледово масло", "weight": "500мл", "ref_price_bgn": 8.29, "ref_price_eur": 4.24},
+    {"id": 23, "name": "Био кисело мляко 2%", "weight": "400г", "ref_price_bgn": 2.79, "ref_price_eur": 1.43},
+    {"id": 24, "name": "Био кефир", "weight": "500мл", "ref_price_bgn": 3.89, "ref_price_eur": 1.99},
 ]
 
 # Визуални описания на продуктите за по-точна идентификация
 # Тези описания помагат на Claude да разпознае продуктите по опаковката
 PRODUCT_VISUAL_DESCRIPTIONS = {
-    1: "Розова/червена кутия с рози, надпис 'Локум' или 'Rose Lokum', 140г",
-    2: "Кафява/бежова опаковка с бисквити, надпис 'Обикновени бисквити', 150г",
-    3: "Бяла пластмасова бутилка, надпис 'Айран', 500мл",
-    4: "Зелена опаковка вафла, надпис 'Без захар' или 'Sugar free', 40г",
-    5: "Опаковка с оризови топчета, тъмен/черен шоколад, 50г",
-    6: "Стъклена бутилка лимонада, жълт цвят, 330мл",
-    7: "Опаковка претцели/солети, 80г",
-    8: "Синя/класическа опаковка вафла, надпис 'Класика' или 'Classic', 40г",
-    9: "Малка зелена опаковка вафла, 30г (по-малка от 40г)",
-    10: "Висока стъклена бутилка сироп, жълт/златист цвят, надпис 'Липа' или 'Linden', 750мл",
-    11: "Буркан/бутилка пасирани домати, червен цвят, 680г",
-    12: "Опаковка Smiles снакс, нахут, 50г",
-    13: "Бяла пластмасова кутийка крема сирене, 125г",
-    14: "Опаковка козе сирене, 200г",
+    1: "Жълта опаковка вафла с лимонов крем, 30г",
+    2: "Зелена опаковка вафла, надпис 'Без захар' или 'Sugar free', 30г",
+    3: "Бяла опаковка козе сирене, 200г",
+    4: "Буркан лютеница Илиеви, червен цвят, 260г",
+    5: "Бяла пластмасова кутия кисело мляко 3.6%, 400г",
+    6: "Буркан лютеница Хаджиеви, червен цвят, 260г",
+    7: "Буркан сусамов тахан, 700г",
+    8: "Жълта опаковка кашкавал от краве мляко, 300г",
+    9: "Бяла пластмасова кутийка крема сирене, 125г",
+    10: "Кафява/бежова опаковка вафла с лимец и кокос, 30г",
+    11: "Бяла опаковка краве сирене, 400г",
+    12: "Опаковка пълнозърнести кори за баница, 400г",
+    13: "Буркан фъстъчено масло, 250г",
+    14: "Бутилка слънчогледово масло, 500мл",
+    15: "Тунквана вафла Chocobiotic с шоколад и пробиотик, 40г",
+    16: "Висока стъклена бутилка сироп от бъз, 750мл",
+    17: "Кутия прясно мляко 3.6%, 1л",
+    18: "Опаковка солети от лимец, 50г",
+    19: "Опаковка пълнозърнести солети, 60г",
+    20: "Бяла пластмасова кутия кисело пълномаслено мляко, 400г",
+    21: "Бяла кутия извара, 500г",
+    22: "Бутилка студено пресовано слънчогледово масло, 500мл",
+    23: "Бяла пластмасова кутия кисело мляко 2%, 400г",
+    24: "Бяла бутилка кефир, 500мл",
 }
 
 # Флаг за включване/изключване на визуална верификация
@@ -261,6 +289,18 @@ def get_product_card_selectors(store_name):
             # Catalog/grid селектори
             ".catalog-item",
             ".product-tile",
+        ],
+        "T Market": [
+            # CloudCart платформа - продуктови карти
+            "[class*='product-card']",
+            "[class*='product-item']",
+            ".card.product",
+            # Grid items
+            "[class*='col-'] [class*='product']",
+            ".products-grid .item",
+            # Общи backup селектори
+            "article.product",
+            ".catalog-product",
         ]
     }
     return selectors.get(store_name, [".product-card", ".product-item"])
