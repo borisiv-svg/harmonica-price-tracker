@@ -261,7 +261,7 @@ def phase2_match_products(client, extracted_products, store_name):
 - Само чист JSON!
 
 Пример за правилен отговор: {{"3": 2.90, "8": 2.00, "10": 14.29}}
-Ако няма съвпадения: {{}}""""""
+Ако няма съвпадения: {{}}"""
 
     try:
         message = client.messages.create(
@@ -854,7 +854,7 @@ def update_google_sheets(results):
 # =============================================================================
 
 def send_email_alert(alerts):
-    """Изпраща имейл известие при отклонения с HTML форматиране."""
+    """Изпраща имейл известие при отклонения."""
     gmail_user = os.environ.get('GMAIL_USER')
     gmail_pass = os.environ.get('GMAIL_APP_PASSWORD')
     recipients = os.environ.get('ALERT_EMAIL', gmail_user)
@@ -868,113 +868,57 @@ def send_email_alert(alerts):
         print("Няма отклонения над прага - имейл не е изпратен")
         return
     
-    subject = f"🚨 Harmonica: {len(alerts)} продукта с ценови промени над {ALERT_THRESHOLD}%"
+    subject = "[!] Harmonica: " + str(len(alerts)) + " продукта с ценови промени над " + str(ALERT_THRESHOLD) + "%"
+    sheets_url = "https://docs.google.com/spreadsheets/d/" + spreadsheet_id if spreadsheet_id else ""
     
-    # HTML версия на имейла
-    html_body = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-        <h2 style="color: #d9534f;">🚨 Ценово известие</h2>
-        <p>Открити са <strong>{len(alerts)} продукта</strong> с ценови отклонения над {ALERT_THRESHOLD}%:</p>
-        <hr style="border: 1px solid #eee;">
-    """
+    # Plain text версия
+    body_lines = []
+    body_lines.append("Здравей,")
+    body_lines.append("")
+    body_lines.append("Открити са " + str(len(alerts)) + " продукта с ценови отклонения над " + str(ALERT_THRESHOLD) + "%:")
+    body_lines.append("")
     
     for a in alerts:
-        # Определяме цвета на отклонението
-        dev_color = "#d9534f" if a['deviation'] > 0 else "#5cb85c"
+        ref_price = "{:.2f}".format(a['ref_bgn'])
+        avg_price = "{:.2f}".format(a['avg_bgn'])
+        dev_pct = "{:+.1f}".format(a['deviation'])
+        ebag_price = str(a['prices'].get('eBag') or 'N/A')
+        kashon_price = str(a['prices'].get('Kashon') or 'N/A')
+        balev_price = str(a['prices'].get('Balev') or 'N/A')
         
-        html_body += f"""
-        <div style="margin: 15px 0; padding: 15px; background-color: #f9f9f9; border-left: 4px solid {dev_color}; border-radius: 4px;">
-            <h3 style="margin: 0 0 10px 0; color: #333;">📦 {a['name']} ({a['weight']})</h3>
-            <table style="width: 100%; border-collapse: collapse;">
-                <tr>
-                    <td style="padding: 5px 0;"><strong>Референтна цена:</strong></td>
-                    <td style="padding: 5px 0;">{a['ref_bgn']:.2f} лв</td>
-                </tr>
-                <tr>
-                    <td style="padding: 5px 0;"><strong>Средна цена:</strong></td>
-                    <td style="padding: 5px 0;">{a['avg_bgn']:.2f} лв</td>
-                </tr>
-                <tr>
-                    <td style="padding: 5px 0;"><strong>Отклонение:</strong></td>
-                    <td style="padding: 5px 0; color: {dev_color}; font-weight: bold;">{a['deviation']:+.1f}%</td>
-                </tr>
-                <tr>
-                    <td style="padding: 5px 0;"><strong>Цени по магазини:</strong></td>
-                    <td style="padding: 5px 0;">
-                        eBag: {a['prices'].get('eBag') or 'N/A'} лв | 
-                        Кашон: {a['prices'].get('Kashon') or 'N/A'} лв | 
-                        Balev: {a['prices'].get('Balev') or 'N/A'} лв
-                    </td>
-                </tr>
-            </table>
-        </div>
-        """
+        body_lines.append("--------------------------------------------")
+        body_lines.append("* " + a['name'] + " (" + a['weight'] + ")")
+        body_lines.append("  Референтна: " + ref_price + " лв")
+        body_lines.append("  Средна: " + avg_price + " лв")
+        body_lines.append("  Отклонение: " + dev_pct + "%")
+        body_lines.append("  eBag: " + ebag_price + " | Кашон: " + kashon_price + " | Balev: " + balev_price)
+        body_lines.append("")
     
-    # Линк към Google Sheets
-    sheets_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}" if spreadsheet_id else ""
+    body_lines.append("--------------------------------------------")
+    body_lines.append("")
+    body_lines.append("Пълен отчет в Google Sheets:")
+    body_lines.append(sheets_url)
+    body_lines.append("")
+    body_lines.append("Поздрави,")
+    body_lines.append("Harmonica Price Tracker v5.12")
     
-    html_body += f"""
-        <hr style="border: 1px solid #eee;">
-        <p>
-            <strong>📊 Пълен отчет:</strong><br>
-            <a href="{sheets_url}" style="color: #337ab7; text-decoration: none;">
-                Отвори в Google Sheets →
-            </a>
-        </p>
-        <p style="color: #888; font-size: 12px; margin-top: 20px;">
-            Harmonica Price Tracker v5.12<br>
-            Автоматично генерирано известие
-        </p>
-    </body>
-    </html>
-    """
-    
-    # Plain text версия (за клиенти без HTML поддръжка)
-    plain_body = f"""Здравей,
-
-Открити са {len(alerts)} продукта с ценови отклонения над {ALERT_THRESHOLD}%:
-
-"""
-    for a in alerts:
-        plain_body += f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📦 {a['name']} ({a['weight']})
-   Референтна: {a['ref_bgn']:.2f} лв
-   Средна: {a['avg_bgn']:.2f} лв
-   Отклонение: {a['deviation']:+.1f}%
-   eBag: {a['prices'].get('eBag') or 'N/A'} | Кашон: {a['prices'].get('Kashon') or 'N/A'} | Balev: {a['prices'].get('Balev') or 'N/A'}
-
-"""
-    
-    plain_body += f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📊 Пълен отчет в Google Sheets:
-{sheets_url}
-
-Поздрави,
-Harmonica Price Tracker v5.12"""
+    body = "\n".join(body_lines)
     
     try:
-        msg = MIMEMultipart('alternative')
+        msg = MIMEMultipart()
         msg['From'] = gmail_user
         msg['To'] = recipients
         msg['Subject'] = subject
-        
-        # Добавяме и двете версии - plain text и HTML
-        part1 = MIMEText(plain_body, 'plain', 'utf-8')
-        part2 = MIMEText(html_body, 'html', 'utf-8')
-        
-        msg.attach(part1)
-        msg.attach(part2)
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
         
         with smtplib.SMTP('smtp.gmail.com', 587) as server:
             server.starttls()
             server.login(gmail_user, gmail_pass)
             server.send_message(msg)
         
-        print(f"✓ Имейл изпратен до {recipients}")
+        print("Имейл изпратен до " + recipients)
     except Exception as e:
-        print(f"✗ Имейл грешка: {str(e)[:50]}")
+        print("Имейл грешка: " + str(e)[:50])
 
 
 # =============================================================================
