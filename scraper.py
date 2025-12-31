@@ -1,7 +1,8 @@
 """
-Harmonica Price Tracker v5.10
-3 магазина: eBag, Кашон, Balev Bio Market
-Подобрени съпоставки за сироп и домати.
+Harmonica Price Tracker v5.11
+- Claude Haiku 4.5 (най-актуален модел)
+- eBag: "покажи повече" бутон за пълно зареждане
+- Годишни табове за история (История_2025, История_2026)
 """
 
 import os
@@ -35,20 +36,24 @@ STORES = {
         "url": "https://www.ebag.bg/search/?products%5BrefinementList%5D%5Bbrand_name_bg%5D%5B0%5D=%D0%A5%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
         "name_in_sheet": "eBag",
         "scroll_times": 12,
-        "has_pagination": False
+        "has_pagination": False,
+        "has_load_more": True,  # Използва "покажи повече" бутон
+        "load_more_selector": 'button:has-text("покажи повече"), button:has-text("Покажи повече"), .load-more-button, [data-testid="load-more"]'
     },
     "Kashon": {
         "url": "https://kashonharmonica.bg/bg/products/field_producer/harmonica-144",
         "name_in_sheet": "Кашон",
         "scroll_times": 10,
         "has_pagination": True,
-        "max_pages": 3
+        "max_pages": 3,
+        "has_load_more": False
     },
     "Balev": {
         "url": "https://balevbiomarket.com/productBrands/harmonica",
         "name_in_sheet": "Balev",
         "scroll_times": 8,
-        "has_pagination": False
+        "has_pagination": False,
+        "has_load_more": False
     }
 }
 
@@ -135,7 +140,7 @@ def phase1_extract_all_products(client, page_text, store_name):
 
     try:
         message = client.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-haiku-4-5-20251001",
             max_tokens=2000,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -281,7 +286,7 @@ def phase2_match_products(client, extracted_products, store_name):
 
     try:
         message = client.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-haiku-4-5-20251001",
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -462,13 +467,71 @@ def scroll_for_all_products(page, scroll_times):
     page.wait_for_timeout(300)
 
 
+def click_load_more_until_done(page, selector, max_clicks=20):
+    """
+    Кликва върху бутона "покажи повече" докато вече не е наличен.
+    Връща броя на успешните кликвания.
+    """
+    clicks = 0
+    
+    for i in range(max_clicks):
+        # Скролираме до долу, за да се покаже бутонът
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        page.wait_for_timeout(1000)
+        
+        # Търсим бутона с различни селектори
+        button = None
+        selectors_to_try = [
+            'button:has-text("покажи повече")',
+            'button:has-text("Покажи повече")',
+            'button:has-text("Show more")',
+            '.ais-InfiniteHits-loadMore',
+            '[class*="load-more"]',
+            '[class*="loadMore"]',
+            'button[class*="more"]'
+        ]
+        
+        for sel in selectors_to_try:
+            try:
+                btn = page.query_selector(sel)
+                if btn and btn.is_visible():
+                    button = btn
+                    break
+            except:
+                continue
+        
+        if not button:
+            # Няма повече бутон - готово!
+            if clicks > 0:
+                print(f"    ✓ Заредени всички продукти след {clicks} клика")
+            else:
+                print(f"    Бутон 'покажи повече' не е намерен")
+            break
+        
+        try:
+            button.click()
+            clicks += 1
+            print(f"    Клик #{clicks} на 'покажи повече'...")
+            page.wait_for_timeout(2000)  # Изчакваме зареждане
+        except Exception as e:
+            print(f"    Грешка при клик: {str(e)[:50]}")
+            break
+    
+    # Връщаме се в началото
+    page.evaluate("window.scrollTo(0, 0)")
+    page.wait_for_timeout(500)
+    
+    return clicks
+
+
 def scrape_store(page, store_key, store_config):
-    """Извлича цени от един магазин с двуфазен Claude анализ и pagination поддръжка."""
+    """Извлича цени от един магазин с двуфазен Claude анализ, pagination и load-more поддръжка."""
     prices = {}
     url = store_config['url']
     store_name = store_config['name_in_sheet']
     scroll_times = store_config.get('scroll_times', 10)
     has_pagination = store_config.get('has_pagination', False)
+    has_load_more = store_config.get('has_load_more', False)
     max_pages = store_config.get('max_pages', 1)
     all_body_text = ""
     
@@ -516,10 +579,16 @@ def scrape_store(page, store_key, store_config):
                     except:
                         pass
             
-            # Скролиране за зареждане на всички продукти на текущата страница
-            if page_num == 0:
-                print(f"  Скролиране за зареждане на всички продукти...")
-            scroll_for_all_products(page, scroll_times)
+            # Зареждане на всички продукти - зависи от типа на сайта
+            if has_load_more and page_num == 0:
+                # eBag: кликаме "покажи повече" докато бутонът изчезне
+                print(f"  Кликане на 'покажи повече' за зареждане на всички продукти...")
+                click_load_more_until_done(page, store_config.get('load_more_selector', ''))
+            else:
+                # Стандартно скролиране
+                if page_num == 0:
+                    print(f"  Скролиране за зареждане на всички продукти...")
+                scroll_for_all_products(page, scroll_times)
             
             page_text = page.inner_text('body')
             all_body_text += "\n" + page_text
@@ -666,7 +735,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v5.10', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v5.11', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([f'Актуализация: {now}', '', f'Курс: {EUR_RATE}', '', f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', ''])
@@ -742,14 +811,38 @@ def update_google_sheets(results):
         except Exception as e:
             print(f"  Форматиране предупреждение: {str(e)[:50]}")
         
-        # История
+        # История - годишни табове
         try:
+            current_year = datetime.now().year
+            history_tab_name = f"История_{current_year}"
+            
+            # Проверяваме дали съществува таб за текущата година
             try:
-                hist = spreadsheet.worksheet("История")
+                hist = spreadsheet.worksheet(history_tab_name)
             except:
-                hist = spreadsheet.add_worksheet("История", rows=2000, cols=12)
-                hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Средна', 'Откл.%', 'Статус']], range_name='A1')
-                hist.freeze(rows=1)
+                # Няма таб за тази година
+                # Проверяваме дали има стар таб "История" (за миграция)
+                try:
+                    old_hist = spreadsheet.worksheet("История")
+                    # Преименуваме го на История_2025
+                    old_hist.update_title("История_2025")
+                    print(f"  ✓ Преименуван таб 'История' → 'История_2025'")
+                    
+                    # Ако текущата година е 2025, използваме преименувания таб
+                    if current_year == 2025:
+                        hist = old_hist
+                    else:
+                        # Създаваме нов таб за текущата година
+                        hist = spreadsheet.add_worksheet(history_tab_name, rows=2000, cols=12)
+                        hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Средна', 'Откл.%', 'Статус']], range_name='A1')
+                        hist.freeze(rows=1)
+                        print(f"  ✓ Създаден нов таб '{history_tab_name}'")
+                except:
+                    # Няма стар таб "История", създаваме нов за текущата година
+                    hist = spreadsheet.add_worksheet(history_tab_name, rows=2000, cols=12)
+                    hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Средна', 'Откл.%', 'Статус']], range_name='A1')
+                    hist.freeze(rows=1)
+                    print(f"  ✓ Създаден нов таб '{history_tab_name}'")
             
             date_str = datetime.now().strftime("%d.%m.%Y")
             time_str = datetime.now().strftime("%H:%M")
@@ -767,7 +860,7 @@ def update_google_sheets(results):
                 ])
             
             hist.append_rows(hist_rows, value_input_option='USER_ENTERED')
-            print(f"  ✓ История: {len(hist_rows)} записа")
+            print(f"  ✓ {history_tab_name}: {len(hist_rows)} записа")
         except Exception as e:
             print(f"  История грешка: {str(e)[:50]}")
         
@@ -851,7 +944,7 @@ def send_email_alert(alerts):
             </a>
         </p>
         <p style="color: #888; font-size: 12px; margin-top: 20px;">
-            Harmonica Price Tracker v5.10<br>
+            Harmonica Price Tracker v5.11<br>
             Автоматично генерирано известие
         </p>
     </body>
@@ -880,7 +973,7 @@ def send_email_alert(alerts):
 {sheets_url}
 
 Поздрави,
-Harmonica Price Tracker v5.10"""
+Harmonica Price Tracker v5.11"""
     
     try:
         msg = MIMEMultipart('alternative')
@@ -911,8 +1004,8 @@ Harmonica Price Tracker v5.10"""
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v5.10")
-    print("Подобрени съпоставки за сироп и домати")
+    print("HARMONICA PRICE TRACKER v5.11")
+    print("Claude Haiku 4.5 + eBag load-more + годишни табове")
     print(f"Време: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
     print(f"Продукти: {len(PRODUCTS)}")
     print(f"Магазини: {len(STORES)}")
