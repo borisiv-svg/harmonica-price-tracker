@@ -1,9 +1,9 @@
 """
-Harmonica Price Tracker v6.2
+Harmonica Price Tracker v6.3
 - Claude Haiku 4.5 с визуална верификация
-- Подобрено скролиране при зареждане на изображения
-- Debug функция за CSS селектори
-- Увеличено scroll_times за пълно покритие
+- Филтриране на елементи по размер (мин. 80x80px) и наличие на цена
+- Подобрени селектори за Balev (изключват header елементи)
+- Поправено извличане на продуктово име
 """
 
 import os
@@ -262,18 +262,21 @@ def get_product_card_selectors(store_name):
             "[class*='product-item']"
         ],
         "Balev": [
-            # Специфични за Balev
-            ".product-item",
-            ".product-card",
-            "div.product",
-            # Grid/list item селектори
-            ".products-grid .item",
-            ".product-list .item",
-            "[class*='product-item']",
-            "[class*='productItem']",
-            # Общи fallback
-            "li.product",
-            "article.product"
+            # Изключваме header/basket елементи - търсим в main content area
+            "main [class*='product']",
+            ".content [class*='product']",
+            "#content [class*='product']",
+            # Catalog/grid селектори
+            ".catalog-item",
+            ".product-tile",
+            ".products-grid > *",
+            ".product-list > *",
+            # Общи но извън header
+            "section [class*='product-item']",
+            "article[class*='product']",
+            # Card стилове
+            ".card[class*='product']",
+            "[class*='ProductCard']"
         ]
     }
     return selectors.get(store_name, [".product-card", ".product-item"])
@@ -398,18 +401,8 @@ def visual_verify_products(page, client, store_name, text_products, max_verify=5
     """
     Визуално верифицира продукти чрез screenshots.
     
-    Включва валидация на цените и филтриране по ключови думи
-    за защита от грешни идентификации.
-    
-    Args:
-        page: Playwright page
-        client: Claude client
-        store_name: Име на магазина
-        text_products: Списък с продукти, намерени чрез текстов анализ
-        max_verify: Максимален брой продукти за верификация
-    
-    Returns:
-        dict с verified продукти и техните резултати
+    Включва валидация на цените, филтриране по ключови думи,
+    и филтриране на елементи по размер за по-точна идентификация.
     """
     if not ENABLE_VISUAL_VERIFICATION:
         return {}
@@ -428,16 +421,29 @@ def visual_verify_products(page, client, store_name, text_products, max_verify=5
         try:
             elements = page.query_selector_all(selector)
             if elements and len(elements) > 0:
-                product_elements = elements
-                used_selector = selector
-                print("      [VISION] Намерени " + str(len(elements)) + " продуктови карти с '" + selector + "'")
-                break
+                # Филтрираме елементите по размер - продуктова карта е поне 80x80 пиксела
+                valid_elements = []
+                for el in elements:
+                    try:
+                        box = el.bounding_box()
+                        if box and box['width'] >= 80 and box['height'] >= 80:
+                            # Проверяваме дали елементът съдържа цена
+                            text = el.inner_text()
+                            if re.search(r'\d+[,.]\d{2}', text):
+                                valid_elements.append(el)
+                    except:
+                        continue
+                
+                if valid_elements:
+                    product_elements = valid_elements
+                    used_selector = selector
+                    print("      [VISION] Намерени " + str(len(valid_elements)) + " валидни продуктови карти с '" + selector + "'")
+                    break
         except:
             continue
     
     if not product_elements:
         print("      [VISION] Не са намерени продуктови карти за screenshot")
-        # Debug: показваме какви елементи има на страницата
         debug_page_elements(page, store_name)
         return {}
     
@@ -460,11 +466,30 @@ def visual_verify_products(page, client, store_name, text_products, max_verify=5
             # Опитваме се да извлечем текста от елемента
             element_text = element.inner_text()
             
-            # Извличаме име и цена от текста
-            lines = element_text.split('\n')
-            product_name = lines[0] if lines else "Неизвестен"
-            price_match = re.search(r'(\d+)[,.](\d{2})', element_text)
-            price = float(price_match.group(1) + "." + price_match.group(2)) if price_match else 0
+            # Подобрено извличане на цена - търсим различни формати
+            # Формати: "2.99", "2,99", "2.99 лв", "2,99лв", "BGN 2.99"
+            price = 0
+            price_patterns = [
+                r'(\d+)[,.](\d{2})\s*(?:лв|BGN|EUR)?',  # Стандартен формат
+                r'(?:лв|BGN|EUR)\s*(\d+)[,.](\d{2})',   # Валута отпред
+            ]
+            for pattern in price_patterns:
+                price_match = re.search(pattern, element_text)
+                if price_match:
+                    price = float(price_match.group(1) + "." + price_match.group(2))
+                    break
+            
+            # Пропускаме ако няма цена
+            if price == 0:
+                continue
+            
+            # Извличаме име (първия ред с текст, който не е цена)
+            lines = [l.strip() for l in element_text.split('\n') if l.strip()]
+            product_name = "Неизвестен"
+            for line in lines:
+                if not re.match(r'^[\d,.]+\s*(лв|BGN|EUR)?$', line):
+                    product_name = line
+                    break
             
             # Верифицираме с Claude Vision
             result = verify_product_with_vision(
@@ -504,9 +529,7 @@ def visual_verify_products(page, client, store_name, text_products, max_verify=5
         except Exception as e:
             continue
     
-    total_checked = verified_count + skipped_price + skipped_keywords
     print("      [VISION] Верифицирани: " + str(len(verified)) + ", Отхвърлени (цена): " + str(skipped_price) + ", Отхвърлени (ключови думи): " + str(skipped_keywords))
-    return verified
     return verified
 
 
@@ -1212,7 +1235,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v6.2', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v6.3', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([f'Актуализация: {now}', '', f'Курс: {EUR_RATE}', '', f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', ''])
@@ -1398,7 +1421,7 @@ def send_email_alert(alerts):
     body_lines.append(sheets_url)
     body_lines.append("")
     body_lines.append("Poздрави,")
-    body_lines.append("Harmonica Price Tracker v6.2")
+    body_lines.append("Harmonica Price Tracker v6.3")
     
     body = "\n".join(body_lines)
     
@@ -1425,8 +1448,8 @@ def send_email_alert(alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v6.2")
-    print("Подобрено скролиране + Debug селектори")
+    print("HARMONICA PRICE TRACKER v6.3")
+    print("Филтриране по размер + Подобрени Balev селектори")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
     print("Магазини: " + str(len(STORES)))
