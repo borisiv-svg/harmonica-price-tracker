@@ -1,9 +1,8 @@
 """
-Harmonica Price Tracker v6.3
-- Claude Haiku 4.5 с визуална верификация
-- Филтриране на елементи по размер (мин. 80x80px) и наличие на цена
-- Подобрени селектори за Balev (изключват header елементи)
-- Поправено извличане на продуктово име
+Harmonica Price Tracker v6.4
+- eBag: използва 'article' селектор (Tailwind CSS структура)
+- Подобрено logging за неразпознати продукти
+- Debug информация за Balev визуална верификация
 """
 
 import os
@@ -241,25 +240,18 @@ def get_product_card_selectors(store_name):
     """
     selectors = {
         "eBag": [
-            # Algolia InstantSearch специфични селектори
+            # eBag използва Tailwind CSS - article елементите са продуктовите карти
+            "article",
+            # Algolia InstantSearch специфични селектори (backup)
             ".ais-InfiniteHits-item",
             ".ais-Hits-item",
-            # Общи продуктови селектори
             "[data-insights-object-id]",
-            "article.hit",
-            ".hit",
-            # Fallback селектори
-            "[class*='product-card']",
-            "[class*='ProductCard']",
-            "li[class*='hit']",
-            "div[class*='hit']"
         ],
         "Кашон": [
             ".views-row",
             ".product-teaser", 
             ".node--type-product",
             "article.product",
-            "[class*='product-item']"
         ],
         "Balev": [
             # Изключваме header/basket елементи - търсим в main content area
@@ -269,14 +261,6 @@ def get_product_card_selectors(store_name):
             # Catalog/grid селектори
             ".catalog-item",
             ".product-tile",
-            ".products-grid > *",
-            ".product-list > *",
-            # Общи но извън header
-            "section [class*='product-item']",
-            "article[class*='product']",
-            # Card стилове
-            ".card[class*='product']",
-            "[class*='ProductCard']"
         ]
     }
     return selectors.get(store_name, [".product-card", ".product-item"])
@@ -500,31 +484,43 @@ def visual_verify_products(page, client, store_name, text_products, max_verify=5
                 store_name
             )
             
-            if result.get('product_id') and result.get('confidence') in ['high', 'medium']:
-                product_id = result['product_id']
-                
-                # ВАЛИДАЦИЯ 1: Проверка на цената
-                price_valid, price_reason = validate_visual_price(product_id, price)
-                if not price_valid:
-                    skipped_price += 1
-                    print("      [VISION] Отхвърлен #" + str(product_id) + ": " + price_reason[:50])
-                    continue
-                
-                # ВАЛИДАЦИЯ 2: Проверка на ключови думи (поне 1 съвпадение)
-                if not text_contains_product_keywords(element_text, product_id, min_matches=1):
-                    skipped_keywords += 1
-                    print("      [VISION] Отхвърлен #" + str(product_id) + ": липсват ключови думи в текста")
-                    continue
-                
-                # Всичко е OK - добавяме към верифицираните
-                verified[product_id] = {
-                    'price': price,
-                    'confidence': result.get('confidence'),
-                    'reason': result.get('reason', ''),
-                    'text_name': product_name[:50]
-                }
-                verified_count += 1
-                print("      [VISION] #" + str(product_id) + ": " + result.get('confidence', '') + " - " + result.get('reason', '')[:40])
+            # Логваме резултата ако няма разпознат продукт (за debug)
+            if not result.get('product_id'):
+                # Показваме само първите няколко неразпознати за да не спамим лога
+                if i < 3:
+                    reason = result.get('reason', 'няма причина')
+                    print("      [VISION] Неразпознат: " + product_name[:30] + " (" + str(price) + " лв) - " + reason[:40])
+                continue
+            
+            if result.get('confidence') not in ['high', 'medium']:
+                if i < 3:
+                    print("      [VISION] Ниска увереност за #" + str(result.get('product_id')) + ": " + result.get('confidence', 'none'))
+                continue
+            
+            product_id = result['product_id']
+            
+            # ВАЛИДАЦИЯ 1: Проверка на цената
+            price_valid, price_reason = validate_visual_price(product_id, price)
+            if not price_valid:
+                skipped_price += 1
+                print("      [VISION] Отхвърлен #" + str(product_id) + ": " + price_reason[:50])
+                continue
+            
+            # ВАЛИДАЦИЯ 2: Проверка на ключови думи (поне 1 съвпадение)
+            if not text_contains_product_keywords(element_text, product_id, min_matches=1):
+                skipped_keywords += 1
+                print("      [VISION] Отхвърлен #" + str(product_id) + ": липсват ключови думи в текста")
+                continue
+            
+            # Всичко е OK - добавяме към верифицираните
+            verified[product_id] = {
+                'price': price,
+                'confidence': result.get('confidence'),
+                'reason': result.get('reason', ''),
+                'text_name': product_name[:50]
+            }
+            verified_count += 1
+            print("      [VISION] #" + str(product_id) + ": " + result.get('confidence', '') + " - " + result.get('reason', '')[:40])
         
         except Exception as e:
             continue
@@ -1235,7 +1231,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v6.3', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v6.4', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([f'Актуализация: {now}', '', f'Курс: {EUR_RATE}', '', f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', ''])
@@ -1421,7 +1417,7 @@ def send_email_alert(alerts):
     body_lines.append(sheets_url)
     body_lines.append("")
     body_lines.append("Poздрави,")
-    body_lines.append("Harmonica Price Tracker v6.3")
+    body_lines.append("Harmonica Price Tracker v6.4")
     
     body = "\n".join(body_lines)
     
@@ -1448,8 +1444,8 @@ def send_email_alert(alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v6.3")
-    print("Филтриране по размер + Подобрени Balev селектори")
+    print("HARMONICA PRICE TRACKER v6.4")
+    print("eBag article селектор + Debug logging")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
     print("Магазини: " + str(len(STORES)))
