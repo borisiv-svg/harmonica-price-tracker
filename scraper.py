@@ -1,14 +1,16 @@
 """
-Harmonica Price Tracker v5.12
-- Claude Haiku 4.5 с по-стриктни prompt-ове (без markdown/обяснения)
+Harmonica Price Tracker v6.0
+- Claude Haiku 4.5 с визуална верификация
+- Screenshots на продукти за потвърждение на идентификацията
 - eBag: "покажи повече" бутон за пълно зареждане
-- Годишни табове за история (История_2025, История_2026)
+- Годишни табове за история
 """
 
 import os
 import json
 import re
 import smtplib
+import base64
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
@@ -74,6 +76,279 @@ PRODUCTS = [
     {"id": 13, "name": "Био Крема сирене", "weight": "125г", "ref_price_bgn": 5.46, "ref_price_eur": 2.79},
     {"id": 14, "name": "Козе сирене harmonica", "weight": "200г", "ref_price_bgn": 10.70, "ref_price_eur": 5.47},
 ]
+
+# Визуални описания на продуктите за по-точна идентификация
+# Тези описания помагат на Claude да разпознае продуктите по опаковката
+PRODUCT_VISUAL_DESCRIPTIONS = {
+    1: "Розова/червена кутия с рози, надпис 'Локум' или 'Rose Lokum', 140г",
+    2: "Кафява/бежова опаковка с бисквити, надпис 'Обикновени бисквити', 150г",
+    3: "Бяла пластмасова бутилка, надпис 'Айран', 500мл",
+    4: "Зелена опаковка вафла, надпис 'Без захар' или 'Sugar free', 40г",
+    5: "Опаковка с оризови топчета, тъмен/черен шоколад, 50г",
+    6: "Стъклена бутилка лимонада, жълт цвят, 330мл",
+    7: "Опаковка претцели/солети, 80г",
+    8: "Синя/класическа опаковка вафла, надпис 'Класика' или 'Classic', 40г",
+    9: "Малка зелена опаковка вафла, 30г (по-малка от 40г)",
+    10: "Висока стъклена бутилка сироп, жълт/златист цвят, надпис 'Липа' или 'Linden', 750мл",
+    11: "Буркан/бутилка пасирани домати, червен цвят, 680г",
+    12: "Опаковка Smiles снакс, нахут, 50г",
+    13: "Бяла пластмасова кутийка крема сирене, 125г",
+    14: "Опаковка козе сирене, 200г",
+}
+
+# Флаг за включване/изключване на визуална верификация
+ENABLE_VISUAL_VERIFICATION = True
+VISUAL_VERIFICATION_CONFIDENCE_THRESHOLD = 0.7  # Минимална увереност за приемане
+
+
+# =============================================================================
+# ВИЗУАЛНА ВЕРИФИКАЦИЯ С CLAUDE VISION
+# =============================================================================
+
+def capture_product_screenshot(page, product_selector, index=0):
+    """
+    Заснема screenshot на продуктова карта от страницата.
+    
+    Args:
+        page: Playwright page обект
+        product_selector: CSS селектор за продуктовите карти
+        index: Индекс на продукта (ако има множество елементи)
+    
+    Returns:
+        base64 encoded string на изображението или None при грешка
+    """
+    try:
+        # Намираме всички продуктови карти
+        elements = page.query_selector_all(product_selector)
+        
+        if not elements or index >= len(elements):
+            return None
+        
+        element = elements[index]
+        
+        # Скролираме до елемента за да е видим
+        element.scroll_into_view_if_needed()
+        page.wait_for_timeout(300)
+        
+        # Заснемаме screenshot само на този елемент
+        screenshot_bytes = element.screenshot()
+        
+        # Конвертираме в base64
+        screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
+        
+        return screenshot_base64
+        
+    except Exception as e:
+        print(f"      [VISION] Грешка при screenshot: {str(e)[:50]}")
+        return None
+
+
+def verify_product_with_vision(client, screenshot_base64, text_name, text_price, store_name):
+    """
+    Използва Claude Vision за верификация на продукт по снимка.
+    
+    Args:
+        client: Anthropic клиент
+        screenshot_base64: base64 encoded изображение
+        text_name: Името на продукта от текста на сайта
+        text_price: Цената от текста на сайта
+        store_name: Име на магазина
+    
+    Returns:
+        dict с:
+            - product_id: Номер на съпоставения продукт (1-14) или None
+            - confidence: Увереност (high/medium/low)
+            - reason: Обяснение
+    """
+    if not client or not screenshot_base64:
+        return {"product_id": None, "confidence": "none", "reason": "Липсва изображение или клиент"}
+    
+    # Създаваме списък с продуктите и визуалните им описания
+    products_list = []
+    for p in PRODUCTS:
+        visual_desc = PRODUCT_VISUAL_DESCRIPTIONS.get(p['id'], '')
+        products_list.append(str(p['id']) + ". " + p['name'] + " (" + p['weight'] + ") - " + visual_desc)
+    
+    products_text = "\n".join(products_list)
+    
+    prompt = """Анализирай изображението на продукт от магазин и определи кой точно продукт от списъка е.
+
+ПРОДУКТИ ЗА ИДЕНТИФИКАЦИЯ:
+""" + products_text + """
+
+ТЕКСТ ОТ САЙТА: """ + text_name + """ - """ + str(text_price) + """ лв
+
+ИНСТРУКЦИИ:
+1. Разгледай ВИЗУАЛНАТА информация: опаковка, цветове, надписи, лого Harmonica
+2. Сравни с описанията на продуктите
+3. ГРАМАЖЪТ е критичен - 40г е различно от 30г!
+4. Ако не си сигурен - върни null
+
+ФОРМАТ (само JSON, без обяснения):
+{"product_id": NUMBER_OR_NULL, "confidence": "high/medium/low", "reason": "кратко обяснение"}
+
+Пример: {"product_id": 8, "confidence": "high", "reason": "Синя опаковка вафла Класика 40г"}"""
+    
+    try:
+        message = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": screenshot_base64
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "text": prompt
+                    }
+                ]
+            }]
+        )
+        
+        response_text = message.content[0].text.strip()
+        
+        # Парсване на JSON отговора
+        # Почистваме евентуални markdown маркери
+        cleaned = response_text
+        if "```" in cleaned:
+            cleaned = re.sub(r'```(?:json)?\s*', '', cleaned)
+            cleaned = cleaned.replace('```', '').strip()
+        
+        # Намираме JSON обекта
+        json_match = re.search(r'\{[^{}]+\}', cleaned)
+        if json_match:
+            result = json.loads(json_match.group())
+            return result
+        
+        return {"product_id": None, "confidence": "none", "reason": "Неуспешно парсване"}
+        
+    except Exception as e:
+        print(f"      [VISION] API грешка: {str(e)[:50]}")
+        return {"product_id": None, "confidence": "none", "reason": str(e)[:50]}
+
+
+def get_product_card_selectors(store_name):
+    """
+    Връща CSS селектори за продуктови карти според магазина.
+    """
+    selectors = {
+        "eBag": [
+            ".product-card",
+            ".hit",
+            "[data-insights-object-id]",
+            ".ais-Hits-item"
+        ],
+        "Кашон": [
+            ".views-row",
+            ".product-teaser",
+            ".node--type-product"
+        ],
+        "Balev": [
+            ".product-card",
+            ".product-item",
+            "[class*='product']"
+        ]
+    }
+    return selectors.get(store_name, [".product-card", ".product-item"])
+
+
+def visual_verify_products(page, client, store_name, text_products, max_verify=5):
+    """
+    Визуално верифицира продукти чрез screenshots.
+    
+    Използва се селективно - само за продукти, които имат неясна идентификация
+    или за случаен sampling за контрол на качеството.
+    
+    Args:
+        page: Playwright page
+        client: Claude client
+        store_name: Име на магазина
+        text_products: Списък с продукти, намерени чрез текстов анализ
+        max_verify: Максимален брой продукти за верификация
+    
+    Returns:
+        dict с verified продукти и техните резултати
+    """
+    if not ENABLE_VISUAL_VERIFICATION:
+        return {}
+    
+    if not client:
+        print("      [VISION] Claude клиент не е наличен")
+        return {}
+    
+    verified = {}
+    selectors = get_product_card_selectors(store_name)
+    
+    # Опитваме различни селектори
+    product_elements = []
+    for selector in selectors:
+        try:
+            elements = page.query_selector_all(selector)
+            if elements and len(elements) > 0:
+                product_elements = elements
+                print(f"      [VISION] Намерени {len(elements)} продуктови карти с '{selector}'")
+                break
+        except:
+            continue
+    
+    if not product_elements:
+        print("      [VISION] Не са намерени продуктови карти за screenshot")
+        return {}
+    
+    # Верифицираме до max_verify продукта
+    verified_count = 0
+    for i, element in enumerate(product_elements):
+        if verified_count >= max_verify:
+            break
+        
+        try:
+            # Заснемаме screenshot
+            element.scroll_into_view_if_needed()
+            page.wait_for_timeout(200)
+            screenshot_bytes = element.screenshot()
+            screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
+            
+            # Опитваме се да извлечем текста от елемента
+            element_text = element.inner_text()
+            
+            # Извличаме име и цена от текста
+            lines = element_text.split('\n')
+            product_name = lines[0] if lines else "Неизвестен"
+            price_match = re.search(r'(\d+)[,.](\d{2})', element_text)
+            price = float(price_match.group(1) + "." + price_match.group(2)) if price_match else 0
+            
+            # Верифицираме с Claude Vision
+            result = verify_product_with_vision(
+                client, 
+                screenshot_base64, 
+                product_name[:100],  # Ограничаваме дължината
+                price, 
+                store_name
+            )
+            
+            if result.get('product_id') and result.get('confidence') in ['high', 'medium']:
+                product_id = result['product_id']
+                verified[product_id] = {
+                    'price': price,
+                    'confidence': result.get('confidence'),
+                    'reason': result.get('reason', ''),
+                    'text_name': product_name[:50]
+                }
+                verified_count += 1
+                print(f"      [VISION] #{product_id}: {result.get('confidence')} - {result.get('reason', '')[:40]}")
+        
+        except Exception as e:
+            continue
+    
+    print(f"      [VISION] Верифицирани: {len(verified)} продукта")
+    return verified
 
 
 # =============================================================================
@@ -503,8 +778,8 @@ def click_load_more_until_done(page, selector, max_clicks=20):
     return clicks
 
 
-def scrape_store(page, store_key, store_config):
-    """Извлича цени от един магазин с двуфазен Claude анализ, pagination и load-more поддръжка."""
+def scrape_store(page, store_key, store_config, vision_client=None):
+    """Извлича цени от един магазин с двуфазен Claude анализ, pagination, load-more и визуална верификация."""
     prices = {}
     url = store_config['url']
     store_name = store_config['name_in_sheet']
@@ -614,7 +889,59 @@ def scrape_store(page, store_key, store_config):
     except Exception as e:
         print(f"  Fallback грешка: {str(e)[:50]}")
     
-    print(f"  ✓ Общо намерени: {len(prices)} продукта")
+    # Визуална верификация (ако е активирана и има клиент)
+    if ENABLE_VISUAL_VERIFICATION and vision_client:
+        try:
+            print(f"  [VISION] Стартиране на визуална верификация...")
+            
+            # Връщаме се на първата страница за screenshots
+            page.goto(url, timeout=60000, wait_until="domcontentloaded")
+            page.wait_for_timeout(2000)
+            
+            # Ако има load_more, трябва да заредим продуктите отново
+            if has_load_more:
+                click_load_more_until_done(page, store_config.get('load_more_selector', ''), max_clicks=5)
+            else:
+                scroll_for_all_products(page, 5)
+            
+            # Верифицираме до 5 продукта визуално
+            visual_results = visual_verify_products(page, vision_client, store_name, prices, max_verify=5)
+            
+            # Интегрираме резултатите
+            visual_confirmed = 0
+            visual_corrected = 0
+            for product_id, visual_data in visual_results.items():
+                product_name = None
+                for p in PRODUCTS:
+                    if p['id'] == product_id:
+                        product_name = p['name']
+                        break
+                
+                if product_name:
+                    visual_price = visual_data.get('price')
+                    text_price = prices.get(product_name)
+                    
+                    if text_price and visual_price:
+                        # Проверяваме дали цените съвпадат (с толеранс от 5%)
+                        diff_pct = abs(visual_price - text_price) / text_price * 100 if text_price > 0 else 100
+                        if diff_pct < 5:
+                            visual_confirmed += 1
+                        else:
+                            # Визуалната цена е различна - логваме за внимание
+                            print(f"      [VISION] Разлика за #{product_id}: текст={text_price:.2f}, визуално={visual_price:.2f}")
+                    elif visual_price and not text_price:
+                        # Намерихме цена визуално, която липсваше от текста
+                        prices[product_name] = visual_price
+                        visual_corrected += 1
+                        print(f"      [VISION] Добавен #{product_id} {product_name}: {visual_price:.2f} лв")
+            
+            if visual_confirmed > 0 or visual_corrected > 0:
+                print(f"      [VISION] Потвърдени: {visual_confirmed}, Коригирани: {visual_corrected}")
+                
+        except Exception as e:
+            print(f"  [VISION] Грешка: {str(e)[:50]}")
+    
+    print(f"  Общо намерени: {len(prices)} продукта")
     return prices
 
 
@@ -630,13 +957,21 @@ def collect_prices():
             viewport={"width": 1920, "height": 1080}
         )
         
-        # Блокираме изображения за по-бързо зареждане
-        context.route("**/*.{png,jpg,jpeg,gif,webp,svg}", lambda r: r.abort())
+        # Блокираме изображения САМО ако визуалната верификация е изключена
+        if not ENABLE_VISUAL_VERIFICATION:
+            context.route("**/*.{png,jpg,jpeg,gif,webp,svg}", lambda r: r.abort())
         
         page = context.new_page()
         
+        # Създаваме Claude клиент за визуална верификация
+        vision_client = None
+        if ENABLE_VISUAL_VERIFICATION and CLAUDE_AVAILABLE:
+            vision_client = get_claude_client()
+            if vision_client:
+                print("  [VISION] Claude Vision активиран")
+        
         for key, config in STORES.items():
-            all_prices[key] = scrape_store(page, key, config)
+            all_prices[key] = scrape_store(page, key, config, vision_client)
             page.wait_for_timeout(2000)
         
         browser.close()
@@ -714,7 +1049,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v5.12', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v6.0', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([f'Актуализация: {now}', '', f'Курс: {EUR_RATE}', '', f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', ''])
@@ -899,8 +1234,8 @@ def send_email_alert(alerts):
     body_lines.append("Пълен отчет в Google Sheets:")
     body_lines.append(sheets_url)
     body_lines.append("")
-    body_lines.append("Поздрави,")
-    body_lines.append("Harmonica Price Tracker v5.12")
+    body_lines.append("Poздрави,")
+    body_lines.append("Harmonica Price Tracker v6.0")
     
     body = "\n".join(body_lines)
     
@@ -927,12 +1262,13 @@ def send_email_alert(alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v5.12")
-    print("Claude Haiku 4.5 + стриктни prompts + годишни табове")
-    print(f"Време: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
-    print(f"Продукти: {len(PRODUCTS)}")
-    print(f"Магазини: {len(STORES)}")
-    print(f"Claude API: {'✓ Наличен' if CLAUDE_AVAILABLE else '✗ Не е наличен'}")
+    print("HARMONICA PRICE TRACKER v6.0")
+    print("Claude Haiku 4.5 + Визуална верификация")
+    print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
+    print("Продукти: " + str(len(PRODUCTS)))
+    print("Магазини: " + str(len(STORES)))
+    print("Claude API: " + ("Наличен" if CLAUDE_AVAILABLE else "Не е наличен"))
+    print("Vision: " + ("Активна" if ENABLE_VISUAL_VERIFICATION else "Изключена"))
     print("=" * 60)
     
     results = collect_prices()
@@ -942,22 +1278,22 @@ def main():
     send_email_alert(alerts)
     
     # Обобщение
-    print(f"\n{'='*60}")
+    print("\n" + "="*60)
     print("ОБОБЩЕНИЕ")
-    print(f"{'='*60}")
+    print("="*60)
     
     for k, cfg in STORES.items():
         cnt = len([r for r in results if r['prices'].get(k)])
-        print(f"  {cfg['name_in_sheet']}: {cnt}/{len(results)} продукта")
+        print("  " + cfg['name_in_sheet'] + ": " + str(cnt) + "/" + str(len(results)) + " продукта")
     
     total = len([r for r in results if any(r['prices'].values())])
     ok_count = len([r for r in results if r['status'] == 'OK'])
     warning_count = len([r for r in results if r['status'] == 'ВНИМАНИЕ'])
     no_data = len([r for r in results if r['status'] == 'НЯМА ДАННИ'])
     
-    print(f"\nОбщо покритие: {total}/{len(results)} продукта")
-    print(f"Статус: {ok_count} OK, {warning_count} ВНИМАНИЕ, {no_data} НЯМА ДАННИ")
-    print("\n✓ Готово!")
+    print("\nОбщо покритие: " + str(total) + "/" + str(len(results)) + " продукта")
+    print("Статус: " + str(ok_count) + " OK, " + str(warning_count) + " ВНИМАНИЕ, " + str(no_data) + " НЯМА ДАННИ")
+    print("\nГотово!")
 
 
 if __name__ == "__main__":
