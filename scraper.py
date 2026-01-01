@@ -1,9 +1,9 @@
 """
-Harmonica Price Tracker v7.1
+Harmonica Price Tracker v7.2
 - 24 продукта от Balev като референция (разширен списък)
 - 4 магазина: eBag, Кашон, Balev, T Market
-- Подобрено съпоставяне на продукти (актуализирани ключови думи)
-- T Market колона в Google Sheets и имейл известия
+- Stealth режим за T Market (Cloudflare bypass)
+- Подобрено форматиране на Google Sheets
 """
 
 import os
@@ -17,6 +17,14 @@ from datetime import datetime
 from playwright.sync_api import sync_playwright
 import gspread
 from google.oauth2.service_account import Credentials
+
+# Playwright Stealth за Cloudflare bypass
+try:
+    from playwright_stealth import stealth_sync
+    STEALTH_AVAILABLE = True
+except ImportError:
+    STEALTH_AVAILABLE = False
+    print("⚠ playwright-stealth не е налична (pip install playwright-stealth)")
 
 # Claude API
 try:
@@ -1194,11 +1202,13 @@ def scrape_store(page, store_key, store_config, vision_client=None):
 
 
 def collect_prices():
-    """Събира цени от всички магазини."""
+    """Събира цени от всички магазини. Използва stealth режим за T Market."""
     all_prices = {}
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
+        
+        # Стандартен контекст за повечето магазини
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
             locale="bg-BG",
@@ -1219,7 +1229,42 @@ def collect_prices():
                 print("  [VISION] Claude Vision активиран")
         
         for key, config in STORES.items():
-            all_prices[key] = scrape_store(page, key, config, vision_client)
+            # За T Market използваме stealth режим
+            if key == "TMarket" and STEALTH_AVAILABLE:
+                print("  [STEALTH] Активиране на stealth режим за T Market...")
+                
+                # Създаваме нов stealth контекст
+                stealth_context = browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+                    locale="bg-BG",
+                    viewport={"width": 1920, "height": 1080},
+                    java_script_enabled=True,
+                    ignore_https_errors=True,
+                    extra_http_headers={
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                        "Accept-Language": "bg-BG,bg;q=0.9,en-US;q=0.8,en;q=0.7",
+                        "Accept-Encoding": "gzip, deflate, br",
+                        "Connection": "keep-alive",
+                        "Upgrade-Insecure-Requests": "1",
+                        "Sec-Fetch-Dest": "document",
+                        "Sec-Fetch-Mode": "navigate",
+                        "Sec-Fetch-Site": "none",
+                        "Sec-Fetch-User": "?1",
+                        "Cache-Control": "max-age=0",
+                    }
+                )
+                stealth_page = stealth_context.new_page()
+                
+                # Прилагаме stealth
+                stealth_sync(stealth_page)
+                
+                # Скрапваме с stealth страницата
+                all_prices[key] = scrape_store(stealth_page, key, config, vision_client)
+                
+                stealth_context.close()
+            else:
+                all_prices[key] = scrape_store(page, key, config, vision_client)
+            
             page.wait_for_timeout(2000)
         
         browser.close()
@@ -1297,7 +1342,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v7.1', '', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v7.2', '', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([f'Актуализация: {now}', '', f'Курс: {EUR_RATE}', '', f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', '', ''])
@@ -1371,6 +1416,49 @@ def update_google_sheets(results):
                     })
             
             print("  ✓ Форматиране приложено")
+            
+            # Оразмеряване на колоните за по-добра четимост
+            try:
+                # Ширини на колоните в пиксели
+                # A=№, B=Продукт, C=Грамаж, D=Реф.BGN, E=Реф.EUR, F=eBag, G=Кашон, H=Balev, I=T Market, J=Ср.BGN, K=Ср.EUR, L=Откл.%, M=Статус
+                column_widths = [
+                    (0, 35),    # A: №
+                    (1, 280),   # B: Продукт (по-широка за дълги имена)
+                    (2, 65),    # C: Грамаж
+                    (3, 70),    # D: Реф.BGN
+                    (4, 70),    # E: Реф.EUR
+                    (5, 60),    # F: eBag
+                    (6, 60),    # G: Кашон
+                    (7, 60),    # H: Balev
+                    (8, 70),    # I: T Market
+                    (9, 65),    # J: Ср.BGN
+                    (10, 65),   # K: Ср.EUR
+                    (11, 65),   # L: Откл.%
+                    (12, 90),   # M: Статус
+                ]
+                
+                requests = []
+                for col_idx, width in column_widths:
+                    requests.append({
+                        "updateDimensionProperties": {
+                            "range": {
+                                "sheetId": sheet.id,
+                                "dimension": "COLUMNS",
+                                "startIndex": col_idx,
+                                "endIndex": col_idx + 1
+                            },
+                            "properties": {
+                                "pixelSize": width
+                            },
+                            "fields": "pixelSize"
+                        }
+                    })
+                
+                # Изпълняваме batch update
+                spreadsheet.batch_update({"requests": requests})
+                print("  ✓ Колони оразмерени")
+            except Exception as e:
+                print(f"  Оразмеряване предупреждение: {str(e)[:50]}")
         except Exception as e:
             print(f"  Форматиране предупреждение: {str(e)[:50]}")
         
@@ -1486,7 +1574,7 @@ def send_email_alert(alerts):
     body_lines.append(sheets_url)
     body_lines.append("")
     body_lines.append("Poздрави,")
-    body_lines.append("Harmonica Price Tracker v7.1")
+    body_lines.append("Harmonica Price Tracker v7.2")
     
     body = "\n".join(body_lines)
     
@@ -1513,12 +1601,13 @@ def send_email_alert(alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v7.1")
-    print("24 продукта + T Market + подобрено съпоставяне")
+    print("HARMONICA PRICE TRACKER v7.2")
+    print("Stealth режим за T Market + форматиране на колоните")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
     print("Магазини: " + str(len(STORES)))
     print("Claude API: " + ("Наличен" if CLAUDE_AVAILABLE else "Не е наличен"))
+    print("Stealth: " + ("Наличен" if STEALTH_AVAILABLE else "Не е наличен"))
     print("Vision: " + ("Активна" if ENABLE_VISUAL_VERIFICATION else "Изключена"))
     print("=" * 60)
     
