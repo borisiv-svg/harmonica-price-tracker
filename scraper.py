@@ -53,7 +53,7 @@ STORES = {
         "name_in_sheet": "Кашон",
         "scroll_times": 15,
         "has_pagination": True,
-        "max_pages": 3,
+        "max_pages": 5,  # Увеличено от 3 за пълно покритие
         "has_load_more": False,
         "expected_currency": "BGN",
         "currency_indicators": ["лв", "лева", "BGN"]
@@ -1257,6 +1257,12 @@ def scrape_store(page, store_key, store_config, vision_client=None):
                 scroll_for_all_products(page, scroll_times)
             
             page_text = page.inner_text('body')
+            
+            # Проверяваме дали страницата съдържа продукти (за странициране)
+            if page_num > 0 and len(page_text) < 1000:
+                print(f"    Страница {page_num + 1} е празна или няма повече продукти")
+                break
+            
             all_body_text += "\n" + page_text
             
             if page_num == 0:
@@ -1988,8 +1994,17 @@ def main():
     print("="*60)
     
     for k, cfg in STORES.items():
-        cnt = len([r for r in results if r['prices'].get(k)])
+        found_products = [r for r in results if r['prices'].get(k)]
+        missing_products = [r for r in results if not r['prices'].get(k)]
+        cnt = len(found_products)
         print("  " + cfg['name_in_sheet'] + ": " + str(cnt) + "/" + str(len(results)) + " продукта")
+        
+        # Показваме липсващите продукти ако има такива
+        if missing_products and cnt < len(results):
+            missing_names = [f"#{r['name'][:30]}" for r in missing_products[:5]]
+            print("    Липсват: " + ", ".join(missing_names))
+            if len(missing_products) > 5:
+                print(f"    ... и още {len(missing_products) - 5}")
     
     total = len([r for r in results if any(r['prices'].values())])
     ok_count = len([r for r in results if r['status'] == 'OK'])
