@@ -1,9 +1,9 @@
 """
-Harmonica Price Tracker v7.5
-- 24 продукта от Balev като референция
-- 4 магазина: eBag, Кашон, Balev, Metro
-- Оптимизирано форматиране с batch updates (по-малко API заявки)
-- Conditional formatting за средни цени
+Harmonica Price Tracker v7.6
+- EUR като базова валута (България в еврозоната от 01.01.2026)
+- Интелигентна валутна детекция за всеки магазин
+- Автоматична конверсия BGN → EUR при нужда
+- 24 продукта, 4 магазина: eBag, Кашон, Balev, Metro
 """
 
 import os
@@ -30,8 +30,12 @@ except ImportError:
 # КОНФИГУРАЦИЯ
 # =============================================================================
 
-EUR_RATE = 1.95583
+# Фиксиран курс EUR/BGN (официален за еврозоната)
+EUR_BGN_RATE = 1.95583
 ALERT_THRESHOLD = 10
+
+# Базова валута - EUR (от 01.01.2026)
+BASE_CURRENCY = "EUR"
 
 STORES = {
     "eBag": {
@@ -40,7 +44,9 @@ STORES = {
         "scroll_times": 15,
         "has_pagination": False,
         "has_load_more": True,
-        "load_more_selector": 'button:has-text("покажи повече"), button:has-text("Покажи повече"), .load-more-button, [data-testid="load-more"]'
+        "load_more_selector": 'button:has-text("покажи повече"), button:has-text("Покажи повече"), .load-more-button, [data-testid="load-more"]',
+        "expected_currency": "EUR",  # След 01.01.2026
+        "currency_indicators": ["€", "EUR", "eur"]
     },
     "Kashon": {
         "url": "https://kashonharmonica.bg/bg/products/field_producer/harmonica-144",
@@ -48,50 +54,58 @@ STORES = {
         "scroll_times": 15,
         "has_pagination": True,
         "max_pages": 3,
-        "has_load_more": False
+        "has_load_more": False,
+        "expected_currency": "EUR",
+        "currency_indicators": ["€", "EUR", "eur"]
     },
     "Balev": {
         "url": "https://balevbiomarket.com/productBrands/harmonica",
         "name_in_sheet": "Balev",
         "scroll_times": 12,
         "has_pagination": False,
-        "has_load_more": False
+        "has_load_more": False,
+        "expected_currency": "EUR",
+        "currency_indicators": ["€", "EUR", "eur"]
     },
     "Metro": {
         "url": "https://shop.metro.bg/shop/search?q=%D1%85%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
         "name_in_sheet": "Metro",
         "scroll_times": 15,
         "has_pagination": False,
-        "has_load_more": False
+        "has_load_more": False,
+        "expected_currency": "EUR",
+        "currency_indicators": ["€", "EUR", "eur"]
     }
 }
 
 # Продукти с референтни цени от Balev Bio Market (24 продукта)
 PRODUCTS = [
-    {"id": 1, "name": "Био вафла с лимонов крем", "weight": "30г", "ref_price_bgn": 1.39, "ref_price_eur": 0.71},
-    {"id": 2, "name": "Био вафла без добавена захар", "weight": "30г", "ref_price_bgn": 1.49, "ref_price_eur": 0.76},
-    {"id": 3, "name": "Био сирене козе", "weight": "200г", "ref_price_bgn": 10.99, "ref_price_eur": 5.62},
-    {"id": 4, "name": "Био лютеница Илиеви", "weight": "260г", "ref_price_bgn": 8.99, "ref_price_eur": 4.60},
-    {"id": 5, "name": "Био кисело мляко 3,6%", "weight": "400г", "ref_price_bgn": 2.79, "ref_price_eur": 1.43},
-    {"id": 6, "name": "Био лютеница Хаджиеви", "weight": "260г", "ref_price_bgn": 8.99, "ref_price_eur": 4.60},
-    {"id": 7, "name": "Био пълнозърнест сусамов тахан", "weight": "700г", "ref_price_bgn": 18.79, "ref_price_eur": 9.61},
-    {"id": 8, "name": "Био кашкавал от краве мляко", "weight": "300г", "ref_price_bgn": 13.49, "ref_price_eur": 6.90},
-    {"id": 9, "name": "Био крема сирене", "weight": "125г", "ref_price_bgn": 5.69, "ref_price_eur": 2.91},
-    {"id": 10, "name": "Био вафла с лимец и кокос", "weight": "30г", "ref_price_bgn": 1.39, "ref_price_eur": 0.71},
-    {"id": 11, "name": "Био краве сирене", "weight": "400г", "ref_price_bgn": 12.59, "ref_price_eur": 6.44},
-    {"id": 12, "name": "Био пълнозърнести кори за баница", "weight": "400г", "ref_price_bgn": 7.99, "ref_price_eur": 4.09},
-    {"id": 13, "name": "Био фъстъчено масло", "weight": "250г", "ref_price_bgn": 9.39, "ref_price_eur": 4.80},
-    {"id": 14, "name": "Био слънчогледово масло", "weight": "500мл", "ref_price_bgn": 8.29, "ref_price_eur": 4.24},
-    {"id": 15, "name": "Био тунквана вафла Chocobiotic", "weight": "40г", "ref_price_bgn": 2.29, "ref_price_eur": 1.17},
-    {"id": 16, "name": "Био сироп от бъз", "weight": "750мл", "ref_price_bgn": 15.49, "ref_price_eur": 7.92},
-    {"id": 17, "name": "Био прясно мляко 3,6%", "weight": "1л", "ref_price_bgn": 5.39, "ref_price_eur": 2.76},
-    {"id": 18, "name": "Био солети от лимец", "weight": "50г", "ref_price_bgn": 2.59, "ref_price_eur": 1.32},
-    {"id": 19, "name": "Био пълнозърнести солети", "weight": "60г", "ref_price_bgn": 2.09, "ref_price_eur": 1.07},
-    {"id": 20, "name": "Био кисело пълномаслено мляко", "weight": "400г", "ref_price_bgn": 2.79, "ref_price_eur": 1.43},
-    {"id": 21, "name": "Био извара", "weight": "500г", "ref_price_bgn": 3.69, "ref_price_eur": 1.89},
-    {"id": 22, "name": "Био студено пресовано слънчогледово масло", "weight": "500мл", "ref_price_bgn": 8.29, "ref_price_eur": 4.24},
-    {"id": 23, "name": "Био кисело мляко 2%", "weight": "400г", "ref_price_bgn": 2.79, "ref_price_eur": 1.43},
-    {"id": 24, "name": "Био кефир", "weight": "500мл", "ref_price_bgn": 3.89, "ref_price_eur": 1.99},
+    # Референтни цени в EUR (базирани на Balev цени, конвертирани от BGN)
+    # ref_price е в EUR, ref_price_bgn е информативно (за сравнение)
+    {"id": 1, "name": "Био вафла с лимонов крем", "weight": "30г", "ref_price": 0.71, "ref_price_bgn": 1.39},
+    {"id": 2, "name": "Био вафла без добавена захар", "weight": "30г", "ref_price": 0.76, "ref_price_bgn": 1.49},
+    {"id": 3, "name": "Био сирене козе", "weight": "200г", "ref_price": 5.62, "ref_price_bgn": 10.99},
+    {"id": 4, "name": "Био лютеница Илиеви", "weight": "260г", "ref_price": 4.60, "ref_price_bgn": 8.99},
+    {"id": 5, "name": "Био кисело мляко 3,6%", "weight": "400г", "ref_price": 1.43, "ref_price_bgn": 2.79},
+    {"id": 6, "name": "Био лютеница Хаджиеви", "weight": "260г", "ref_price": 4.60, "ref_price_bgn": 8.99},
+    {"id": 7, "name": "Био пълнозърнест сусамов тахан", "weight": "700г", "ref_price": 9.61, "ref_price_bgn": 18.79},
+    {"id": 8, "name": "Био кашкавал от краве мляко", "weight": "300г", "ref_price": 6.90, "ref_price_bgn": 13.49},
+    {"id": 9, "name": "Био крема сирене", "weight": "125г", "ref_price": 2.91, "ref_price_bgn": 5.69},
+    {"id": 10, "name": "Био вафла с лимец и кокос", "weight": "30г", "ref_price": 0.71, "ref_price_bgn": 1.39},
+    {"id": 11, "name": "Био краве сирене", "weight": "400г", "ref_price": 6.44, "ref_price_bgn": 12.59},
+    {"id": 12, "name": "Био пълнозърнести кори за баница", "weight": "400г", "ref_price": 4.09, "ref_price_bgn": 7.99},
+    {"id": 13, "name": "Био фъстъчено масло", "weight": "250г", "ref_price": 4.80, "ref_price_bgn": 9.39},
+    {"id": 14, "name": "Био слънчогледово масло", "weight": "500мл", "ref_price": 4.24, "ref_price_bgn": 8.29},
+    {"id": 15, "name": "Био тунквана вафла Chocobiotic", "weight": "40г", "ref_price": 1.17, "ref_price_bgn": 2.29},
+    {"id": 16, "name": "Био сироп от бъз", "weight": "750мл", "ref_price": 7.92, "ref_price_bgn": 15.49},
+    {"id": 17, "name": "Био прясно мляко 3,6%", "weight": "1л", "ref_price": 2.76, "ref_price_bgn": 5.39},
+    {"id": 18, "name": "Био солети от лимец", "weight": "50г", "ref_price": 1.32, "ref_price_bgn": 2.59},
+    {"id": 19, "name": "Био пълнозърнести солети", "weight": "60г", "ref_price": 1.07, "ref_price_bgn": 2.09},
+    {"id": 20, "name": "Био кисело пълномаслено мляко", "weight": "400г", "ref_price": 1.43, "ref_price_bgn": 2.79},
+    {"id": 21, "name": "Био извара", "weight": "500г", "ref_price": 1.89, "ref_price_bgn": 3.69},
+    {"id": 22, "name": "Био студено пресовано слънчогледово масло", "weight": "500мл", "ref_price": 4.24, "ref_price_bgn": 8.29},
+    {"id": 23, "name": "Био кисело мляко 2%", "weight": "400г", "ref_price": 1.43, "ref_price_bgn": 2.79},
+    {"id": 24, "name": "Био кефир", "weight": "500мл", "ref_price": 1.99, "ref_price_bgn": 3.89},
 ]
 
 # Визуални описания на продуктите за по-точна идентификация
@@ -129,6 +143,156 @@ VISUAL_VERIFICATION_CONFIDENCE_THRESHOLD = 0.7  # Минимална увере�
 
 
 # =============================================================================
+# ВАЛУТНА ДЕТЕКЦИЯ И КОНВЕРСИЯ
+# =============================================================================
+
+def detect_currency_from_text(text):
+    """
+    Детектира валутата от текст, търсейки индикатори за EUR или BGN.
+    
+    Логика:
+    - Ако намери €, EUR, eur → връща "EUR"
+    - Ако намери лв, лева, BGN, bgn → връща "BGN"
+    - Ако не намери нищо → връща None (неизвестно)
+    
+    Args:
+        text: Текст за анализ (може да е цял HTML или само ценова секция)
+    
+    Returns:
+        "EUR", "BGN" или None
+    """
+    if not text:
+        return None
+    
+    text_lower = text.lower()
+    
+    # EUR индикатори (по-често срещани след 01.01.2026)
+    eur_indicators = ['€', 'eur', ' е ', 'евро']
+    for indicator in eur_indicators:
+        if indicator in text_lower:
+            return "EUR"
+    
+    # BGN индикатори (legacy, все още възможни)
+    bgn_indicators = ['лв', 'лева', 'bgn', 'лв.']
+    for indicator in bgn_indicators:
+        if indicator in text_lower:
+            return "BGN"
+    
+    return None
+
+
+def detect_currency_from_price_pattern(price_str):
+    """
+    Детектира валутата от ценови стринг анализирайки числовата стойност.
+    
+    Хевристика: Ако цената е твърде ниска за BGN (< 0.5), вероятно е EUR.
+    Ако цената е твърде висока за EUR за обичаен продукт (> 50), вероятно е BGN.
+    
+    Това е backup метод когато няма явни валутни индикатори.
+    """
+    try:
+        # Извличаме числото
+        price_match = re.search(r'(\d+[.,]\d{2})', str(price_str))
+        if price_match:
+            price = float(price_match.group(1).replace(',', '.'))
+            # Много ниска цена (< 0.5) е почти сигурно EUR
+            if price < 0.5:
+                return "EUR"
+            # Много висока цена (> 50) е вероятно BGN за тези продукти
+            if price > 50:
+                return "BGN"
+    except:
+        pass
+    return None
+
+
+def convert_to_eur(price, detected_currency):
+    """
+    Конвертира цена към EUR ако е необходимо.
+    
+    Args:
+        price: Числова стойност на цената
+        detected_currency: "EUR", "BGN" или None
+    
+    Returns:
+        Цена в EUR
+    """
+    if price is None:
+        return None
+    
+    if detected_currency == "BGN":
+        # Конвертираме BGN към EUR
+        return round(price / EUR_BGN_RATE, 2)
+    else:
+        # Вече е EUR или неизвестно (приемаме EUR по подразбиране след 01.01.2026)
+        return round(price, 2)
+
+
+def convert_to_bgn(price, detected_currency):
+    """
+    Конвертира цена към BGN ако е необходимо.
+    
+    Args:
+        price: Числова стойност на цената
+        detected_currency: "EUR", "BGN" или None
+    
+    Returns:
+        Цена в BGN
+    """
+    if price is None:
+        return None
+    
+    if detected_currency == "EUR" or detected_currency is None:
+        # Конвертираме EUR към BGN
+        return round(price * EUR_BGN_RATE, 2)
+    else:
+        # Вече е BGN
+        return round(price, 2)
+
+
+def smart_price_normalization(price_value, page_text, store_config):
+    """
+    Интелигентна нормализация на цена към EUR.
+    
+    Използва няколко метода за определяне на валутата:
+    1. Explicit валутни символи в текста
+    2. Конфигурация на магазина (expected_currency)
+    3. Хевристика базирана на стойността
+    
+    Args:
+        price_value: Числова стойност на извлечената цена
+        page_text: Пълен текст на страницата за контекст
+        store_config: Конфигурация на магазина с expected_currency
+    
+    Returns:
+        tuple: (price_in_eur, detected_currency)
+    """
+    if price_value is None:
+        return None, None
+    
+    # Метод 1: Търсим explicit валутни индикатори в текста
+    detected = detect_currency_from_text(page_text)
+    
+    # Метод 2: Ако не намерихме, използваме конфигурацията на магазина
+    if detected is None:
+        detected = store_config.get('expected_currency', 'EUR')
+    
+    # Метод 3: Валидираме с хевристика
+    # Ако цената изглежда нереалистична за детектираната валута, коригираме
+    if detected == "EUR" and price_value > 30:
+        # Възможно е да е BGN, която погрешно четем като EUR
+        # Проверяваме дали разделено на курса дава разумна EUR цена
+        potential_eur = price_value / EUR_BGN_RATE
+        if 0.3 <= potential_eur <= 25:
+            detected = "BGN"
+    elif detected == "BGN" and price_value < 1:
+        # Много ниска стойност за BGN, вероятно е EUR
+        detected = "EUR"
+    
+    # Конвертираме към EUR
+    price_eur = convert_to_eur(price_value, detected)
+    
+    return price_eur, detected
 # ВИЗУАЛНА ВЕРИФИКАЦИЯ С CLAUDE VISION
 # =============================================================================
 
@@ -1196,8 +1360,18 @@ def scrape_store(page, store_key, store_config, vision_client=None):
 
 
 def collect_prices():
-    """Събира цени от всички магазини."""
+    """
+    Събира цени от всички магазини с интелигентна валутна детекция.
+    
+    Процес:
+    1. Скрейпва всеки магазин и запазва суровите цени
+    2. Детектира валутата на всеки магазин от текста
+    3. Нормализира всички цени към EUR
+    4. Изчислява средни стойности и отклонения в EUR
+    """
     all_prices = {}
+    store_currencies = {}  # Запазваме детектираната валута за всеки магазин
+    store_raw_texts = {}   # Запазваме текста за валутна детекция
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -1223,36 +1397,77 @@ def collect_prices():
                 print("  [VISION] Claude Vision активиран")
         
         for key, config in STORES.items():
-            all_prices[key] = scrape_store(page, key, config, vision_client)
+            # Скрейпваме магазина
+            prices = scrape_store(page, key, config, vision_client)
+            
+            # Запазваме текста на страницата за валутна детекция
+            try:
+                page_text = page.content()
+                store_raw_texts[key] = page_text
+                
+                # Детектираме валутата от текста
+                detected_currency = detect_currency_from_text(page_text)
+                if detected_currency:
+                    store_currencies[key] = detected_currency
+                    print(f"  [ВАЛУТА] {config['name_in_sheet']}: Детектирана {detected_currency}")
+                else:
+                    # Използваме очакваната валута от конфигурацията
+                    store_currencies[key] = config.get('expected_currency', 'EUR')
+                    print(f"  [ВАЛУТА] {config['name_in_sheet']}: Приета {store_currencies[key]} (по подразбиране)")
+            except:
+                store_currencies[key] = config.get('expected_currency', 'EUR')
+            
+            # Нормализираме цените към EUR
+            normalized_prices = {}
+            for product_name, price in prices.items():
+                if price is not None:
+                    price_eur, _ = smart_price_normalization(price, store_raw_texts.get(key, ''), config)
+                    normalized_prices[product_name] = price_eur
+                else:
+                    normalized_prices[product_name] = None
+            
+            all_prices[key] = normalized_prices
             page.wait_for_timeout(2000)
         
         browser.close()
     
-    # Обработка на резултатите
+    # Показваме обобщение на валутната детекция
+    print("\n  [ВАЛУТА] Обобщение:")
+    for store_key, currency in store_currencies.items():
+        store_name = STORES[store_key]['name_in_sheet']
+        print(f"    • {store_name}: {currency}")
+    print()
+    
+    # Обработка на резултатите - всичко в EUR
     results = []
     for product in PRODUCTS:
         name = product['name']
-        product_prices = {k: all_prices.get(k, {}).get(name) for k in STORES}
-        valid = [p for p in product_prices.values() if p]
+        ref_eur = product['ref_price']  # Референтната цена вече е в EUR
+        ref_bgn = product['ref_price_bgn']  # Информативно
         
-        if valid:
-            avg = sum(valid) / len(valid)
-            avg_eur = avg / EUR_RATE
-            dev = ((avg - product['ref_price_bgn']) / product['ref_price_bgn']) * 100
-            status = "ВНИМАНИЕ" if abs(dev) > ALERT_THRESHOLD else "OK"
+        # Събираме цените от всички магазини (вече нормализирани към EUR)
+        product_prices = {k: all_prices.get(k, {}).get(name) for k in STORES}
+        valid_prices = [p for p in product_prices.values() if p is not None]
+        
+        if valid_prices:
+            avg_eur = sum(valid_prices) / len(valid_prices)
+            avg_bgn = avg_eur * EUR_BGN_RATE
+            # Отклонението се изчислява спрямо EUR референцията
+            deviation = ((avg_eur - ref_eur) / ref_eur) * 100
+            status = "ВНИМАНИЕ" if abs(deviation) > ALERT_THRESHOLD else "OK"
         else:
-            avg = avg_eur = dev = None
+            avg_eur = avg_bgn = deviation = None
             status = "НЯМА ДАННИ"
         
         results.append({
             "name": name,
             "weight": product['weight'],
-            "ref_bgn": product['ref_price_bgn'],
-            "ref_eur": product['ref_price_eur'],
-            "prices": product_prices,
-            "avg_bgn": round(avg, 2) if avg else None,
+            "ref_eur": ref_eur,
+            "ref_bgn": ref_bgn,
+            "prices": product_prices,  # Всички цени вече са в EUR
             "avg_eur": round(avg_eur, 2) if avg_eur else None,
-            "deviation": round(dev, 1) if dev is not None else None,
+            "avg_bgn": round(avg_bgn, 2) if avg_bgn else None,
+            "deviation": round(deviation, 1) if deviation is not None else None,
             "status": status
         })
     
@@ -1275,7 +1490,12 @@ def get_sheets_client():
 
 
 def update_google_sheets(results):
-    """Актуализира Google Sheets с резултатите."""
+    """
+    Актуализира Google Sheets с резултатите.
+    
+    Формат v7.6: EUR като базова валута
+    Колони: №, Продукт, Грамаж, Реф.EUR, eBag, Кашон, Balev, Metro, Ср.EUR, Откл.%, Статус
+    """
     spreadsheet_id = os.environ.get('SPREADSHEET_ID')
     if not spreadsheet_id:
         print("SPREADSHEET_ID не е зададен")
@@ -1289,7 +1509,7 @@ def update_google_sheets(results):
         try:
             sheet = spreadsheet.worksheet("Ценови Тракер")
         except:
-            sheet = spreadsheet.add_worksheet("Ценови Тракер", rows=30, cols=15)
+            sheet = spreadsheet.add_worksheet("Ценови Тракер", rows=30, cols=13)
         
         sheet.clear()
         print("  Лист изчистен")
@@ -1301,31 +1521,34 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v7.5', '', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v7.6 (EUR)', '', '', '', '', '', '', '', '', '', '', ''])
         
-        # Ред 2: Метаданни
-        all_data.append([f'Актуализация: {now}', '', f'Курс: {EUR_RATE}', '', f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', '', ''])
+        # Ред 2: Метаданни - EUR е базова валута
+        all_data.append([
+            f'Актуализация: {now}', '', 
+            f'Валута: EUR (1 EUR = {EUR_BGN_RATE} BGN)', '',
+            f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', ''
+        ])
         
         # Ред 3: Празен
-        all_data.append([''] * 13)
+        all_data.append([''] * 12)
         
-        # Ред 4: Заглавия (с Metro)
-        headers = ['№', 'Продукт', 'Грамаж', 'Реф.BGN', 'Реф.EUR', 'eBag', 'Кашон', 'Balev', 'Metro', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']
+        # Ред 4: Заглавия - EUR-first (без BGN колони)
+        # A=№, B=Продукт, C=Грамаж, D=Реф.EUR, E=eBag, F=Кашон, G=Balev, H=Metro, I=Ср.EUR, J=Откл.%, K=Статус
+        headers = ['№', 'Продукт', 'Грамаж', 'Реф.€', 'eBag €', 'Кашон €', 'Balev €', 'Metro €', 'Средна €', 'Откл.%', 'Статус']
         all_data.append(headers)
         
-        # Ред 5+: Данни
+        # Ред 5+: Данни (всички цени в EUR)
         for i, r in enumerate(results, 1):
             row = [
                 i,
                 r['name'],
                 r['weight'],
-                r['ref_bgn'],
                 r['ref_eur'],
                 r['prices'].get('eBag', '') or '',
                 r['prices'].get('Kashon', '') or '',
                 r['prices'].get('Balev', '') or '',
                 r['prices'].get('Metro', '') or '',
-                r['avg_bgn'] if r['avg_bgn'] else '',
                 r['avg_eur'] if r['avg_eur'] else '',
                 f"{r['deviation']}%" if r['deviation'] is not None else '',
                 r['status']
@@ -1336,21 +1559,22 @@ def update_google_sheets(results):
         sheet.update(values=all_data, range_name='A1')
         print(f"  ✓ Записани {len(all_data)} реда")
         
-        # Форматиране v7.5 - оптимизирано с batch updates (по-малко API заявки)
+        # Форматиране v7.6 - EUR базова валута, 11 колони
+        # A=№, B=Продукт, C=Грамаж, D=Реф.€, E=eBag, F=Кашон, G=Balev, H=Metro, I=Ср.€, J=Откл.%, K=Статус
         try:
             last_row = 4 + len(results)
             
             # Събираме всички formatting requests в един batch
             format_requests = []
             
-            # 1. Заглавен ред (A1:M1) - тъмно зелено
+            # 1. Заглавен ред (A1:K1) - тъмно зелено с € символ
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 13},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 11},
                     "cell": {
                         "userEnteredFormat": {
-                            "backgroundColor": {"red": 0.13, "green": 0.35, "blue": 0.22},
-                            "textFormat": {"bold": True, "fontSize": 14, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+                            "backgroundColor": {"red": 0.0, "green": 0.27, "blue": 0.55},  # Euro blue
+                            "textFormat": {"bold": True, "fontSize": 14, "foregroundColor": {"red": 1, "green": 0.84, "blue": 0}},  # Euro gold
                             "horizontalAlignment": "CENTER"
                         }
                     },
@@ -1361,18 +1585,18 @@ def update_google_sheets(results):
             # Merge заглавния ред
             format_requests.append({
                 "mergeCells": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 13},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 11},
                     "mergeType": "MERGE_ALL"
                 }
             })
             
-            # 2. Метаданни ред (A2:M2) - светло зелено
+            # 2. Метаданни ред (A2:K2) - светло синьо (Euro theme)
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 0, "endColumnIndex": 13},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 0, "endColumnIndex": 11},
                     "cell": {
                         "userEnteredFormat": {
-                            "backgroundColor": {"red": 0.92, "green": 0.97, "blue": 0.92},
+                            "backgroundColor": {"red": 0.9, "green": 0.94, "blue": 1.0},
                             "textFormat": {"italic": True, "fontSize": 10}
                         }
                     },
@@ -1380,13 +1604,13 @@ def update_google_sheets(results):
                 }
             })
             
-            # 3. Заглавия колони A-E (ред 4) - базово зелено
+            # 3. Заглавия колони A-D (№, Продукт, Грамаж, Реф.€) - Euro blue
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 3, "endRowIndex": 4, "startColumnIndex": 0, "endColumnIndex": 5},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 3, "endRowIndex": 4, "startColumnIndex": 0, "endColumnIndex": 4},
                     "cell": {
                         "userEnteredFormat": {
-                            "backgroundColor": {"red": 0.2, "green": 0.5, "blue": 0.3},
+                            "backgroundColor": {"red": 0.0, "green": 0.27, "blue": 0.55},
                             "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
                             "horizontalAlignment": "CENTER"
                         }
@@ -1395,12 +1619,12 @@ def update_google_sheets(results):
                 }
             })
             
-            # 4. Магазини заглавия - различни нюанси зелено
+            # 4. Магазини заглавия E-H - различни нюанси зелено
             store_colors = [
-                (5, {"red": 0.56, "green": 0.77, "blue": 0.49}),   # F: eBag - светло
-                (6, {"red": 0.42, "green": 0.68, "blue": 0.42}),   # G: Кашон - средно
-                (7, {"red": 0.30, "green": 0.58, "blue": 0.35}),   # H: Balev - тъмно
-                (8, {"red": 0.20, "green": 0.48, "blue": 0.28}),   # I: Metro - най-тъмно
+                (4, {"red": 0.56, "green": 0.77, "blue": 0.49}),   # E: eBag - светло зелено
+                (5, {"red": 0.42, "green": 0.68, "blue": 0.42}),   # F: Кашон - средно зелено
+                (6, {"red": 0.30, "green": 0.58, "blue": 0.35}),   # G: Balev - тъмно зелено
+                (7, {"red": 0.20, "green": 0.48, "blue": 0.28}),   # H: Metro - най-тъмно зелено
             ]
             for col_idx, bg_color in store_colors:
                 format_requests.append({
@@ -1417,13 +1641,13 @@ def update_google_sheets(results):
                     }
                 })
             
-            # 5. Обобщение заглавия J-M (ред 4) - базово зелено
+            # 5. Обобщение заглавия I-K (Ср.€, Откл.%, Статус) - Euro blue
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 3, "endRowIndex": 4, "startColumnIndex": 9, "endColumnIndex": 13},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 3, "endRowIndex": 4, "startColumnIndex": 8, "endColumnIndex": 11},
                     "cell": {
                         "userEnteredFormat": {
-                            "backgroundColor": {"red": 0.2, "green": 0.5, "blue": 0.3},
+                            "backgroundColor": {"red": 0.0, "green": 0.27, "blue": 0.55},
                             "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
                             "horizontalAlignment": "CENTER"
                         }
@@ -1432,12 +1656,12 @@ def update_google_sheets(results):
                 }
             })
             
-            # 6. Фон на магазин колоните (F-I) - леки нюанси зелено
+            # 6. Фон на магазин колоните (E-H) - леки нюанси зелено
             store_data_colors = [
-                (5, {"red": 0.92, "green": 0.97, "blue": 0.90}),   # F: eBag
-                (6, {"red": 0.88, "green": 0.95, "blue": 0.87}),   # G: Кашон
-                (7, {"red": 0.84, "green": 0.93, "blue": 0.84}),   # H: Balev
-                (8, {"red": 0.80, "green": 0.91, "blue": 0.81}),   # I: Metro
+                (4, {"red": 0.92, "green": 0.97, "blue": 0.90}),   # E: eBag
+                (5, {"red": 0.88, "green": 0.95, "blue": 0.87}),   # F: Кашон
+                (6, {"red": 0.84, "green": 0.93, "blue": 0.84}),   # G: Balev
+                (7, {"red": 0.80, "green": 0.91, "blue": 0.81}),   # H: Metro
             ]
             for col_idx, bg_color in store_data_colors:
                 format_requests.append({
@@ -1453,8 +1677,8 @@ def update_google_sheets(results):
                     }
                 })
             
-            # 7. Подравняване: A=център, B=ляво, C=център, D-L=дясно, M=център
-            # A - център
+            # 7. Подравняване на данните
+            # A (№) - център
             format_requests.append({
                 "repeatCell": {
                     "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 0, "endColumnIndex": 1},
@@ -1462,7 +1686,7 @@ def update_google_sheets(results):
                     "fields": "userEnteredFormat(horizontalAlignment)"
                 }
             })
-            # B - ляво
+            # B (Продукт) - ляво
             format_requests.append({
                 "repeatCell": {
                     "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 1, "endColumnIndex": 2},
@@ -1470,7 +1694,7 @@ def update_google_sheets(results):
                     "fields": "userEnteredFormat(horizontalAlignment)"
                 }
             })
-            # C - център
+            # C (Грамаж) - център
             format_requests.append({
                 "repeatCell": {
                     "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 2, "endColumnIndex": 3},
@@ -1478,39 +1702,38 @@ def update_google_sheets(results):
                     "fields": "userEnteredFormat(horizontalAlignment)"
                 }
             })
-            # D-E - дясно (референтни цени)
+            # D (Реф.€) - дясно
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 3, "endColumnIndex": 5},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 3, "endColumnIndex": 4},
                     "cell": {"userEnteredFormat": {"horizontalAlignment": "RIGHT"}},
                     "fields": "userEnteredFormat(horizontalAlignment)"
                 }
             })
-            # J-L - дясно (средни цени и отклонение)
+            # I-J (Ср.€, Откл.%) - дясно
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 9, "endColumnIndex": 12},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 8, "endColumnIndex": 10},
                     "cell": {"userEnteredFormat": {"horizontalAlignment": "RIGHT"}},
                     "fields": "userEnteredFormat(horizontalAlignment)"
                 }
             })
-            # M - център (статус)
+            # K (Статус) - център
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 12, "endColumnIndex": 13},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 10, "endColumnIndex": 11},
                     "cell": {"userEnteredFormat": {"horizontalAlignment": "CENTER"}},
                     "fields": "userEnteredFormat(horizontalAlignment)"
                 }
             })
             
             # 8. Conditional formatting за статус и средни цени
-            # Събираме индексите по статус
             ok_rows = []
             warning_rows = []
             no_data_rows = []
             
             for i, r in enumerate(results):
-                row_idx = 4 + i  # 0-based index
+                row_idx = 4 + i
                 if r['status'] == 'OK':
                     ok_rows.append(row_idx)
                 elif r['status'] == 'ВНИМАНИЕ':
@@ -1518,11 +1741,11 @@ def update_google_sheets(results):
                 else:
                     no_data_rows.append(row_idx)
             
-            # OK редове - зелен статус
+            # OK редове - зелен статус (колона K=10)
             for row_idx in ok_rows:
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 12, "endColumnIndex": 13},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 10, "endColumnIndex": 11},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 0.85, "green": 0.95, "blue": 0.85},
@@ -1532,10 +1755,10 @@ def update_google_sheets(results):
                         "fields": "userEnteredFormat(backgroundColor,textFormat)"
                     }
                 })
-                # Средни цени - светло зелено за OK
+                # Средна цена (колона I=8) - светло зелено
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 9, "endColumnIndex": 11},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 8, "endColumnIndex": 9},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 0.9, "green": 0.97, "blue": 0.9},
@@ -1548,10 +1771,10 @@ def update_google_sheets(results):
             
             # ВНИМАНИЕ редове - червен статус и фон
             for row_idx in warning_rows:
-                # Статус клетка - червено
+                # Статус клетка K - червено
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 12, "endColumnIndex": 13},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 10, "endColumnIndex": 11},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 1, "green": 0.85, "blue": 0.85},
@@ -1561,10 +1784,10 @@ def update_google_sheets(results):
                         "fields": "userEnteredFormat(backgroundColor,textFormat)"
                     }
                 })
-                # Средни цени - светло червено за ВНИМАНИЕ
+                # Средна цена I - светло червено
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 9, "endColumnIndex": 11},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 8, "endColumnIndex": 9},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 1, "green": 0.92, "blue": 0.92},
@@ -1574,22 +1797,10 @@ def update_google_sheets(results):
                         "fields": "userEnteredFormat(backgroundColor,textFormat)"
                     }
                 })
-                # Ред A-E - лек червен фон
+                # Откл.% J - червен фон с bold
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 0, "endColumnIndex": 5},
-                        "cell": {
-                            "userEnteredFormat": {
-                                "backgroundColor": {"red": 1, "green": 0.95, "blue": 0.95}
-                            }
-                        },
-                        "fields": "userEnteredFormat(backgroundColor)"
-                    }
-                })
-                # Откл.% - червен фон
-                format_requests.append({
-                    "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 11, "endColumnIndex": 12},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 9, "endColumnIndex": 10},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 1, "green": 0.92, "blue": 0.92},
@@ -1599,12 +1810,24 @@ def update_google_sheets(results):
                         "fields": "userEnteredFormat(backgroundColor,textFormat)"
                     }
                 })
+                # Ред A-D - лек червен фон
+                format_requests.append({
+                    "repeatCell": {
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 0, "endColumnIndex": 4},
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": {"red": 1, "green": 0.95, "blue": 0.95}
+                            }
+                        },
+                        "fields": "userEnteredFormat(backgroundColor)"
+                    }
+                })
             
             # НЯМА ДАННИ редове - сиво
             for row_idx in no_data_rows:
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 0, "endColumnIndex": 13},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 0, "endColumnIndex": 11},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 0.95, "green": 0.95, "blue": 0.95},
@@ -1615,11 +1838,19 @@ def update_google_sheets(results):
                     }
                 })
             
-            # 9. Ширини на колоните
+            # 9. Ширини на колоните (11 колони)
             column_widths = [
-                (0, 35), (1, 280), (2, 65), (3, 70), (4, 70),
-                (5, 60), (6, 60), (7, 60), (8, 70),
-                (9, 70), (10, 70), (11, 65), (12, 90)
+                (0, 35),    # A: №
+                (1, 280),   # B: Продукт
+                (2, 65),    # C: Грамаж
+                (3, 70),    # D: Реф.€
+                (4, 70),    # E: eBag
+                (5, 70),    # F: Кашон
+                (6, 70),    # G: Balev
+                (7, 70),    # H: Metro
+                (8, 75),    # I: Ср.€
+                (9, 70),    # J: Откл.%
+                (10, 90),   # K: Статус
             ]
             for col_idx, width in column_widths:
                 format_requests.append({
@@ -1637,7 +1868,7 @@ def update_google_sheets(results):
         except Exception as e:
             print(f"  Форматиране предупреждение: {str(e)[:80]}")
         
-        # История - годишни табове
+        # История - годишни табове (EUR)
         try:
             current_year = datetime.now().year
             history_tab_name = f"История_{current_year}"
@@ -1646,29 +1877,11 @@ def update_google_sheets(results):
             try:
                 hist = spreadsheet.worksheet(history_tab_name)
             except:
-                # Няма таб за тази година
-                # Проверяваме дали има стар таб "История" (за миграция)
-                try:
-                    old_hist = spreadsheet.worksheet("История")
-                    # Преименуваме го на История_2025
-                    old_hist.update_title("История_2025")
-                    print(f"  ✓ Преименуван таб 'История' → 'История_2025'")
-                    
-                    # Ако текущата година е 2025, използваме преименувания таб
-                    if current_year == 2025:
-                        hist = old_hist
-                    else:
-                        # Създаваме нов таб за текущата година (с Metro)
-                        hist = spreadsheet.add_worksheet(history_tab_name, rows=2000, cols=13)
-                        hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Metro', 'Средна', 'Откл.%', 'Статус']], range_name='A1')
-                        hist.freeze(rows=1)
-                        print(f"  ✓ Създаден нов таб '{history_tab_name}'")
-                except:
-                    # Няма стар таб "История", създаваме нов за текущата година (с Metro)
-                    hist = spreadsheet.add_worksheet(history_tab_name, rows=2000, cols=13)
-                    hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Metro', 'Средна', 'Откл.%', 'Статус']], range_name='A1')
-                    hist.freeze(rows=1)
-                    print(f"  ✓ Създаден нов таб '{history_tab_name}'")
+                # Няма таб за тази година, създаваме нов (EUR формат)
+                hist = spreadsheet.add_worksheet(history_tab_name, rows=2000, cols=11)
+                hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag €', 'Кашон €', 'Balev €', 'Metro €', 'Средна €', 'Откл.%', 'Статус']], range_name='A1')
+                hist.freeze(rows=1)
+                print(f"  ✓ Създаден нов таб '{history_tab_name}' (EUR формат)")
             
             date_str = datetime.now().strftime("%d.%m.%Y")
             time_str = datetime.now().strftime("%H:%M")
@@ -1681,7 +1894,7 @@ def update_google_sheets(results):
                     r['prices'].get('Kashon', '') or '',
                     r['prices'].get('Balev', '') or '',
                     r['prices'].get('Metro', '') or '',
-                    r['avg_bgn'] if r['avg_bgn'] else '',
+                    r['avg_eur'] if r['avg_eur'] else '',  # EUR средна цена
                     f"{r['deviation']}%" if r['deviation'] is not None else '',
                     r['status']
                 ])
@@ -1702,7 +1915,7 @@ def update_google_sheets(results):
 # =============================================================================
 
 def send_email_alert(alerts):
-    """Изпраща имейл известие при отклонения."""
+    """Изпраща имейл известие при отклонения (EUR формат)."""
     gmail_user = os.environ.get('GMAIL_USER')
     gmail_pass = os.environ.get('GMAIL_APP_PASSWORD')
     recipients = os.environ.get('ALERT_EMAIL', gmail_user)
@@ -1719,7 +1932,7 @@ def send_email_alert(alerts):
     subject = "[!] Harmonica: " + str(len(alerts)) + " продукта с ценови промени над " + str(ALERT_THRESHOLD) + "%"
     sheets_url = "https://docs.google.com/spreadsheets/d/" + spreadsheet_id if spreadsheet_id else ""
     
-    # Plain text версия
+    # Plain text версия (EUR)
     body_lines = []
     body_lines.append("Здравей,")
     body_lines.append("")
@@ -1727,18 +1940,18 @@ def send_email_alert(alerts):
     body_lines.append("")
     
     for a in alerts:
-        ref_price = "{:.2f}".format(a['ref_bgn'])
-        avg_price = "{:.2f}".format(a['avg_bgn'])
+        ref_price = "{:.2f}".format(a['ref_eur'])
+        avg_price = "{:.2f}".format(a['avg_eur'])
         dev_pct = "{:+.1f}".format(a['deviation'])
-        ebag_price = str(a['prices'].get('eBag') or 'N/A')
-        kashon_price = str(a['prices'].get('Kashon') or 'N/A')
-        balev_price = str(a['prices'].get('Balev') or 'N/A')
-        metro_price = str(a['prices'].get('Metro') or 'N/A')
+        ebag_price = str(a['prices'].get('eBag') or 'N/A') + " €" if a['prices'].get('eBag') else 'N/A'
+        kashon_price = str(a['prices'].get('Kashon') or 'N/A') + " €" if a['prices'].get('Kashon') else 'N/A'
+        balev_price = str(a['prices'].get('Balev') or 'N/A') + " €" if a['prices'].get('Balev') else 'N/A'
+        metro_price = str(a['prices'].get('Metro') or 'N/A') + " €" if a['prices'].get('Metro') else 'N/A'
         
         body_lines.append("--------------------------------------------")
         body_lines.append("* " + a['name'] + " (" + a['weight'] + ")")
-        body_lines.append("  Референтна: " + ref_price + " лв")
-        body_lines.append("  Средна: " + avg_price + " лв")
+        body_lines.append("  Референтна: " + ref_price + " €")
+        body_lines.append("  Средна: " + avg_price + " €")
         body_lines.append("  Отклонение: " + dev_pct + "%")
         body_lines.append("  eBag: " + ebag_price + " | Кашон: " + kashon_price + " | Balev: " + balev_price + " | Metro: " + metro_price)
         body_lines.append("")
@@ -1749,7 +1962,7 @@ def send_email_alert(alerts):
     body_lines.append(sheets_url)
     body_lines.append("")
     body_lines.append("Poздрави,")
-    body_lines.append("Harmonica Price Tracker v7.5")
+    body_lines.append("Harmonica Price Tracker v7.6 (EUR)")
     
     body = "\n".join(body_lines)
     
@@ -1776,11 +1989,12 @@ def send_email_alert(alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v7.5")
-    print("Оптимизирано форматиране + conditional formatting")
+    print("HARMONICA PRICE TRACKER v7.6")
+    print("EUR базова валута + интелигентна валутна детекция")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
     print("Магазини: " + str(len(STORES)))
+    print("Базова валута: EUR")
     print("Claude API: " + ("Наличен" if CLAUDE_AVAILABLE else "Не е наличен"))
     print("Vision: " + ("Активна" if ENABLE_VISUAL_VERIFICATION else "Изключена"))
     print("=" * 60)
