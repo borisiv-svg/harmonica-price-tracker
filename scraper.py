@@ -1,9 +1,9 @@
 """
-Harmonica Price Tracker v7.4
-- 24 продукта от Balev като референция (разширен списък)
+Harmonica Price Tracker v7.5
+- 24 продукта от Balev като референция
 - 4 магазина: eBag, Кашон, Balev, Metro
-- Подобрено форматиране: различни нюанси зелено, подравняване, зебра ефект
-- Metro заменя T Market (Cloudflare блокира T Market)
+- Оптимизирано форматиране с batch updates (по-малко API заявки)
+- Conditional formatting за средни цени
 """
 
 import os
@@ -17,14 +17,6 @@ from datetime import datetime
 from playwright.sync_api import sync_playwright
 import gspread
 from google.oauth2.service_account import Credentials
-
-# Playwright Stealth за Cloudflare bypass
-try:
-    from playwright_stealth import stealth_sync
-    STEALTH_AVAILABLE = True
-except ImportError:
-    STEALTH_AVAILABLE = False
-    print("⚠ playwright-stealth не е налична (pip install playwright-stealth)")
 
 # Claude API
 try:
@@ -1309,7 +1301,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v7.4', '', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v7.5', '', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([f'Актуализация: {now}', '', f'Курс: {EUR_RATE}', '', f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', '', ''])
@@ -1344,182 +1336,306 @@ def update_google_sheets(results):
         sheet.update(values=all_data, range_name='A1')
         print(f"  ✓ Записани {len(all_data)} реда")
         
-        # Форматиране v7.3 - подобрено с различни нюанси зелено
+        # Форматиране v7.5 - оптимизирано с batch updates (по-малко API заявки)
         try:
-            # Заглавен ред - тъмно зелено
-            sheet.format('A1:M1', {
-                'backgroundColor': {'red': 0.13, 'green': 0.35, 'blue': 0.22},
-                'textFormat': {'bold': True, 'fontSize': 14, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}},
-                'horizontalAlignment': 'CENTER'
-            })
-            sheet.merge_cells('A1:M1')
-            
-            # Метаданни ред - много светло зелено
-            sheet.format('A2:M2', {
-                'backgroundColor': {'red': 0.92, 'green': 0.97, 'blue': 0.92},
-                'textFormat': {'italic': True, 'fontSize': 10}
-            })
-            
-            # Заглавия на колоните - базово зелено
-            sheet.format('A4:E4', {
-                'backgroundColor': {'red': 0.2, 'green': 0.5, 'blue': 0.3},
-                'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}},
-                'horizontalAlignment': 'CENTER'
-            })
-            
-            # Магазини - различни нюанси зелено (F=eBag, G=Кашон, H=Balev, I=Metro)
-            # eBag - светло зелено
-            sheet.format('F4', {
-                'backgroundColor': {'red': 0.56, 'green': 0.77, 'blue': 0.49},
-                'textFormat': {'bold': True, 'foregroundColor': {'red': 0, 'green': 0.2, 'blue': 0}},
-                'horizontalAlignment': 'CENTER'
-            })
-            # Кашон - средно зелено
-            sheet.format('G4', {
-                'backgroundColor': {'red': 0.42, 'green': 0.68, 'blue': 0.42},
-                'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}},
-                'horizontalAlignment': 'CENTER'
-            })
-            # Balev - по-тъмно зелено
-            sheet.format('H4', {
-                'backgroundColor': {'red': 0.30, 'green': 0.58, 'blue': 0.35},
-                'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}},
-                'horizontalAlignment': 'CENTER'
-            })
-            # Metro - тъмно зелено
-            sheet.format('I4', {
-                'backgroundColor': {'red': 0.20, 'green': 0.48, 'blue': 0.28},
-                'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}},
-                'horizontalAlignment': 'CENTER'
-            })
-            
-            # Обобщение колони (Ср.BGN, Ср.EUR, Откл.%, Статус)
-            sheet.format('J4:M4', {
-                'backgroundColor': {'red': 0.2, 'green': 0.5, 'blue': 0.3},
-                'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}},
-                'horizontalAlignment': 'CENTER'
-            })
-            
-            # Подравняване на данните (редове 5+)
             last_row = 4 + len(results)
             
-            # Колона A (№) - центрирано
-            sheet.format(f'A5:A{last_row}', {'horizontalAlignment': 'CENTER'})
+            # Събираме всички formatting requests в един batch
+            format_requests = []
             
-            # Колона B (Продукт) - ляво
-            sheet.format(f'B5:B{last_row}', {'horizontalAlignment': 'LEFT'})
-            
-            # Колона C (Грамаж) - центрирано
-            sheet.format(f'C5:C{last_row}', {'horizontalAlignment': 'CENTER'})
-            
-            # Колони D-L (числа) - дясно подравнени
-            sheet.format(f'D5:L{last_row}', {'horizontalAlignment': 'RIGHT'})
-            
-            # Колона M (Статус) - центрирано
-            sheet.format(f'M5:M{last_row}', {'horizontalAlignment': 'CENTER'})
-            
-            # Леко оцветяване на колоните за магазините
-            # eBag колона - много светло зелено
-            sheet.format(f'F5:F{last_row}', {
-                'backgroundColor': {'red': 0.92, 'green': 0.97, 'blue': 0.90}
-            })
-            # Кашон колона - малко по-зелено
-            sheet.format(f'G5:G{last_row}', {
-                'backgroundColor': {'red': 0.88, 'green': 0.95, 'blue': 0.87}
-            })
-            # Balev колона - още по-зелено
-            sheet.format(f'H5:H{last_row}', {
-                'backgroundColor': {'red': 0.84, 'green': 0.93, 'blue': 0.84}
-            })
-            # Metro колона - най-наситено
-            sheet.format(f'I5:I{last_row}', {
-                'backgroundColor': {'red': 0.80, 'green': 0.91, 'blue': 0.81}
-            })
-            
-            # Цветово кодиране на статус (колона M) и ред при ВНИМАНИЕ
-            for i, r in enumerate(results, 5):
-                if r['status'] == 'OK':
-                    sheet.format(f'M{i}', {
-                        'backgroundColor': {'red': 0.85, 'green': 0.95, 'blue': 0.85},
-                        'textFormat': {'bold': True, 'foregroundColor': {'red': 0, 'green': 0.5, 'blue': 0}}
-                    })
-                elif r['status'] == 'ВНИМАНИЕ':
-                    # Целият ред с лек червен оттенък за по-добра видимост
-                    sheet.format(f'A{i}:E{i}', {
-                        'backgroundColor': {'red': 1, 'green': 0.95, 'blue': 0.95}
-                    })
-                    sheet.format(f'J{i}:L{i}', {
-                        'backgroundColor': {'red': 1, 'green': 0.95, 'blue': 0.95}
-                    })
-                    sheet.format(f'M{i}', {
-                        'backgroundColor': {'red': 1, 'green': 0.85, 'blue': 0.85},
-                        'textFormat': {'bold': True, 'foregroundColor': {'red': 0.8, 'green': 0, 'blue': 0}}
-                    })
-                else:  # НЯМА ДАННИ
-                    sheet.format(f'A{i}:M{i}', {
-                        'backgroundColor': {'red': 0.95, 'green': 0.95, 'blue': 0.95}
-                    })
-                    sheet.format(f'M{i}', {
-                        'textFormat': {'italic': True, 'foregroundColor': {'red': 0.5, 'green': 0.5, 'blue': 0.5}}
-                    })
-            
-            # Алтернативни редове за по-добра четимост (зебра ефект за OK редове)
-            for i, r in enumerate(results, 5):
-                if r['status'] == 'OK' and i % 2 == 0:
-                    # Леко по-тъмен фон за четни редове
-                    sheet.format(f'A{i}:E{i}', {
-                        'backgroundColor': {'red': 0.96, 'green': 0.98, 'blue': 0.96}
-                    })
-                    sheet.format(f'J{i}:L{i}', {
-                        'backgroundColor': {'red': 0.96, 'green': 0.98, 'blue': 0.96}
-                    })
-            
-            print("  ✓ Форматиране приложено")
-            
-            # Оразмеряване на колоните за по-добра четимост
-            try:
-                # Ширини на колоните в пиксели
-                # A=№, B=Продукт, C=Грамаж, D=Реф.BGN, E=Реф.EUR, F=eBag, G=Кашон, H=Balev, I=Metro, J=Ср.BGN, K=Ср.EUR, L=Откл.%, M=Статус
-                column_widths = [
-                    (0, 35),    # A: №
-                    (1, 280),   # B: Продукт (по-широка за дълги имена)
-                    (2, 65),    # C: Грамаж
-                    (3, 70),    # D: Реф.BGN
-                    (4, 70),    # E: Реф.EUR
-                    (5, 60),    # F: eBag
-                    (6, 60),    # G: Кашон
-                    (7, 60),    # H: Balev
-                    (8, 70),    # I: Metro
-                    (9, 65),    # J: Ср.BGN
-                    (10, 65),   # K: Ср.EUR
-                    (11, 65),   # L: Откл.%
-                    (12, 90),   # M: Статус
-                ]
-                
-                requests = []
-                for col_idx, width in column_widths:
-                    requests.append({
-                        "updateDimensionProperties": {
-                            "range": {
-                                "sheetId": sheet.id,
-                                "dimension": "COLUMNS",
-                                "startIndex": col_idx,
-                                "endIndex": col_idx + 1
-                            },
-                            "properties": {
-                                "pixelSize": width
-                            },
-                            "fields": "pixelSize"
+            # 1. Заглавен ред (A1:M1) - тъмно зелено
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 13},
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": {"red": 0.13, "green": 0.35, "blue": 0.22},
+                            "textFormat": {"bold": True, "fontSize": 14, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+                            "horizontalAlignment": "CENTER"
                         }
-                    })
-                
-                # Изпълняваме batch update
-                spreadsheet.batch_update({"requests": requests})
-                print("  ✓ Колони оразмерени")
-            except Exception as e:
-                print(f"  Оразмеряване предупреждение: {str(e)[:50]}")
+                    },
+                    "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)"
+                }
+            })
+            
+            # Merge заглавния ред
+            format_requests.append({
+                "mergeCells": {
+                    "range": {"sheetId": sheet.id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 13},
+                    "mergeType": "MERGE_ALL"
+                }
+            })
+            
+            # 2. Метаданни ред (A2:M2) - светло зелено
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 0, "endColumnIndex": 13},
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": {"red": 0.92, "green": 0.97, "blue": 0.92},
+                            "textFormat": {"italic": True, "fontSize": 10}
+                        }
+                    },
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                }
+            })
+            
+            # 3. Заглавия колони A-E (ред 4) - базово зелено
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id, "startRowIndex": 3, "endRowIndex": 4, "startColumnIndex": 0, "endColumnIndex": 5},
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": {"red": 0.2, "green": 0.5, "blue": 0.3},
+                            "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+                            "horizontalAlignment": "CENTER"
+                        }
+                    },
+                    "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)"
+                }
+            })
+            
+            # 4. Магазини заглавия - различни нюанси зелено
+            store_colors = [
+                (5, {"red": 0.56, "green": 0.77, "blue": 0.49}),   # F: eBag - светло
+                (6, {"red": 0.42, "green": 0.68, "blue": 0.42}),   # G: Кашон - средно
+                (7, {"red": 0.30, "green": 0.58, "blue": 0.35}),   # H: Balev - тъмно
+                (8, {"red": 0.20, "green": 0.48, "blue": 0.28}),   # I: Metro - най-тъмно
+            ]
+            for col_idx, bg_color in store_colors:
+                format_requests.append({
+                    "repeatCell": {
+                        "range": {"sheetId": sheet.id, "startRowIndex": 3, "endRowIndex": 4, "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": bg_color,
+                                "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+                                "horizontalAlignment": "CENTER"
+                            }
+                        },
+                        "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)"
+                    }
+                })
+            
+            # 5. Обобщение заглавия J-M (ред 4) - базово зелено
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id, "startRowIndex": 3, "endRowIndex": 4, "startColumnIndex": 9, "endColumnIndex": 13},
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": {"red": 0.2, "green": 0.5, "blue": 0.3},
+                            "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+                            "horizontalAlignment": "CENTER"
+                        }
+                    },
+                    "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)"
+                }
+            })
+            
+            # 6. Фон на магазин колоните (F-I) - леки нюанси зелено
+            store_data_colors = [
+                (5, {"red": 0.92, "green": 0.97, "blue": 0.90}),   # F: eBag
+                (6, {"red": 0.88, "green": 0.95, "blue": 0.87}),   # G: Кашон
+                (7, {"red": 0.84, "green": 0.93, "blue": 0.84}),   # H: Balev
+                (8, {"red": 0.80, "green": 0.91, "blue": 0.81}),   # I: Metro
+            ]
+            for col_idx, bg_color in store_data_colors:
+                format_requests.append({
+                    "repeatCell": {
+                        "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": bg_color,
+                                "horizontalAlignment": "RIGHT"
+                            }
+                        },
+                        "fields": "userEnteredFormat(backgroundColor,horizontalAlignment)"
+                    }
+                })
+            
+            # 7. Подравняване: A=център, B=ляво, C=център, D-L=дясно, M=център
+            # A - център
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 0, "endColumnIndex": 1},
+                    "cell": {"userEnteredFormat": {"horizontalAlignment": "CENTER"}},
+                    "fields": "userEnteredFormat(horizontalAlignment)"
+                }
+            })
+            # B - ляво
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 1, "endColumnIndex": 2},
+                    "cell": {"userEnteredFormat": {"horizontalAlignment": "LEFT"}},
+                    "fields": "userEnteredFormat(horizontalAlignment)"
+                }
+            })
+            # C - център
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 2, "endColumnIndex": 3},
+                    "cell": {"userEnteredFormat": {"horizontalAlignment": "CENTER"}},
+                    "fields": "userEnteredFormat(horizontalAlignment)"
+                }
+            })
+            # D-E - дясно (референтни цени)
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 3, "endColumnIndex": 5},
+                    "cell": {"userEnteredFormat": {"horizontalAlignment": "RIGHT"}},
+                    "fields": "userEnteredFormat(horizontalAlignment)"
+                }
+            })
+            # J-L - дясно (средни цени и отклонение)
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 9, "endColumnIndex": 12},
+                    "cell": {"userEnteredFormat": {"horizontalAlignment": "RIGHT"}},
+                    "fields": "userEnteredFormat(horizontalAlignment)"
+                }
+            })
+            # M - център (статус)
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 12, "endColumnIndex": 13},
+                    "cell": {"userEnteredFormat": {"horizontalAlignment": "CENTER"}},
+                    "fields": "userEnteredFormat(horizontalAlignment)"
+                }
+            })
+            
+            # 8. Conditional formatting за статус и средни цени
+            # Събираме индексите по статус
+            ok_rows = []
+            warning_rows = []
+            no_data_rows = []
+            
+            for i, r in enumerate(results):
+                row_idx = 4 + i  # 0-based index
+                if r['status'] == 'OK':
+                    ok_rows.append(row_idx)
+                elif r['status'] == 'ВНИМАНИЕ':
+                    warning_rows.append(row_idx)
+                else:
+                    no_data_rows.append(row_idx)
+            
+            # OK редове - зелен статус
+            for row_idx in ok_rows:
+                format_requests.append({
+                    "repeatCell": {
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 12, "endColumnIndex": 13},
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": {"red": 0.85, "green": 0.95, "blue": 0.85},
+                                "textFormat": {"bold": True, "foregroundColor": {"red": 0, "green": 0.5, "blue": 0}}
+                            }
+                        },
+                        "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                    }
+                })
+                # Средни цени - светло зелено за OK
+                format_requests.append({
+                    "repeatCell": {
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 9, "endColumnIndex": 11},
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": {"red": 0.9, "green": 0.97, "blue": 0.9},
+                                "textFormat": {"foregroundColor": {"red": 0.1, "green": 0.4, "blue": 0.1}}
+                            }
+                        },
+                        "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                    }
+                })
+            
+            # ВНИМАНИЕ редове - червен статус и фон
+            for row_idx in warning_rows:
+                # Статус клетка - червено
+                format_requests.append({
+                    "repeatCell": {
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 12, "endColumnIndex": 13},
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": {"red": 1, "green": 0.85, "blue": 0.85},
+                                "textFormat": {"bold": True, "foregroundColor": {"red": 0.8, "green": 0, "blue": 0}}
+                            }
+                        },
+                        "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                    }
+                })
+                # Средни цени - светло червено за ВНИМАНИЕ
+                format_requests.append({
+                    "repeatCell": {
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 9, "endColumnIndex": 11},
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": {"red": 1, "green": 0.92, "blue": 0.92},
+                                "textFormat": {"foregroundColor": {"red": 0.7, "green": 0.1, "blue": 0.1}}
+                            }
+                        },
+                        "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                    }
+                })
+                # Ред A-E - лек червен фон
+                format_requests.append({
+                    "repeatCell": {
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 0, "endColumnIndex": 5},
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": {"red": 1, "green": 0.95, "blue": 0.95}
+                            }
+                        },
+                        "fields": "userEnteredFormat(backgroundColor)"
+                    }
+                })
+                # Откл.% - червен фон
+                format_requests.append({
+                    "repeatCell": {
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 11, "endColumnIndex": 12},
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": {"red": 1, "green": 0.92, "blue": 0.92},
+                                "textFormat": {"bold": True, "foregroundColor": {"red": 0.7, "green": 0, "blue": 0}}
+                            }
+                        },
+                        "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                    }
+                })
+            
+            # НЯМА ДАННИ редове - сиво
+            for row_idx in no_data_rows:
+                format_requests.append({
+                    "repeatCell": {
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 0, "endColumnIndex": 13},
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": {"red": 0.95, "green": 0.95, "blue": 0.95},
+                                "textFormat": {"italic": True, "foregroundColor": {"red": 0.5, "green": 0.5, "blue": 0.5}}
+                            }
+                        },
+                        "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                    }
+                })
+            
+            # 9. Ширини на колоните
+            column_widths = [
+                (0, 35), (1, 280), (2, 65), (3, 70), (4, 70),
+                (5, 60), (6, 60), (7, 60), (8, 70),
+                (9, 70), (10, 70), (11, 65), (12, 90)
+            ]
+            for col_idx, width in column_widths:
+                format_requests.append({
+                    "updateDimensionProperties": {
+                        "range": {"sheetId": sheet.id, "dimension": "COLUMNS", "startIndex": col_idx, "endIndex": col_idx + 1},
+                        "properties": {"pixelSize": width},
+                        "fields": "pixelSize"
+                    }
+                })
+            
+            # Изпълняваме всички requests в един batch
+            spreadsheet.batch_update({"requests": format_requests})
+            print(f"  ✓ Форматиране приложено ({len(format_requests)} операции в 1 batch)")
+            
         except Exception as e:
-            print(f"  Форматиране предупреждение: {str(e)[:50]}")
+            print(f"  Форматиране предупреждение: {str(e)[:80]}")
         
         # История - годишни табове
         try:
@@ -1633,7 +1749,7 @@ def send_email_alert(alerts):
     body_lines.append(sheets_url)
     body_lines.append("")
     body_lines.append("Poздрави,")
-    body_lines.append("Harmonica Price Tracker v7.4")
+    body_lines.append("Harmonica Price Tracker v7.5")
     
     body = "\n".join(body_lines)
     
@@ -1660,8 +1776,8 @@ def send_email_alert(alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v7.4")
-    print("Metro заменя T Market + подобрено форматиране")
+    print("HARMONICA PRICE TRACKER v7.5")
+    print("Оптимизирано форматиране + conditional formatting")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
     print("Магазини: " + str(len(STORES)))
