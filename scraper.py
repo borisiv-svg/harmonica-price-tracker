@@ -1,9 +1,9 @@
 """
-Harmonica Price Tracker v7.2
+Harmonica Price Tracker v7.4
 - 24 продукта от Balev като референция (разширен списък)
-- 4 магазина: eBag, Кашон, Balev, T Market
-- Stealth режим за T Market (Cloudflare bypass)
-- Подобрено форматиране на Google Sheets
+- 4 магазина: eBag, Кашон, Balev, Metro
+- Подобрено форматиране: различни нюанси зелено, подравняване, зебра ефект
+- Metro заменя T Market (Cloudflare блокира T Market)
 """
 
 import os
@@ -65,10 +65,10 @@ STORES = {
         "has_pagination": False,
         "has_load_more": False
     },
-    "TMarket": {
-        "url": "https://tmarketonline.bg/vendor/harmonica-1881705916",
-        "name_in_sheet": "T Market",
-        "scroll_times": 10,
+    "Metro": {
+        "url": "https://shop.metro.bg/shop/search?q=%D1%85%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
+        "name_in_sheet": "Metro",
+        "scroll_times": 15,
         "has_pagination": False,
         "has_load_more": False
     }
@@ -298,16 +298,18 @@ def get_product_card_selectors(store_name):
             ".catalog-item",
             ".product-tile",
         ],
-        "T Market": [
-            # CloudCart платформа - продуктови карти
+        "Metro": [
+            # Metro shop.metro.bg - модерна e-commerce платформа
             "[class*='product-card']",
+            "[class*='product-tile']",
             "[class*='product-item']",
-            ".card.product",
-            # Grid items
-            "[class*='col-'] [class*='product']",
-            ".products-grid .item",
+            "[data-testid*='product']",
+            # Grid/list items
+            ".search-results [class*='item']",
+            ".products-list [class*='product']",
+            "[class*='search-result'] [class*='product']",
             # Общи backup селектори
-            "article.product",
+            "article[class*='product']",
             ".catalog-product",
         ]
     }
@@ -1202,13 +1204,13 @@ def scrape_store(page, store_key, store_config, vision_client=None):
 
 
 def collect_prices():
-    """Събира цени от всички магазини. Използва stealth режим за T Market."""
+    """Събира цени от всички магазини."""
     all_prices = {}
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         
-        # Стандартен контекст за повечето магазини
+        # Стандартен контекст за всички магазини
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
             locale="bg-BG",
@@ -1229,42 +1231,7 @@ def collect_prices():
                 print("  [VISION] Claude Vision активиран")
         
         for key, config in STORES.items():
-            # За T Market използваме stealth режим
-            if key == "TMarket" and STEALTH_AVAILABLE:
-                print("  [STEALTH] Активиране на stealth режим за T Market...")
-                
-                # Създаваме нов stealth контекст
-                stealth_context = browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-                    locale="bg-BG",
-                    viewport={"width": 1920, "height": 1080},
-                    java_script_enabled=True,
-                    ignore_https_errors=True,
-                    extra_http_headers={
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                        "Accept-Language": "bg-BG,bg;q=0.9,en-US;q=0.8,en;q=0.7",
-                        "Accept-Encoding": "gzip, deflate, br",
-                        "Connection": "keep-alive",
-                        "Upgrade-Insecure-Requests": "1",
-                        "Sec-Fetch-Dest": "document",
-                        "Sec-Fetch-Mode": "navigate",
-                        "Sec-Fetch-Site": "none",
-                        "Sec-Fetch-User": "?1",
-                        "Cache-Control": "max-age=0",
-                    }
-                )
-                stealth_page = stealth_context.new_page()
-                
-                # Прилагаме stealth
-                stealth_sync(stealth_page)
-                
-                # Скрапваме с stealth страницата
-                all_prices[key] = scrape_store(stealth_page, key, config, vision_client)
-                
-                stealth_context.close()
-            else:
-                all_prices[key] = scrape_store(page, key, config, vision_client)
-            
+            all_prices[key] = scrape_store(page, key, config, vision_client)
             page.wait_for_timeout(2000)
         
         browser.close()
@@ -1342,7 +1309,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v7.2', '', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v7.4', '', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([f'Актуализация: {now}', '', f'Курс: {EUR_RATE}', '', f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', '', ''])
@@ -1350,8 +1317,8 @@ def update_google_sheets(results):
         # Ред 3: Празен
         all_data.append([''] * 13)
         
-        # Ред 4: Заглавия (с T Market)
-        headers = ['№', 'Продукт', 'Грамаж', 'Реф.BGN', 'Реф.EUR', 'eBag', 'Кашон', 'Balev', 'T Market', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']
+        # Ред 4: Заглавия (с Metro)
+        headers = ['№', 'Продукт', 'Грамаж', 'Реф.BGN', 'Реф.EUR', 'eBag', 'Кашон', 'Balev', 'Metro', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']
         all_data.append(headers)
         
         # Ред 5+: Данни
@@ -1365,7 +1332,7 @@ def update_google_sheets(results):
                 r['prices'].get('eBag', '') or '',
                 r['prices'].get('Kashon', '') or '',
                 r['prices'].get('Balev', '') or '',
-                r['prices'].get('TMarket', '') or '',
+                r['prices'].get('Metro', '') or '',
                 r['avg_bgn'] if r['avg_bgn'] else '',
                 r['avg_eur'] if r['avg_eur'] else '',
                 f"{r['deviation']}%" if r['deviation'] is not None else '',
@@ -1377,42 +1344,134 @@ def update_google_sheets(results):
         sheet.update(values=all_data, range_name='A1')
         print(f"  ✓ Записани {len(all_data)} реда")
         
-        # Форматиране
+        # Форматиране v7.3 - подобрено с различни нюанси зелено
         try:
+            # Заглавен ред - тъмно зелено
             sheet.format('A1:M1', {
-                'backgroundColor': {'red': 0.2, 'green': 0.5, 'blue': 0.3},
-                'textFormat': {'bold': True, 'fontSize': 14, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}}
+                'backgroundColor': {'red': 0.13, 'green': 0.35, 'blue': 0.22},
+                'textFormat': {'bold': True, 'fontSize': 14, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}},
+                'horizontalAlignment': 'CENTER'
             })
             sheet.merge_cells('A1:M1')
             
+            # Метаданни ред - много светло зелено
             sheet.format('A2:M2', {
-                'backgroundColor': {'red': 0.9, 'green': 0.95, 'blue': 0.9},
-                'textFormat': {'italic': True}
+                'backgroundColor': {'red': 0.92, 'green': 0.97, 'blue': 0.92},
+                'textFormat': {'italic': True, 'fontSize': 10}
             })
             
-            sheet.format('A4:M4', {
-                'backgroundColor': {'red': 0.3, 'green': 0.6, 'blue': 0.4},
+            # Заглавия на колоните - базово зелено
+            sheet.format('A4:E4', {
+                'backgroundColor': {'red': 0.2, 'green': 0.5, 'blue': 0.3},
                 'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}},
                 'horizontalAlignment': 'CENTER'
             })
             
-            # Цветово кодиране на статус (колона M)
+            # Магазини - различни нюанси зелено (F=eBag, G=Кашон, H=Balev, I=Metro)
+            # eBag - светло зелено
+            sheet.format('F4', {
+                'backgroundColor': {'red': 0.56, 'green': 0.77, 'blue': 0.49},
+                'textFormat': {'bold': True, 'foregroundColor': {'red': 0, 'green': 0.2, 'blue': 0}},
+                'horizontalAlignment': 'CENTER'
+            })
+            # Кашон - средно зелено
+            sheet.format('G4', {
+                'backgroundColor': {'red': 0.42, 'green': 0.68, 'blue': 0.42},
+                'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}},
+                'horizontalAlignment': 'CENTER'
+            })
+            # Balev - по-тъмно зелено
+            sheet.format('H4', {
+                'backgroundColor': {'red': 0.30, 'green': 0.58, 'blue': 0.35},
+                'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}},
+                'horizontalAlignment': 'CENTER'
+            })
+            # Metro - тъмно зелено
+            sheet.format('I4', {
+                'backgroundColor': {'red': 0.20, 'green': 0.48, 'blue': 0.28},
+                'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}},
+                'horizontalAlignment': 'CENTER'
+            })
+            
+            # Обобщение колони (Ср.BGN, Ср.EUR, Откл.%, Статус)
+            sheet.format('J4:M4', {
+                'backgroundColor': {'red': 0.2, 'green': 0.5, 'blue': 0.3},
+                'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}},
+                'horizontalAlignment': 'CENTER'
+            })
+            
+            # Подравняване на данните (редове 5+)
+            last_row = 4 + len(results)
+            
+            # Колона A (№) - центрирано
+            sheet.format(f'A5:A{last_row}', {'horizontalAlignment': 'CENTER'})
+            
+            # Колона B (Продукт) - ляво
+            sheet.format(f'B5:B{last_row}', {'horizontalAlignment': 'LEFT'})
+            
+            # Колона C (Грамаж) - центрирано
+            sheet.format(f'C5:C{last_row}', {'horizontalAlignment': 'CENTER'})
+            
+            # Колони D-L (числа) - дясно подравнени
+            sheet.format(f'D5:L{last_row}', {'horizontalAlignment': 'RIGHT'})
+            
+            # Колона M (Статус) - центрирано
+            sheet.format(f'M5:M{last_row}', {'horizontalAlignment': 'CENTER'})
+            
+            # Леко оцветяване на колоните за магазините
+            # eBag колона - много светло зелено
+            sheet.format(f'F5:F{last_row}', {
+                'backgroundColor': {'red': 0.92, 'green': 0.97, 'blue': 0.90}
+            })
+            # Кашон колона - малко по-зелено
+            sheet.format(f'G5:G{last_row}', {
+                'backgroundColor': {'red': 0.88, 'green': 0.95, 'blue': 0.87}
+            })
+            # Balev колона - още по-зелено
+            sheet.format(f'H5:H{last_row}', {
+                'backgroundColor': {'red': 0.84, 'green': 0.93, 'blue': 0.84}
+            })
+            # Metro колона - най-наситено
+            sheet.format(f'I5:I{last_row}', {
+                'backgroundColor': {'red': 0.80, 'green': 0.91, 'blue': 0.81}
+            })
+            
+            # Цветово кодиране на статус (колона M) и ред при ВНИМАНИЕ
             for i, r in enumerate(results, 5):
-                cell = f'M{i}'
                 if r['status'] == 'OK':
-                    sheet.format(cell, {
+                    sheet.format(f'M{i}', {
                         'backgroundColor': {'red': 0.85, 'green': 0.95, 'blue': 0.85},
                         'textFormat': {'bold': True, 'foregroundColor': {'red': 0, 'green': 0.5, 'blue': 0}}
                     })
                 elif r['status'] == 'ВНИМАНИЕ':
-                    sheet.format(cell, {
-                        'backgroundColor': {'red': 1, 'green': 0.9, 'blue': 0.9},
+                    # Целият ред с лек червен оттенък за по-добра видимост
+                    sheet.format(f'A{i}:E{i}', {
+                        'backgroundColor': {'red': 1, 'green': 0.95, 'blue': 0.95}
+                    })
+                    sheet.format(f'J{i}:L{i}', {
+                        'backgroundColor': {'red': 1, 'green': 0.95, 'blue': 0.95}
+                    })
+                    sheet.format(f'M{i}', {
+                        'backgroundColor': {'red': 1, 'green': 0.85, 'blue': 0.85},
                         'textFormat': {'bold': True, 'foregroundColor': {'red': 0.8, 'green': 0, 'blue': 0}}
                     })
-                else:
-                    sheet.format(cell, {
-                        'backgroundColor': {'red': 0.95, 'green': 0.95, 'blue': 0.95},
+                else:  # НЯМА ДАННИ
+                    sheet.format(f'A{i}:M{i}', {
+                        'backgroundColor': {'red': 0.95, 'green': 0.95, 'blue': 0.95}
+                    })
+                    sheet.format(f'M{i}', {
                         'textFormat': {'italic': True, 'foregroundColor': {'red': 0.5, 'green': 0.5, 'blue': 0.5}}
+                    })
+            
+            # Алтернативни редове за по-добра четимост (зебра ефект за OK редове)
+            for i, r in enumerate(results, 5):
+                if r['status'] == 'OK' and i % 2 == 0:
+                    # Леко по-тъмен фон за четни редове
+                    sheet.format(f'A{i}:E{i}', {
+                        'backgroundColor': {'red': 0.96, 'green': 0.98, 'blue': 0.96}
+                    })
+                    sheet.format(f'J{i}:L{i}', {
+                        'backgroundColor': {'red': 0.96, 'green': 0.98, 'blue': 0.96}
                     })
             
             print("  ✓ Форматиране приложено")
@@ -1420,7 +1479,7 @@ def update_google_sheets(results):
             # Оразмеряване на колоните за по-добра четимост
             try:
                 # Ширини на колоните в пиксели
-                # A=№, B=Продукт, C=Грамаж, D=Реф.BGN, E=Реф.EUR, F=eBag, G=Кашон, H=Balev, I=T Market, J=Ср.BGN, K=Ср.EUR, L=Откл.%, M=Статус
+                # A=№, B=Продукт, C=Грамаж, D=Реф.BGN, E=Реф.EUR, F=eBag, G=Кашон, H=Balev, I=Metro, J=Ср.BGN, K=Ср.EUR, L=Откл.%, M=Статус
                 column_widths = [
                     (0, 35),    # A: №
                     (1, 280),   # B: Продукт (по-широка за дълги имена)
@@ -1430,7 +1489,7 @@ def update_google_sheets(results):
                     (5, 60),    # F: eBag
                     (6, 60),    # G: Кашон
                     (7, 60),    # H: Balev
-                    (8, 70),    # I: T Market
+                    (8, 70),    # I: Metro
                     (9, 65),    # J: Ср.BGN
                     (10, 65),   # K: Ср.EUR
                     (11, 65),   # L: Откл.%
@@ -1483,15 +1542,15 @@ def update_google_sheets(results):
                     if current_year == 2025:
                         hist = old_hist
                     else:
-                        # Създаваме нов таб за текущата година (с T Market)
+                        # Създаваме нов таб за текущата година (с Metro)
                         hist = spreadsheet.add_worksheet(history_tab_name, rows=2000, cols=13)
-                        hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'T Market', 'Средна', 'Откл.%', 'Статус']], range_name='A1')
+                        hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Metro', 'Средна', 'Откл.%', 'Статус']], range_name='A1')
                         hist.freeze(rows=1)
                         print(f"  ✓ Създаден нов таб '{history_tab_name}'")
                 except:
-                    # Няма стар таб "История", създаваме нов за текущата година (с T Market)
+                    # Няма стар таб "История", създаваме нов за текущата година (с Metro)
                     hist = spreadsheet.add_worksheet(history_tab_name, rows=2000, cols=13)
-                    hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'T Market', 'Средна', 'Откл.%', 'Статус']], range_name='A1')
+                    hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Metro', 'Средна', 'Откл.%', 'Статус']], range_name='A1')
                     hist.freeze(rows=1)
                     print(f"  ✓ Създаден нов таб '{history_tab_name}'")
             
@@ -1505,7 +1564,7 @@ def update_google_sheets(results):
                     r['prices'].get('eBag', '') or '',
                     r['prices'].get('Kashon', '') or '',
                     r['prices'].get('Balev', '') or '',
-                    r['prices'].get('TMarket', '') or '',
+                    r['prices'].get('Metro', '') or '',
                     r['avg_bgn'] if r['avg_bgn'] else '',
                     f"{r['deviation']}%" if r['deviation'] is not None else '',
                     r['status']
@@ -1558,14 +1617,14 @@ def send_email_alert(alerts):
         ebag_price = str(a['prices'].get('eBag') or 'N/A')
         kashon_price = str(a['prices'].get('Kashon') or 'N/A')
         balev_price = str(a['prices'].get('Balev') or 'N/A')
-        tmarket_price = str(a['prices'].get('TMarket') or 'N/A')
+        metro_price = str(a['prices'].get('Metro') or 'N/A')
         
         body_lines.append("--------------------------------------------")
         body_lines.append("* " + a['name'] + " (" + a['weight'] + ")")
         body_lines.append("  Референтна: " + ref_price + " лв")
         body_lines.append("  Средна: " + avg_price + " лв")
         body_lines.append("  Отклонение: " + dev_pct + "%")
-        body_lines.append("  eBag: " + ebag_price + " | Кашон: " + kashon_price + " | Balev: " + balev_price + " | T Market: " + tmarket_price)
+        body_lines.append("  eBag: " + ebag_price + " | Кашон: " + kashon_price + " | Balev: " + balev_price + " | Metro: " + metro_price)
         body_lines.append("")
     
     body_lines.append("--------------------------------------------")
@@ -1574,7 +1633,7 @@ def send_email_alert(alerts):
     body_lines.append(sheets_url)
     body_lines.append("")
     body_lines.append("Poздрави,")
-    body_lines.append("Harmonica Price Tracker v7.2")
+    body_lines.append("Harmonica Price Tracker v7.4")
     
     body = "\n".join(body_lines)
     
@@ -1601,13 +1660,12 @@ def send_email_alert(alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v7.2")
-    print("Stealth режим за T Market + форматиране на колоните")
+    print("HARMONICA PRICE TRACKER v7.4")
+    print("Metro заменя T Market + подобрено форматиране")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
     print("Магазини: " + str(len(STORES)))
     print("Claude API: " + ("Наличен" if CLAUDE_AVAILABLE else "Не е наличен"))
-    print("Stealth: " + ("Наличен" if STEALTH_AVAILABLE else "Не е наличен"))
     print("Vision: " + ("Активна" if ENABLE_VISUAL_VERIFICATION else "Изключена"))
     print("=" * 60)
     
