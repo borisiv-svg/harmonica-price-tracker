@@ -1,7 +1,7 @@
 """
-Harmonica Price Tracker v7.7
-- Двойна валутна поддръжка (BGN + EUR) за преходния период до юни 2026
-- Интелигентна валутна детекция с корекция за BGN сайтове
+Harmonica Price Tracker v7.8
+- Интелигентна валутна детекция на ниво ПРОДУКТ (чрез сравнение с референтна цена)
+- Автоматична конверсия EUR→BGN когато цената е по-близка до EUR референцията
 - 24 продукта, 4 магазина: eBag, Кашон, Balev, Metro
 """
 
@@ -248,6 +248,64 @@ def convert_to_bgn(price, detected_currency):
     else:
         # Вече е BGN
         return round(price, 2)
+
+
+def detect_currency_by_reference(price_value, ref_price_bgn):
+    """
+    Детектира валутата чрез сравнение с референтната BGN цена.
+    
+    Логика:
+    - Изчисляваме очакваната EUR цена: ref_price_bgn / 1.95583
+    - Ако извлечената цена е по-близка до BGN референцията → BGN
+    - Ако извлечената цена е по-близка до EUR референцията → EUR
+    
+    Това е най-надеждният метод, защото не зависи от валутни символи.
+    
+    Args:
+        price_value: Извлечената цена (число)
+        ref_price_bgn: Референтната цена в BGN
+    
+    Returns:
+        "EUR" или "BGN"
+    """
+    if price_value is None or ref_price_bgn is None:
+        return "BGN"  # По подразбиране
+    
+    ref_price_eur = ref_price_bgn / EUR_BGN_RATE
+    
+    # Изчисляваме процентните отклонения
+    deviation_bgn = abs(price_value - ref_price_bgn) / ref_price_bgn
+    deviation_eur = abs(price_value - ref_price_eur) / ref_price_eur
+    
+    # Цената е в тази валута, от която отклонението е по-малко
+    if deviation_eur < deviation_bgn:
+        return "EUR"
+    else:
+        return "BGN"
+
+
+def normalize_price_to_bgn(price_value, ref_price_bgn):
+    """
+    Нормализира цена към BGN, автоматично детектирайки валутата.
+    
+    Args:
+        price_value: Извлечената цена
+        ref_price_bgn: Референтната BGN цена за сравнение
+    
+    Returns:
+        tuple: (price_in_bgn, detected_currency)
+    """
+    if price_value is None:
+        return None, None
+    
+    detected = detect_currency_by_reference(price_value, ref_price_bgn)
+    
+    if detected == "EUR":
+        price_bgn = round(price_value * EUR_BGN_RATE, 2)
+    else:
+        price_bgn = round(price_value, 2)
+    
+    return price_bgn, detected
 
 
 def smart_price_normalization(price_value, page_text, store_config):
@@ -1414,16 +1472,9 @@ def collect_prices():
             except:
                 store_currencies[key] = config.get('expected_currency', 'BGN')
             
-            # Нормализираме цените към BGN (без конверсия за сега, защото всички са в BGN)
-            normalized_prices = {}
-            for product_name, price in prices.items():
-                if price is not None:
-                    price_bgn, _ = smart_price_normalization(price, store_raw_texts.get(key, ''), config)
-                    normalized_prices[product_name] = price_bgn
-                else:
-                    normalized_prices[product_name] = None
-            
-            all_prices[key] = normalized_prices
+            # Запазваме суровите цени (без нормализация)
+            # Нормализацията ще се направи по-късно на ниво продукт
+            all_prices[key] = prices
             page.wait_for_timeout(2000)
         
         browser.close()
@@ -1434,15 +1485,33 @@ def collect_prices():
         print(f"    • {store_name}: {currency}")
     print()
     
-    # Обработка на резултатите - BGN като базова валута
+    # Обработка на резултатите - нормализация на ниво продукт
+    # Използваме референтната BGN цена за всеки продукт за да определим валутата
     results = []
+    currency_corrections = {"EUR->BGN": 0, "BGN": 0}
+    
     for product in PRODUCTS:
         name = product['name']
         ref_bgn = product['ref_price_bgn']
         ref_eur = product['ref_price_eur']
         
-        product_prices = {k: all_prices.get(k, {}).get(name) for k in STORES}
-        valid_prices = [p for p in product_prices.values() if p is not None]
+        # Събираме и нормализираме цените за този продукт
+        normalized_prices = {}
+        for store_key in STORES:
+            raw_price = all_prices.get(store_key, {}).get(name)
+            if raw_price is not None:
+                # Детектираме валутата чрез сравнение с референтната цена
+                detected = detect_currency_by_reference(raw_price, ref_bgn)
+                if detected == "EUR":
+                    normalized_prices[store_key] = round(raw_price * EUR_BGN_RATE, 2)
+                    currency_corrections["EUR->BGN"] += 1
+                else:
+                    normalized_prices[store_key] = round(raw_price, 2)
+                    currency_corrections["BGN"] += 1
+            else:
+                normalized_prices[store_key] = None
+        
+        valid_prices = [p for p in normalized_prices.values() if p is not None]
         
         if valid_prices:
             avg_bgn = sum(valid_prices) / len(valid_prices)
@@ -1459,12 +1528,15 @@ def collect_prices():
             "weight": product['weight'],
             "ref_bgn": ref_bgn,
             "ref_eur": ref_eur,
-            "prices": product_prices,
+            "prices": normalized_prices,  # Вече са нормализирани към BGN
             "avg_bgn": round(avg_bgn, 2) if avg_bgn else None,
             "avg_eur": round(avg_eur, 2) if avg_eur else None,
             "deviation": round(deviation, 1) if deviation is not None else None,
             "status": status
         })
+    
+    # Показваме статистика за валутните корекции
+    print(f"  [ВАЛУТА] Корекции: {currency_corrections['EUR->BGN']} EUR→BGN, {currency_corrections['BGN']} BGN (без промяна)")
     
     return results
 
@@ -1945,7 +2017,7 @@ def send_email_alert(alerts):
     body_lines.append(sheets_url)
     body_lines.append("")
     body_lines.append("Poздрави,")
-    body_lines.append("Harmonica Price Tracker v7.7")
+    body_lines.append("Harmonica Price Tracker v7.8")
     
     body = "\n".join(body_lines)
     
@@ -1972,12 +2044,12 @@ def send_email_alert(alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v7.7")
-    print("Двойна валутна поддръжка (BGN + EUR)")
+    print("HARMONICA PRICE TRACKER v7.8")
+    print("Интелигентна валутна детекция на ниво продукт")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
     print("Магазини: " + str(len(STORES)))
-    print("Базова валута: BGN (до юни 2026)")
+    print("Базова валута: BGN")
     print("Claude API: " + ("Наличен" if CLAUDE_AVAILABLE else "Не е наличен"))
     print("Vision: " + ("Активна" if ENABLE_VISUAL_VERIFICATION else "Изключена"))
     print("=" * 60)
