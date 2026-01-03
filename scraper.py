@@ -1,8 +1,8 @@
 """
-Harmonica Price Tracker v7.10
-- Подобрена alias система с "слънчогледово олио за готвене"
-- По-стриктно разграничаване между извара и крема сирене
-- Коригиран списък на липсващи продукти в Кашон (сироп от бъз, не извара)
+Harmonica Price Tracker v7.11
+- Подобрен fallback: избира цената най-близка до референцията (не първата намерена)
+- Стеснен диапазон за валидация: ±50% вместо ±60%
+- Поправен проблем с пълнозърнести солети (2.9 вместо 1.98)
 - 24 продукта, 4 магазина: eBag, Кашон, Balev, Metro
 """
 
@@ -1213,17 +1213,26 @@ def extract_prices_with_fallback(page_text):
             # Извличаме контекст
             context = page_text[max(0, idx-80):idx+150]
             
-            # Търсим цена
+            # Търсим цена - избираме НАЙ-БЛИЗКАТА до референцията
             price_matches = re.findall(r'(\d+)[,.](\d{2})', context)
+            best_price = None
+            best_deviation = float('inf')
+            
             for m in price_matches:
                 try:
                     price = float(f"{m[0]}.{m[1]}")
-                    # Стриктна проверка: ±60% от референтната
-                    if 0.4 * ref_price <= price <= 1.6 * ref_price:
-                        prices[name] = price
-                        break
+                    # Проверка: ±50% от референтната (стеснен диапазон)
+                    if 0.5 * ref_price <= price <= 1.5 * ref_price:
+                        # Избираме цената с най-малко отклонение
+                        deviation = abs(price - ref_price) / ref_price
+                        if deviation < best_deviation:
+                            best_deviation = deviation
+                            best_price = price
                 except:
                     continue
+            
+            if best_price is not None:
+                prices[name] = best_price
             
             if name in prices:
                 break
@@ -2096,7 +2105,7 @@ def send_email_alert(alerts):
     body_lines.append(sheets_url)
     body_lines.append("")
     body_lines.append("Poздрави,")
-    body_lines.append("Harmonica Price Tracker v7.10")
+    body_lines.append("Harmonica Price Tracker v7.11")
     
     body = "\n".join(body_lines)
     
@@ -2123,8 +2132,8 @@ def send_email_alert(alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v7.10")
-    print("Подобрена alias система + стриктно разграничаване")
+    print("HARMONICA PRICE TRACKER v7.11")
+    print("Подобрен fallback + най-близка цена до референцията")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
     print("Магазини: " + str(len(STORES)))
