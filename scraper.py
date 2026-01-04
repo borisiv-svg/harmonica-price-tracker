@@ -1,8 +1,8 @@
 """
-Harmonica Price Tracker v7.11
-- Подобрен fallback: избира цената най-близка до референцията (не първата намерена)
-- Стеснен диапазон за валидация: ±50% вместо ±60%
-- Поправен проблем с пълнозърнести солети (2.9 вместо 1.98)
+Harmonica Price Tracker v7.12
+- HTML имейл отчети с професионално форматиране (цветове, шрифтове, progress bars)
+- Винаги изпраща седмичен отчет (не само при отклонения)
+- Автоматично изпълнение всеки понеделник в 08:00
 - 24 продукта, 4 магазина: eBag, Кашон, Balev, Metro
 """
 
@@ -2057,8 +2057,11 @@ def update_google_sheets(results):
 # ИМЕЙЛ
 # =============================================================================
 
-def send_email_alert(alerts):
-    """Изпраща имейл известие при отклонения (BGN формат за преходния период)."""
+def send_email_report(results, alerts):
+    """
+    Изпраща седмичен имейл отчет - винаги, независимо от резултатите.
+    Използва HTML форматиране за по-добра четимост.
+    """
     gmail_user = os.environ.get('GMAIL_USER')
     gmail_pass = os.environ.get('GMAIL_APP_PASSWORD')
     recipients = os.environ.get('ALERT_EMAIL', gmail_user)
@@ -2068,62 +2071,188 @@ def send_email_alert(alerts):
         print("Gmail credentials не са зададени")
         return
     
-    if not alerts:
-        print("Няма отклонения над прага - имейл не е изпратен")
-        return
+    sheets_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}" if spreadsheet_id else ""
+    date_str = datetime.now().strftime("%d.%m.%Y")
+    time_str = datetime.now().strftime("%H:%M")
     
-    subject = "[!] Harmonica: " + str(len(alerts)) + " продукта с ценови промени над " + str(ALERT_THRESHOLD) + "%"
-    sheets_url = "https://docs.google.com/spreadsheets/d/" + spreadsheet_id if spreadsheet_id else ""
+    # Статистики
+    total_products = len(results)
+    ok_count = len([r for r in results if r['status'] == 'OK'])
+    warning_count = len(alerts)
     
-    # Plain text версия (BGN)
-    body_lines = []
-    body_lines.append("Здравей,")
-    body_lines.append("")
-    body_lines.append("Открити са " + str(len(alerts)) + " продукта с ценови отклонения над " + str(ALERT_THRESHOLD) + "%:")
-    body_lines.append("")
+    # Покритие по магазини
+    store_coverage = {}
+    for store_key, store_config in STORES.items():
+        count = len([r for r in results if r['prices'].get(store_key)])
+        store_coverage[store_config['name_in_sheet']] = count
     
-    for a in alerts:
-        ref_price = "{:.2f}".format(a['ref_bgn'])
-        avg_price = "{:.2f}".format(a['avg_bgn'])
-        dev_pct = "{:+.1f}".format(a['deviation'])
-        ebag_price = str(a['prices'].get('eBag') or 'N/A')
-        kashon_price = str(a['prices'].get('Kashon') or 'N/A')
-        balev_price = str(a['prices'].get('Balev') or 'N/A')
-        metro_price = str(a['prices'].get('Metro') or 'N/A')
+    # Определяме темата на имейла
+    if warning_count > 0:
+        subject = f"Harmonica Price Tracker: {warning_count} продукта с отклонение над {ALERT_THRESHOLD}%"
+    else:
+        subject = f"Harmonica Price Tracker: Седмичен отчет - всички цени в норма"
+    
+    # HTML съдържание
+    html_parts = []
+    
+    # Хедър
+    html_parts.append("""
+    <html>
+    <head>
+        <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .header { background-color: #2e7d32; color: white; padding: 20px; text-align: center; }
+            .header h1 { margin: 0; font-size: 24px; }
+            .header p { margin: 5px 0 0 0; font-size: 14px; opacity: 0.9; }
+            .summary { background-color: #f5f5f5; padding: 15px; margin: 20px 0; border-radius: 5px; }
+            .summary h2 { color: #2e7d32; margin-top: 0; font-size: 18px; }
+            .stats { display: flex; justify-content: space-around; text-align: center; margin: 15px 0; }
+            .stat-box { padding: 10px 20px; }
+            .stat-number { font-size: 28px; font-weight: bold; }
+            .stat-label { font-size: 12px; color: #666; }
+            .ok { color: #2e7d32; }
+            .warning { color: #d32f2f; }
+            .alert-section { background-color: #ffebee; border-left: 4px solid #d32f2f; padding: 15px; margin: 20px 0; }
+            .alert-section h2 { color: #d32f2f; margin-top: 0; font-size: 18px; }
+            .product-alert { background-color: white; padding: 12px; margin: 10px 0; border-radius: 4px; }
+            .product-name { font-weight: bold; color: #333; font-size: 15px; }
+            .product-details { color: #666; font-size: 13px; margin-top: 5px; }
+            .deviation { font-weight: bold; }
+            .deviation.positive { color: #d32f2f; }
+            .deviation.negative { color: #2e7d32; }
+            .coverage { margin: 20px 0; }
+            .coverage h2 { color: #2e7d32; font-size: 18px; }
+            .coverage-bar { background-color: #e0e0e0; height: 20px; border-radius: 10px; margin: 5px 0; overflow: hidden; }
+            .coverage-fill { background-color: #4caf50; height: 100%; }
+            .coverage-label { font-size: 13px; color: #666; }
+            .footer { background-color: #f5f5f5; padding: 15px; margin-top: 20px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid #ddd; }
+            .button { display: inline-block; background-color: #2e7d32; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin: 10px 0; }
+        </style>
+    </head>
+    <body>
+    """)
+    
+    # Хедър секция
+    html_parts.append(f"""
+        <div class="header">
+            <h1>HARMONICA Price Tracker</h1>
+            <p>Седмичен отчет за {date_str}</p>
+        </div>
+    """)
+    
+    # Обобщение
+    html_parts.append(f"""
+        <div class="summary">
+            <h2>Обобщение</h2>
+            <div class="stats">
+                <div class="stat-box">
+                    <div class="stat-number">{total_products}</div>
+                    <div class="stat-label">Продукта</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number ok">{ok_count}</div>
+                    <div class="stat-label">В норма</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-number warning">{warning_count}</div>
+                    <div class="stat-label">С отклонение</div>
+                </div>
+            </div>
+        </div>
+    """)
+    
+    # Секция с alerts (ако има)
+    if alerts:
+        html_parts.append(f"""
+        <div class="alert-section">
+            <h2>Открити ценови отклонения над {ALERT_THRESHOLD}%</h2>
+        """)
         
-        body_lines.append("--------------------------------------------")
-        body_lines.append("* " + a['name'] + " (" + a['weight'] + ")")
-        body_lines.append("  Референтна: " + ref_price + " лв")
-        body_lines.append("  Средна: " + avg_price + " лв")
-        body_lines.append("  Отклонение: " + dev_pct + "%")
-        body_lines.append("  eBag: " + ebag_price + " | Кашон: " + kashon_price + " | Balev: " + balev_price + " | Metro: " + metro_price)
-        body_lines.append("")
+        for a in alerts:
+            dev_class = "positive" if a['deviation'] > 0 else "negative"
+            dev_sign = "+" if a['deviation'] > 0 else ""
+            
+            prices_text = []
+            if a['prices'].get('eBag'): prices_text.append(f"eBag: {a['prices']['eBag']:.2f}")
+            if a['prices'].get('Kashon'): prices_text.append(f"Кашон: {a['prices']['Kashon']:.2f}")
+            if a['prices'].get('Balev'): prices_text.append(f"Balev: {a['prices']['Balev']:.2f}")
+            if a['prices'].get('Metro'): prices_text.append(f"Metro: {a['prices']['Metro']:.2f}")
+            
+            html_parts.append(f"""
+            <div class="product-alert">
+                <div class="product-name">{a['name']} ({a['weight']})</div>
+                <div class="product-details">
+                    Референтна цена: <strong>{a['ref_bgn']:.2f} лв</strong> | 
+                    Средна цена: <strong>{a['avg_bgn']:.2f} лв</strong> | 
+                    Отклонение: <span class="deviation {dev_class}">{dev_sign}{a['deviation']:.1f}%</span>
+                </div>
+                <div class="product-details">{' | '.join(prices_text)} лв</div>
+            </div>
+            """)
+        
+        html_parts.append("</div>")
+    else:
+        html_parts.append("""
+        <div class="summary" style="background-color: #e8f5e9; border-left: 4px solid #2e7d32;">
+            <h2 style="color: #2e7d32;">Всички цени са в норма</h2>
+            <p>Не са открити ценови отклонения над прага от 10%. Всички проследявани продукти се продават на цени, близки до референтните.</p>
+        </div>
+        """)
     
-    body_lines.append("--------------------------------------------")
-    body_lines.append("")
-    body_lines.append("Пълен отчет в Google Sheets:")
-    body_lines.append(sheets_url)
-    body_lines.append("")
-    body_lines.append("Poздрави,")
-    body_lines.append("Harmonica Price Tracker v7.11")
+    # Покритие по магазини
+    html_parts.append("""
+        <div class="coverage">
+            <h2>Покритие по магазини</h2>
+    """)
     
-    body = "\n".join(body_lines)
+    for store_name, count in store_coverage.items():
+        percentage = (count / total_products) * 100
+        html_parts.append(f"""
+            <div class="coverage-label"><strong>{store_name}</strong>: {count}/{total_products} продукта ({percentage:.0f}%)</div>
+            <div class="coverage-bar"><div class="coverage-fill" style="width: {percentage}%"></div></div>
+        """)
     
+    html_parts.append("</div>")
+    
+    # Бутон към Google Sheets
+    if sheets_url:
+        html_parts.append(f"""
+        <div style="text-align: center; margin: 20px 0;">
+            <a href="{sheets_url}" class="button">Отвори пълния отчет в Google Sheets</a>
+        </div>
+        """)
+    
+    # Футър
+    html_parts.append(f"""
+        <div class="footer">
+            <p><strong>Harmonica Price Tracker v7.12</strong></p>
+            <p>Това съобщение е автоматично генерирано на {date_str} в {time_str} ч.</p>
+            <p>Системата проследява цените на продукти Harmonica в eBag, Кашон, Balev и Metro.</p>
+        </div>
+    </body>
+    </html>
+    """)
+    
+    html_content = "".join(html_parts)
+    
+    # Изпращане
     try:
-        msg = MIMEMultipart()
+        msg = MIMEMultipart('alternative')
         msg['From'] = gmail_user
         msg['To'] = recipients
         msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        
+        # Добавяме HTML версия
+        msg.attach(MIMEText(html_content, 'html', 'utf-8'))
         
         with smtplib.SMTP('smtp.gmail.com', 587) as server:
             server.starttls()
             server.login(gmail_user, gmail_pass)
             server.send_message(msg)
         
-        print("Имейл изпратен до " + recipients)
+        print(f"Имейл изпратен до {recipients}")
     except Exception as e:
-        print("Имейл грешка: " + str(e)[:50])
+        print(f"Имейл грешка: {str(e)[:50]}")
 
 
 # =============================================================================
@@ -2132,8 +2261,8 @@ def send_email_alert(alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v7.11")
-    print("Подобрен fallback + най-близка цена до референцията")
+    print("HARMONICA PRICE TRACKER v7.12")
+    print("HTML имейл отчети + седмично изпълнение (понеделник 08:00)")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
     print("Магазини: " + str(len(STORES)))
@@ -2146,7 +2275,9 @@ def main():
     update_google_sheets(results)
     
     alerts = [r for r in results if r['deviation'] and abs(r['deviation']) > ALERT_THRESHOLD]
-    send_email_alert(alerts)
+    
+    # Винаги изпращаме имейл отчет
+    send_email_report(results, alerts)
     
     # Обобщение
     print("\n" + "="*60)
