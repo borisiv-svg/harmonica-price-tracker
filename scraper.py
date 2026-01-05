@@ -1,8 +1,7 @@
 """
-Harmonica Price Tracker v7.12
-- HTML имейл отчети с професионално форматиране (цветове, шрифтове, progress bars)
-- Винаги изпраща седмичен отчет (не само при отклонения)
-- Автоматично изпълнение всеки понеделник в 08:00
+Harmonica Price Tracker v7.13
+- Поправено парсване на цени като текст ("1.39 лв." вместо 1.39)
+- По-устойчива обработка на различни формати от Claude API
 - 24 продукта, 4 магазина: eBag, Кашон, Balev, Metro
 """
 
@@ -964,21 +963,41 @@ def phase1_extract_all_products(client, page_text, store_name):
                 # Последен опит - извличаме продукти с regex
                 print(f"    [ФАЗА 1] Използваме regex екстракция")
                 products = []
-                # Търсим pattern: "name": "...", "price": X.XX
-                pattern = r'"name"\s*:\s*"([^"]+)"\s*,\s*"price"\s*:\s*(\d+\.?\d*)'
-                matches = re.findall(pattern, cleaned)
+                # Pattern 1: "price": число (без кавички)
+                pattern1 = r'"name"\s*:\s*"([^"]+)"\s*,\s*"price"\s*:\s*(\d+\.?\d*)'
+                matches = re.findall(pattern1, cleaned)
                 for name, price in matches:
                     try:
                         products.append({"name": name, "price": float(price)})
                     except:
                         pass
+                
+                # Pattern 2: "price": "X.XX лв." (string с валутен символ)
+                if not products:
+                    pattern2 = r'"name"\s*:\s*"([^"]+)"\s*,\s*"price"\s*:\s*"(\d+[.,]?\d*)\s*(?:лв\.?|BGN|EUR|€)?"'
+                    matches = re.findall(pattern2, cleaned)
+                    for name, price in matches:
+                        try:
+                            price_clean = price.replace(',', '.')
+                            products.append({"name": name, "price": float(price_clean)})
+                        except:
+                            pass
         
         # Валидираме структурата
         valid_products = []
         for p in products:
             if isinstance(p, dict) and 'name' in p and 'price' in p:
                 try:
-                    price = float(p['price'])
+                    # Обработваме цената - може да е число или string
+                    price_raw = p['price']
+                    if isinstance(price_raw, str):
+                        # Премахваме валутни символи и whitespace
+                        price_clean = re.sub(r'[лвBGNEUR€\s\.]', '', price_raw)
+                        price_clean = price_clean.replace(',', '.')
+                        price = float(price_clean)
+                    else:
+                        price = float(price_raw)
+                    
                     if 0.5 < price < 200:
                         valid_products.append({
                             "name": str(p['name']),
@@ -2225,7 +2244,7 @@ def send_email_report(results, alerts):
     # Футър
     html_parts.append(f"""
         <div class="footer">
-            <p><strong>Harmonica Price Tracker v7.12</strong></p>
+            <p><strong>Harmonica Price Tracker v7.13</strong></p>
             <p>Това съобщение е автоматично генерирано на {date_str} в {time_str} ч.</p>
             <p>Системата проследява цените на продукти Harmonica в eBag, Кашон, Balev и Metro.</p>
         </div>
@@ -2261,8 +2280,8 @@ def send_email_report(results, alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v7.12")
-    print("HTML имейл отчети + седмично изпълнение (понеделник 08:00)")
+    print("HARMONICA PRICE TRACKER v7.13")
+    print("Подобрено парсване на цени (текст + числа)")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
     print("Магазини: " + str(len(STORES)))
