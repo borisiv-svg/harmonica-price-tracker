@@ -1,8 +1,8 @@
 """
-Harmonica Price Tracker v7.13
-- Поправено парсване на цени като текст ("1.39 лв." вместо 1.39)
-- По-устойчива обработка на различни формати от Claude API
-- 24 продукта, 4 магазина: eBag, Кашон, Balev, Metro
+Harmonica Price Tracker v7.14
+- Добавени 2 нови магазина: Zelen.bg и Gladen.bg (общо 6 магазина)
+- 15 колони в Google Sheets за разширено покритие
+- 24 продукта, 6 магазина: eBag, Кашон, Balev, Metro, Zelen, Gladen
 """
 
 import os
@@ -71,6 +71,24 @@ STORES = {
         "url": "https://shop.metro.bg/shop/search?q=%D1%85%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
         "name_in_sheet": "Metro",
         "scroll_times": 15,
+        "has_pagination": False,
+        "has_load_more": False,
+        "expected_currency": "BGN",
+        "currency_indicators": ["лв", "лева", "BGN"]
+    },
+    "Zelen": {
+        "url": "https://zelen.bg/brand/94/harmonica",
+        "name_in_sheet": "Zelen",
+        "scroll_times": 10,
+        "has_pagination": False,
+        "has_load_more": False,
+        "expected_currency": "EUR",  # Показва EUR и BGN едновременно
+        "currency_indicators": ["€", "EUR", "лв"]
+    },
+    "Gladen": {
+        "url": "https://shop.gladen.bg/search?query=harmonica",
+        "name_in_sheet": "Gladen",
+        "scroll_times": 10,
         "has_pagination": False,
         "has_load_more": False,
         "expected_currency": "BGN",
@@ -1699,14 +1717,14 @@ def update_google_sheets(results):
         all_data.append([
             f'Актуализация: {now}', '', 
             f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
-            f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', '', ''
+            f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', '', '', '', ''
         ])
         
         # Ред 3: Празен
-        all_data.append([''] * 13)
+        all_data.append([''] * 15)
         
-        # Ред 4: Заглавия (13 колони) - BGN е основна
-        headers = ['№', 'Продукт', 'Грамаж', 'Реф.BGN', 'Реф.EUR', 'eBag', 'Кашон', 'Balev', 'Metro', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']
+        # Ред 4: Заглавия (15 колони) - BGN е основна
+        headers = ['№', 'Продукт', 'Грамаж', 'Реф.BGN', 'Реф.EUR', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Gladen', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']
         all_data.append(headers)
         
         # Ред 5+: Данни
@@ -1721,6 +1739,8 @@ def update_google_sheets(results):
                 r['prices'].get('Kashon', '') or '',
                 r['prices'].get('Balev', '') or '',
                 r['prices'].get('Metro', '') or '',
+                r['prices'].get('Zelen', '') or '',
+                r['prices'].get('Gladen', '') or '',
                 r['avg_bgn'] if r['avg_bgn'] else '',
                 r['avg_eur'] if r['avg_eur'] else '',
                 f"{r['deviation']}%" if r['deviation'] is not None else '',
@@ -1731,16 +1751,16 @@ def update_google_sheets(results):
         sheet.update(values=all_data, range_name='A1')
         print(f"  ✓ Записани {len(all_data)} реда")
         
-        # Форматиране v7.7 - 13 колони с BGN + EUR
-        # A=№, B=Продукт, C=Грамаж, D=Реф.BGN, E=Реф.EUR, F=eBag, G=Кашон, H=Balev, I=Metro, J=Ср.BGN, K=Ср.EUR, L=Откл.%, M=Статус
+        # Форматиране v7.14 - 15 колони с 6 магазина
+        # A=№, B=Продукт, C=Грамаж, D=Реф.BGN, E=Реф.EUR, F=eBag, G=Кашон, H=Balev, I=Metro, J=Zelen, K=Gladen, L=Ср.BGN, M=Ср.EUR, N=Откл.%, O=Статус
         try:
             last_row = 4 + len(results)
             format_requests = []
             
-            # 1. Заглавен ред (A1:M1) - тъмно зелено
+            # 1. Заглавен ред (A1:O1) - тъмно зелено
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 13},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 15},
                     "cell": {
                         "userEnteredFormat": {
                             "backgroundColor": {"red": 0.13, "green": 0.35, "blue": 0.22},
@@ -1752,10 +1772,10 @@ def update_google_sheets(results):
                 }
             })
             
-            # 2. Метаданни ред (A2:M2) - светло зелено
+            # 2. Метаданни ред (A2:O2) - светло зелено
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 0, "endColumnIndex": 13},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 0, "endColumnIndex": 15},
                     "cell": {
                         "userEnteredFormat": {
                             "backgroundColor": {"red": 0.92, "green": 0.97, "blue": 0.92},
@@ -1781,12 +1801,14 @@ def update_google_sheets(results):
                 }
             })
             
-            # 4. Магазини заглавия F-I - различни нюанси зелено
+            # 4. Магазини заглавия F-K - различни нюанси зелено
             store_colors = [
                 (5, {"red": 0.56, "green": 0.77, "blue": 0.49}),   # F: eBag
                 (6, {"red": 0.42, "green": 0.68, "blue": 0.42}),   # G: Кашон
                 (7, {"red": 0.30, "green": 0.58, "blue": 0.35}),   # H: Balev
                 (8, {"red": 0.20, "green": 0.48, "blue": 0.28}),   # I: Metro
+                (9, {"red": 0.45, "green": 0.70, "blue": 0.55}),   # J: Zelen
+                (10, {"red": 0.35, "green": 0.62, "blue": 0.45}),  # K: Gladen
             ]
             for col_idx, bg_color in store_colors:
                 format_requests.append({
@@ -1803,10 +1825,10 @@ def update_google_sheets(results):
                     }
                 })
             
-            # 5. Обобщение заглавия J-M (Ср.BGN, Ср.EUR, Откл.%, Статус) - базово зелено
+            # 5. Обобщение заглавия L-O (Ср.BGN, Ср.EUR, Откл.%, Статус) - базово зелено
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 3, "endRowIndex": 4, "startColumnIndex": 9, "endColumnIndex": 13},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 3, "endRowIndex": 4, "startColumnIndex": 11, "endColumnIndex": 15},
                     "cell": {
                         "userEnteredFormat": {
                             "backgroundColor": {"red": 0.2, "green": 0.5, "blue": 0.3},
@@ -1818,12 +1840,14 @@ def update_google_sheets(results):
                 }
             })
             
-            # 6. Фон на магазин колоните (F-I) - леки нюанси зелено
+            # 6. Фон на магазин колоните (F-K) - леки нюанси зелено
             store_data_colors = [
                 (5, {"red": 0.92, "green": 0.97, "blue": 0.90}),   # F: eBag
                 (6, {"red": 0.88, "green": 0.95, "blue": 0.87}),   # G: Кашон
                 (7, {"red": 0.84, "green": 0.93, "blue": 0.84}),   # H: Balev
                 (8, {"red": 0.80, "green": 0.91, "blue": 0.81}),   # I: Metro
+                (9, {"red": 0.90, "green": 0.96, "blue": 0.88}),   # J: Zelen
+                (10, {"red": 0.86, "green": 0.94, "blue": 0.85}),  # K: Gladen
             ]
             for col_idx, bg_color in store_data_colors:
                 format_requests.append({
@@ -1872,18 +1896,18 @@ def update_google_sheets(results):
                     "fields": "userEnteredFormat(horizontalAlignment)"
                 }
             })
-            # J-L (Ср.BGN, Ср.EUR, Откл.%) - дясно
+            # L-N (Ср.BGN, Ср.EUR, Откл.%) - дясно
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 9, "endColumnIndex": 12},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 11, "endColumnIndex": 14},
                     "cell": {"userEnteredFormat": {"horizontalAlignment": "RIGHT"}},
                     "fields": "userEnteredFormat(horizontalAlignment)"
                 }
             })
-            # M (Статус) - център
+            # O (Статус) - център
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 12, "endColumnIndex": 13},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 14, "endColumnIndex": 15},
                     "cell": {"userEnteredFormat": {"horizontalAlignment": "CENTER"}},
                     "fields": "userEnteredFormat(horizontalAlignment)"
                 }
@@ -1903,11 +1927,11 @@ def update_google_sheets(results):
                 else:
                     no_data_rows.append(row_idx)
             
-            # OK редове - зелен статус (колона M=12)
+            # OK редове - зелен статус (колона O=14)
             for row_idx in ok_rows:
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 12, "endColumnIndex": 13},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 14, "endColumnIndex": 15},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 0.85, "green": 0.95, "blue": 0.85},
@@ -1917,10 +1941,10 @@ def update_google_sheets(results):
                         "fields": "userEnteredFormat(backgroundColor,textFormat)"
                     }
                 })
-                # Средни цени J-K - светло зелено
+                # Средни цени L-M - светло зелено
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 9, "endColumnIndex": 11},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 11, "endColumnIndex": 13},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 0.9, "green": 0.97, "blue": 0.9},
@@ -1933,10 +1957,10 @@ def update_google_sheets(results):
             
             # ВНИМАНИЕ редове - червен статус и фон
             for row_idx in warning_rows:
-                # Статус M - червено
+                # Статус O - червено
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 12, "endColumnIndex": 13},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 14, "endColumnIndex": 15},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 1, "green": 0.85, "blue": 0.85},
@@ -1946,10 +1970,10 @@ def update_google_sheets(results):
                         "fields": "userEnteredFormat(backgroundColor,textFormat)"
                     }
                 })
-                # Средни цени J-K - светло червено
+                # Средни цени L-M - светло червено
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 9, "endColumnIndex": 11},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 11, "endColumnIndex": 13},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 1, "green": 0.92, "blue": 0.92},
@@ -1959,10 +1983,10 @@ def update_google_sheets(results):
                         "fields": "userEnteredFormat(backgroundColor,textFormat)"
                     }
                 })
-                # Откл.% L - червен фон
+                # Откл.% N - червен фон
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 11, "endColumnIndex": 12},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 13, "endColumnIndex": 14},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 1, "green": 0.92, "blue": 0.92},
@@ -2007,14 +2031,16 @@ def update_google_sheets(results):
                 (2, 65),    # C: Грамаж
                 (3, 70),    # D: Реф.BGN
                 (4, 70),    # E: Реф.EUR
-                (5, 60),    # F: eBag
-                (6, 60),    # G: Кашон
-                (7, 60),    # H: Balev
-                (8, 65),    # I: Metro
-                (9, 65),    # J: Ср.BGN
-                (10, 65),   # K: Ср.EUR
-                (11, 65),   # L: Откл.%
-                (12, 90),   # M: Статус
+                (5, 55),    # F: eBag
+                (6, 55),    # G: Кашон
+                (7, 55),    # H: Balev
+                (8, 55),    # I: Metro
+                (9, 55),    # J: Zelen
+                (10, 55),   # K: Gladen
+                (11, 65),   # L: Ср.BGN
+                (12, 65),   # M: Ср.EUR
+                (13, 60),   # N: Откл.%
+                (14, 85),   # O: Статус
             ]
             for col_idx, width in column_widths:
                 format_requests.append({
@@ -2039,8 +2065,8 @@ def update_google_sheets(results):
             try:
                 hist = spreadsheet.worksheet(history_tab_name)
             except:
-                hist = spreadsheet.add_worksheet(history_tab_name, rows=2000, cols=13)
-                hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Metro', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']], range_name='A1')
+                hist = spreadsheet.add_worksheet(history_tab_name, rows=2000, cols=15)
+                hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Gladen', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']], range_name='A1')
                 hist.freeze(rows=1)
                 print(f"  ✓ Създаден нов таб '{history_tab_name}'")
             
@@ -2055,6 +2081,8 @@ def update_google_sheets(results):
                     r['prices'].get('Kashon', '') or '',
                     r['prices'].get('Balev', '') or '',
                     r['prices'].get('Metro', '') or '',
+                    r['prices'].get('Zelen', '') or '',
+                    r['prices'].get('Gladen', '') or '',
                     r['avg_bgn'] if r['avg_bgn'] else '',
                     r['avg_eur'] if r['avg_eur'] else '',
                     f"{r['deviation']}%" if r['deviation'] is not None else '',
@@ -2244,7 +2272,7 @@ def send_email_report(results, alerts):
     # Футър
     html_parts.append(f"""
         <div class="footer">
-            <p><strong>Harmonica Price Tracker v7.13</strong></p>
+            <p><strong>Harmonica Price Tracker v7.14</strong></p>
             <p>Това съобщение е автоматично генерирано на {date_str} в {time_str} ч.</p>
             <p>Системата проследява цените на продукти Harmonica в eBag, Кашон, Balev и Metro.</p>
         </div>
@@ -2280,8 +2308,8 @@ def send_email_report(results, alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v7.13")
-    print("Подобрено парсване на цени (текст + числа)")
+    print("HARMONICA PRICE TRACKER v7.14")
+    print("6 магазина: eBag, Кашон, Balev, Metro, Zelen, Gladen")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
     print("Магазини: " + str(len(STORES)))
