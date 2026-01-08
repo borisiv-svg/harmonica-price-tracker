@@ -1,9 +1,9 @@
 """
-Harmonica Price Tracker v7.16
-- Добавени 5 нови продукта от Zelen.bg (локум, бисквити, мармалад)
-- Добавен T Market като нов магазин
-- Playwright-stealth за Cloudflare bypass (Gladen, T Market)
-- 29 продукта, 7 магазина
+Harmonica Price Tracker v7.17
+- Премахнати продукти 28-29 (не са на Harmonica)
+- Заменен Gladen с Randi.bg (работещ сайт)
+- Поправен T Market URL (tmarketonline.bg)
+- 27 продукта, 7 магазина
 """
 
 import os
@@ -96,25 +96,25 @@ STORES = {
         "expected_currency": "BGN",  # Показва EUR и BGN, но взимаме BGN
         "currency_indicators": ["лв", "лева", "BGN", "€", "EUR"]
     },
-    "Gladen": {
-        "url": "https://shop.gladen.bg/search?query=harmonica",
-        "name_in_sheet": "Gladen",
+    "Randi": {
+        "url": "https://randi.bg/search?search=harmonica",
+        "name_in_sheet": "Randi",
         "scroll_times": 10,
-        "has_pagination": False,
+        "has_pagination": True,
+        "max_pages": 3,
+        "pagination_param": "page",  # URL формат: ?search=harmonica&page=2
         "has_load_more": False,
         "expected_currency": "BGN",
-        "currency_indicators": ["лв", "лева", "BGN"],
-        "needs_stealth": True  # Cloudflare защита
+        "currency_indicators": ["лв", "лева", "BGN"]
     },
     "TMarket": {
-        "url": "https://tmarket.bg/search?q=harmonica",
+        "url": "https://tmarketonline.bg/search?query=harmonica",
         "name_in_sheet": "T Market",
         "scroll_times": 10,
         "has_pagination": False,
         "has_load_more": False,
         "expected_currency": "BGN",
-        "currency_indicators": ["лв", "лева", "BGN"],
-        "needs_stealth": True  # Cloudflare защита
+        "currency_indicators": ["лв", "лева", "BGN"]
     }
 }
 
@@ -146,12 +146,10 @@ PRODUCTS = [
     {"id": 22, "name": "Био студено пресовано слънчогледово масло", "weight": "500мл", "ref_price_bgn": 8.29, "ref_price_eur": 4.24},
     {"id": 23, "name": "Био кисело мляко 2%", "weight": "400г", "ref_price_bgn": 2.79, "ref_price_eur": 1.43},
     {"id": 24, "name": "Био кефир", "weight": "500мл", "ref_price_bgn": 3.89, "ref_price_eur": 1.99},
-    # Нови продукти от Zelen.bg (сухи изделия)
+    # Нови продукти от Zelen.bg (сухи изделия на Harmonica)
     {"id": 25, "name": "Био локум натурален", "weight": "140г", "ref_price_bgn": 4.28, "ref_price_eur": 2.19},
     {"id": 26, "name": "Био локум роза", "weight": "140г", "ref_price_bgn": 4.28, "ref_price_eur": 2.19},
     {"id": 27, "name": "Био бисквити с масло и какао", "weight": "150г", "ref_price_bgn": 4.49, "ref_price_eur": 2.30},
-    {"id": 28, "name": "Био бисквити с лимец", "weight": "150г", "ref_price_bgn": 4.49, "ref_price_eur": 2.30},
-    {"id": 29, "name": "Био мармалад портокал", "weight": "250г", "ref_price_bgn": 5.99, "ref_price_eur": 3.06},
 ]
 
 # Визуални описания на продуктите за по-точна идентификация
@@ -1428,8 +1426,13 @@ def scrape_store(page, store_key, store_config, vision_client=None):
         if page_num == 0:
             current_url = url
         else:
-            # Кашон използва ?page=N (0-indexed: page=0 е първа, page=1 е втора)
-            current_url = f"{url}?page={page_num}"
+            # Проверяваме дали URL-ът вече има query параметри
+            if '?' in url:
+                # URL вече има параметри (напр. ?search=harmonica), добавяме &page=N
+                current_url = f"{url}&page={page_num + 1}"
+            else:
+                # URL няма параметри, добавяме ?page=N
+                current_url = f"{url}?page={page_num}"
         
         if pages_to_load > 1:
             print(f"  Страница {page_num + 1}/{pages_to_load}...")
@@ -1794,7 +1797,7 @@ def update_google_sheets(results):
         all_data.append([''] * 16)
         
         # Ред 4: Заглавия (16 колони) - BGN е основна, 7 магазина
-        headers = ['№', 'Продукт', 'Грамаж', 'Реф.BGN', 'Реф.EUR', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Gladen', 'T Market', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']
+        headers = ['№', 'Продукт', 'Грамаж', 'Реф.BGN', 'Реф.EUR', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Randi', 'T Market', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']
         all_data.append(headers)
         
         # Ред 5+: Данни
@@ -1810,7 +1813,7 @@ def update_google_sheets(results):
                 r['prices'].get('Balev', '') or '',
                 r['prices'].get('Metro', '') or '',
                 r['prices'].get('Zelen', '') or '',
-                r['prices'].get('Gladen', '') or '',
+                r['prices'].get('Randi', '') or '',
                 r['prices'].get('TMarket', '') or '',
                 r['avg_bgn'] if r['avg_bgn'] else '',
                 r['avg_eur'] if r['avg_eur'] else '',
@@ -1879,7 +1882,7 @@ def update_google_sheets(results):
                 (7, {"red": 0.30, "green": 0.58, "blue": 0.35}),   # H: Balev
                 (8, {"red": 0.20, "green": 0.48, "blue": 0.28}),   # I: Metro
                 (9, {"red": 0.45, "green": 0.70, "blue": 0.55}),   # J: Zelen
-                (10, {"red": 0.35, "green": 0.62, "blue": 0.45}),  # K: Gladen
+                (10, {"red": 0.35, "green": 0.62, "blue": 0.45}),  # K: Randi
                 (11, {"red": 0.50, "green": 0.73, "blue": 0.52}),  # L: T Market
             ]
             for col_idx, bg_color in store_colors:
@@ -1919,7 +1922,7 @@ def update_google_sheets(results):
                 (7, {"red": 0.84, "green": 0.93, "blue": 0.84}),   # H: Balev
                 (8, {"red": 0.80, "green": 0.91, "blue": 0.81}),   # I: Metro
                 (9, {"red": 0.90, "green": 0.96, "blue": 0.88}),   # J: Zelen
-                (10, {"red": 0.86, "green": 0.94, "blue": 0.85}),  # K: Gladen
+                (10, {"red": 0.86, "green": 0.94, "blue": 0.85}),  # K: Randi
                 (11, {"red": 0.88, "green": 0.95, "blue": 0.86}),  # L: T Market
             ]
             for col_idx, bg_color in store_data_colors:
@@ -2109,7 +2112,7 @@ def update_google_sheets(results):
                 (7, 50),    # H: Balev
                 (8, 50),    # I: Metro
                 (9, 50),    # J: Zelen
-                (10, 50),   # K: Gladen
+                (10, 50),   # K: Randi
                 (11, 55),   # L: T Market
                 (12, 60),   # M: Ср.BGN
                 (13, 60),   # N: Ср.EUR
@@ -2140,7 +2143,7 @@ def update_google_sheets(results):
                 hist = spreadsheet.worksheet(history_tab_name)
             except:
                 hist = spreadsheet.add_worksheet(history_tab_name, rows=2000, cols=16)
-                hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Gladen', 'T Market', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']], range_name='A1')
+                hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Randi', 'T Market', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']], range_name='A1')
                 hist.freeze(rows=1)
                 print(f"  ✓ Създаден нов таб '{history_tab_name}'")
             
@@ -2156,7 +2159,7 @@ def update_google_sheets(results):
                     r['prices'].get('Balev', '') or '',
                     r['prices'].get('Metro', '') or '',
                     r['prices'].get('Zelen', '') or '',
-                    r['prices'].get('Gladen', '') or '',
+                    r['prices'].get('Randi', '') or '',
                     r['prices'].get('TMarket', '') or '',
                     r['avg_bgn'] if r['avg_bgn'] else '',
                     r['avg_eur'] if r['avg_eur'] else '',
@@ -2347,7 +2350,7 @@ def send_email_report(results, alerts):
     # Футър
     html_parts.append(f"""
         <div class="footer">
-            <p><strong>Harmonica Price Tracker v7.16</strong></p>
+            <p><strong>Harmonica Price Tracker v7.17</strong></p>
             <p>Това съобщение е автоматично генерирано на {date_str} в {time_str} ч.</p>
             <p>Системата проследява цените на продукти Harmonica в eBag, Кашон, Balev и Metro.</p>
         </div>
@@ -2383,8 +2386,8 @@ def send_email_report(results, alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v7.16")
-    print("7 магазина + playwright-stealth за Cloudflare")
+    print("HARMONICA PRICE TRACKER v7.17")
+    print("27 продукта, 7 магазина")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
     print("Магазини: " + str(len(STORES)))
