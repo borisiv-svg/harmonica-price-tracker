@@ -1,13 +1,15 @@
 """
-Harmonica Price Tracker v7.14
-- Добавени 2 нови магазина: Zelen.bg и Gladen.bg (общо 6 магазина)
-- 15 колони в Google Sheets за разширено покритие
+Harmonica Price Tracker v7.15
+- Рестартиране на браузъра между магазините за стабилност
+- Garbage collection и пауза за предотвратяване на memory leaks
 - 24 продукта, 6 магазина: eBag, Кашон, Balev, Metro, Zelen, Gladen
 """
 
 import os
 import json
 import re
+import gc
+import time
 import smtplib
 import base64
 from email.mime.text import MIMEText
@@ -877,6 +879,10 @@ def visual_verify_products(page, client, store_name, text_products, max_verify=5
             continue
     
     print("      [VISION] Верифицирани: " + str(len(verified)) + ", Отхвърлени (цена): " + str(skipped_price) + ", Отхвърлени (ключови думи): " + str(skipped_keywords))
+    
+    # Освобождаваме паметта след визуалната верификация
+    gc.collect()
+    
     return verified
 
 
@@ -1555,54 +1561,72 @@ def collect_prices():
     2. Детектира валутата на всеки магазин от текста
     3. Нормализира всички цени към BGN (за преходния период)
     4. Изчислява средни стойности и отклонения спрямо BGN референцията
+    
+    ВАЖНО: Браузърът се рестартира между магазините за да освобождава памет
+    и да предотврати "Page crashed" грешки при дълги сесии.
     """
     all_prices = {}
     store_currencies = {}
     store_raw_texts = {}
     
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+    # Обработваме всеки магазин с отделен браузър
+    for key, config in STORES.items():
+        store_name = config['name_in_sheet']
         
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-            locale="bg-BG",
-            viewport={"width": 1920, "height": 1080}
-        )
-        
-        if not ENABLE_VISUAL_VERIFICATION:
-            context.route("**/*.{png,jpg,jpeg,gif,webp,svg}", lambda r: r.abort())
-        
-        page = context.new_page()
-        
-        vision_client = None
-        if ENABLE_VISUAL_VERIFICATION and CLAUDE_AVAILABLE:
-            vision_client = get_claude_client()
-            if vision_client:
-                print("  [VISION] Claude Vision активиран")
-        
-        for key, config in STORES.items():
-            prices = scrape_store(page, key, config, vision_client)
-            
-            try:
-                page_text = page.content()
-                store_raw_texts[key] = page_text
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
                 
-                detected_currency = detect_currency_from_text(page_text)
-                if detected_currency:
-                    store_currencies[key] = detected_currency
-                    print(f"  [ВАЛУТА] {config['name_in_sheet']}: Детектирана {detected_currency}")
-                else:
+                context = browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+                    locale="bg-BG",
+                    viewport={"width": 1920, "height": 1080}
+                )
+                
+                if not ENABLE_VISUAL_VERIFICATION:
+                    context.route("**/*.{png,jpg,jpeg,gif,webp,svg}", lambda r: r.abort())
+                
+                page = context.new_page()
+                
+                vision_client = None
+                if ENABLE_VISUAL_VERIFICATION and CLAUDE_AVAILABLE:
+                    vision_client = get_claude_client()
+                    if key == list(STORES.keys())[0]:  # Само за първия магазин
+                        print("  [VISION] Claude Vision активиран")
+                
+                prices = scrape_store(page, key, config, vision_client)
+                
+                try:
+                    page_text = page.content()
+                    store_raw_texts[key] = page_text
+                    
+                    detected_currency = detect_currency_from_text(page_text)
+                    if detected_currency:
+                        store_currencies[key] = detected_currency
+                        print(f"  [ВАЛУТА] {store_name}: Детектирана {detected_currency}")
+                    else:
+                        store_currencies[key] = config.get('expected_currency', 'BGN')
+                        print(f"  [ВАЛУТА] {store_name}: Приета {store_currencies[key]} (по подразбиране)")
+                except:
                     store_currencies[key] = config.get('expected_currency', 'BGN')
-                    print(f"  [ВАЛУТА] {config['name_in_sheet']}: Приета {store_currencies[key]} (по подразбиране)")
-            except:
-                store_currencies[key] = config.get('expected_currency', 'BGN')
+                
+                all_prices[key] = prices
+                
+                # Затваряме браузъра след всеки магазин
+                context.close()
+                browser.close()
             
-            # Запазваме суровите цени (без нормализация)
-            # Нормализацията ще се направи по-късно на ниво продукт
-            all_prices[key] = prices
-            page.wait_for_timeout(2000)
-        
-        browser.close()
+            # Принудително освобождаване на паметта и кратка пауза
+            gc.collect()
+            time.sleep(2)
+                
+        except Exception as e:
+            print(f"\n{'='*60}")
+            print(f"{store_name}: Зареждане")
+            print(f"{'='*60}")
+            print(f"  ✗ Критична грешка: {str(e)[:80]}")
+            all_prices[key] = {}
+            store_currencies[key] = config.get('expected_currency', 'BGN')
     
     print("\n  [ВАЛУТА] Обобщение:")
     for store_key, currency in store_currencies.items():
@@ -2272,7 +2296,7 @@ def send_email_report(results, alerts):
     # Футър
     html_parts.append(f"""
         <div class="footer">
-            <p><strong>Harmonica Price Tracker v7.14</strong></p>
+            <p><strong>Harmonica Price Tracker v7.15</strong></p>
             <p>Това съобщение е автоматично генерирано на {date_str} в {time_str} ч.</p>
             <p>Системата проследява цените на продукти Harmonica в eBag, Кашон, Balev и Metro.</p>
         </div>
@@ -2308,8 +2332,8 @@ def send_email_report(results, alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v7.14")
-    print("6 магазина: eBag, Кашон, Balev, Metro, Zelen, Gladen")
+    print("HARMONICA PRICE TRACKER v7.15")
+    print("Стабилна версия с рестартиране на браузъра")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
     print("Магазини: " + str(len(STORES)))
