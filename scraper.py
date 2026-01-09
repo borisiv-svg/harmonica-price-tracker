@@ -1,8 +1,8 @@
 """
-Harmonica Price Tracker v7.17
-- Премахнати продукти 28-29 (не са на Harmonica)
-- Заменен Gladen с Randi.bg (работещ сайт)
-- Поправен T Market URL (tmarketonline.bg)
+Harmonica Price Tracker v8.0
+- Стабилна версия с 6 работещи магазина
+- Randi.bg успешно интегриран (14 продукта)
+- T Market с нов URL (category filter)
 - 27 продукта, 7 магазина
 """
 
@@ -108,13 +108,14 @@ STORES = {
         "currency_indicators": ["лв", "лева", "BGN"]
     },
     "TMarket": {
-        "url": "https://tmarketonline.bg/search?query=harmonica",
+        "url": "https://tmarketonline.bg/category/bio-fitnes-i-specialni-hrani?vendors=harmonica-1881705916",
         "name_in_sheet": "T Market",
         "scroll_times": 10,
         "has_pagination": False,
         "has_load_more": False,
         "expected_currency": "BGN",
-        "currency_indicators": ["лв", "лева", "BGN"]
+        "currency_indicators": ["лв", "лева", "BGN"],
+        "needs_stealth": True  # Cloudflare защита
     }
 }
 
@@ -1784,7 +1785,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v7.7', '', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v8.0', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([
@@ -2350,7 +2351,7 @@ def send_email_report(results, alerts):
     # Футър
     html_parts.append(f"""
         <div class="footer">
-            <p><strong>Harmonica Price Tracker v7.17</strong></p>
+            <p><strong>Harmonica Price Tracker v8.0</strong></p>
             <p>Това съобщение е автоматично генерирано на {date_str} в {time_str} ч.</p>
             <p>Системата проследява цените на продукти Harmonica в eBag, Кашон, Balev и Metro.</p>
         </div>
@@ -2386,7 +2387,7 @@ def send_email_report(results, alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v7.17")
+    print("HARMONICA PRICE TRACKER v8.0")
     print("27 продукта, 7 магазина")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
