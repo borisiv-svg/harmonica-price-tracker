@@ -1,8 +1,8 @@
 """
-Harmonica Price Tracker v8.0
-- Стабилна версия с 6 работещи магазина
-- Randi.bg успешно интегриран (14 продукта)
-- T Market с нов URL (category filter)
+Harmonica Price Tracker v8.1
+- Премахнат T Market (Cloudflare блокира)
+- Добавен Bio-Market (bio-market.bg)
+- Поправено парсирането на цени от Randi (текстови цени)
 - 27 продукта, 7 магазина
 """
 
@@ -107,15 +107,14 @@ STORES = {
         "expected_currency": "BGN",
         "currency_indicators": ["лв", "лева", "BGN"]
     },
-    "TMarket": {
-        "url": "https://tmarketonline.bg/category/bio-fitnes-i-specialni-hrani?vendors=harmonica-1881705916",
-        "name_in_sheet": "T Market",
+    "BioMarket": {
+        "url": "https://bio-market.bg/brand/harmonica",
+        "name_in_sheet": "Bio-Market",
         "scroll_times": 10,
         "has_pagination": False,
         "has_load_more": False,
         "expected_currency": "BGN",
-        "currency_indicators": ["лв", "лева", "BGN"],
-        "needs_stealth": True  # Cloudflare защита
+        "currency_indicators": ["лв", "лева", "BGN"]
     }
 }
 
@@ -1162,7 +1161,22 @@ def phase2_match_products(client, extracted_products, store_name):
         for product_id_str, price in matches.items():
             try:
                 product_id = int(product_id_str)
-                price = float(price)
+                
+                # Почистваме цената ако е текст (напр. "1.49 лв." или "1,49")
+                if isinstance(price, str):
+                    # Извличаме само числото от текста
+                    price_match = re.search(r'(\d+)[.,](\d{1,2})', price)
+                    if price_match:
+                        price = float(f"{price_match.group(1)}.{price_match.group(2)}")
+                    else:
+                        # Опитваме да намерим цяло число
+                        int_match = re.search(r'(\d+)', price)
+                        if int_match:
+                            price = float(int_match.group(1))
+                        else:
+                            continue
+                else:
+                    price = float(price)
                 
                 # Намираме продукта по ID
                 product = next((p for p in PRODUCTS if p['id'] == product_id), None)
@@ -1785,7 +1799,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v8.0', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v8.1', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([
@@ -1798,7 +1812,7 @@ def update_google_sheets(results):
         all_data.append([''] * 16)
         
         # Ред 4: Заглавия (16 колони) - BGN е основна, 7 магазина
-        headers = ['№', 'Продукт', 'Грамаж', 'Реф.BGN', 'Реф.EUR', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Randi', 'T Market', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']
+        headers = ['№', 'Продукт', 'Грамаж', 'Реф.BGN', 'Реф.EUR', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Randi', 'Bio-Market', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']
         all_data.append(headers)
         
         # Ред 5+: Данни
@@ -1815,7 +1829,7 @@ def update_google_sheets(results):
                 r['prices'].get('Metro', '') or '',
                 r['prices'].get('Zelen', '') or '',
                 r['prices'].get('Randi', '') or '',
-                r['prices'].get('TMarket', '') or '',
+                r['prices'].get('BioMarket', '') or '',
                 r['avg_bgn'] if r['avg_bgn'] else '',
                 r['avg_eur'] if r['avg_eur'] else '',
                 f"{r['deviation']}%" if r['deviation'] is not None else '',
@@ -1827,7 +1841,7 @@ def update_google_sheets(results):
         print(f"  ✓ Записани {len(all_data)} реда")
         
         # Форматиране v7.16 - 16 колони с 7 магазина
-        # A=№, B=Продукт, C=Грамаж, D=Реф.BGN, E=Реф.EUR, F=eBag, G=Кашон, H=Balev, I=Metro, J=Zelen, K=Gladen, L=T Market, M=Ср.BGN, N=Ср.EUR, O=Откл.%, P=Статус
+        # A=№, B=Продукт, C=Грамаж, D=Реф.BGN, E=Реф.EUR, F=eBag, G=Кашон, H=Balev, I=Metro, J=Zelen, K=Randi, L=Bio-Market, M=Ср.BGN, N=Ср.EUR, O=Откл.%, P=Статус
         try:
             last_row = 4 + len(results)
             format_requests = []
@@ -1884,7 +1898,7 @@ def update_google_sheets(results):
                 (8, {"red": 0.20, "green": 0.48, "blue": 0.28}),   # I: Metro
                 (9, {"red": 0.45, "green": 0.70, "blue": 0.55}),   # J: Zelen
                 (10, {"red": 0.35, "green": 0.62, "blue": 0.45}),  # K: Randi
-                (11, {"red": 0.50, "green": 0.73, "blue": 0.52}),  # L: T Market
+                (11, {"red": 0.50, "green": 0.73, "blue": 0.52}),  # L: Bio-Market
             ]
             for col_idx, bg_color in store_colors:
                 format_requests.append({
@@ -1924,7 +1938,7 @@ def update_google_sheets(results):
                 (8, {"red": 0.80, "green": 0.91, "blue": 0.81}),   # I: Metro
                 (9, {"red": 0.90, "green": 0.96, "blue": 0.88}),   # J: Zelen
                 (10, {"red": 0.86, "green": 0.94, "blue": 0.85}),  # K: Randi
-                (11, {"red": 0.88, "green": 0.95, "blue": 0.86}),  # L: T Market
+                (11, {"red": 0.88, "green": 0.95, "blue": 0.86}),  # L: Bio-Market
             ]
             for col_idx, bg_color in store_data_colors:
                 format_requests.append({
@@ -2114,7 +2128,7 @@ def update_google_sheets(results):
                 (8, 50),    # I: Metro
                 (9, 50),    # J: Zelen
                 (10, 50),   # K: Randi
-                (11, 55),   # L: T Market
+                (11, 55),   # L: Bio-Market
                 (12, 60),   # M: Ср.BGN
                 (13, 60),   # N: Ср.EUR
                 (14, 55),   # O: Откл.%
@@ -2144,7 +2158,7 @@ def update_google_sheets(results):
                 hist = spreadsheet.worksheet(history_tab_name)
             except:
                 hist = spreadsheet.add_worksheet(history_tab_name, rows=2000, cols=16)
-                hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Randi', 'T Market', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']], range_name='A1')
+                hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Randi', 'Bio-Market', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']], range_name='A1')
                 hist.freeze(rows=1)
                 print(f"  ✓ Създаден нов таб '{history_tab_name}'")
             
@@ -2161,7 +2175,7 @@ def update_google_sheets(results):
                     r['prices'].get('Metro', '') or '',
                     r['prices'].get('Zelen', '') or '',
                     r['prices'].get('Randi', '') or '',
-                    r['prices'].get('TMarket', '') or '',
+                    r['prices'].get('BioMarket', '') or '',
                     r['avg_bgn'] if r['avg_bgn'] else '',
                     r['avg_eur'] if r['avg_eur'] else '',
                     f"{r['deviation']}%" if r['deviation'] is not None else '',
@@ -2351,7 +2365,7 @@ def send_email_report(results, alerts):
     # Футър
     html_parts.append(f"""
         <div class="footer">
-            <p><strong>Harmonica Price Tracker v8.0</strong></p>
+            <p><strong>Harmonica Price Tracker v8.1</strong></p>
             <p>Това съобщение е автоматично генерирано на {date_str} в {time_str} ч.</p>
             <p>Системата проследява цените на продукти Harmonica в eBag, Кашон, Balev и Metro.</p>
         </div>
@@ -2387,7 +2401,7 @@ def send_email_report(results, alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v8.0")
+    print("HARMONICA PRICE TRACKER v8.1")
     print("27 продукта, 7 магазина")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
