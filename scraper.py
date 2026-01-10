@@ -1,8 +1,8 @@
 """
-Harmonica Price Tracker v8.2
-- Добавен BeFit.bg (8-ми магазин)
-- Премахнат остарял текст от имейла
-- 27 продукта, 8 магазина
+Harmonica Price Tracker v8.4
+- Хибриден Claude подход: Haiku за Фаза 1, Sonnet за Фаза 2
+- Sonnet осигурява по-точно семантично съпоставяне на продукти
+- 27 продукта, 9 магазина
 """
 
 import os
@@ -46,6 +46,14 @@ ALERT_THRESHOLD = 10
 # Базова валута за сравнение - BGN (до юни 2026)
 # След това може да се смени на EUR
 BASE_CURRENCY = "BGN"
+
+# Claude модели - хибриден подход за оптимална точност и скорост
+# Фаза 1 (извличане): Haiku - бърз и евтин за парсване на HTML
+# Фаза 2 (съпоставяне): Sonnet - по-точен за семантично разпознаване на продукти
+# Визуална верификация: Haiku - достатъчно добър за разпознаване на опаковки
+CLAUDE_MODEL_PHASE1 = "claude-haiku-4-5-20251001"      # Извличане на продукти от HTML
+CLAUDE_MODEL_PHASE2 = "claude-sonnet-4-5-20250514"    # Семантично съпоставяне
+CLAUDE_MODEL_VISION = "claude-haiku-4-5-20251001"      # Визуална верификация
 
 STORES = {
     "eBag": {
@@ -123,13 +131,22 @@ STORES = {
         "has_load_more": False,
         "expected_currency": "BGN",
         "currency_indicators": ["лв", "лева", "BGN"]
+    },
+    "Laika": {
+        "url": "https://laika.bg/harmonica-bio-bulgaria-proizvodstvo-magi-maleeva-shoko-ghi-kefir-boza-koze-sirene-ovche-izvara-bulgarska-tzena-kade-da-kupia-magazin-online",
+        "name_in_sheet": "Laika",
+        "scroll_times": 10,
+        "has_pagination": False,
+        "has_load_more": False,
+        "expected_currency": "BGN",
+        "currency_indicators": ["лв", "лева", "BGN"]
     }
 }
 
-# Продукти с референтни цени от Balev Bio Market (24 продукта)
+# Продукти с референтни цени от Balev Bio Market (27 продукта)
+# Zelen продуктите (локум, бисквити) са разпределени равномерно в списъка
 PRODUCTS = [
     # Референтни цени в BGN (основни) и EUR (информативни)
-    # До юни 2026 сравняваме спрямо BGN
     {"id": 1, "name": "Био вафла с лимонов крем", "weight": "30г", "ref_price_bgn": 1.39, "ref_price_eur": 0.71},
     {"id": 2, "name": "Био вафла без добавена захар", "weight": "30г", "ref_price_bgn": 1.49, "ref_price_eur": 0.76},
     {"id": 3, "name": "Био сирене козе", "weight": "200г", "ref_price_bgn": 10.99, "ref_price_eur": 5.62},
@@ -137,27 +154,26 @@ PRODUCTS = [
     {"id": 5, "name": "Био кисело мляко 3,6%", "weight": "400г", "ref_price_bgn": 2.79, "ref_price_eur": 1.43},
     {"id": 6, "name": "Био лютеница Хаджиеви", "weight": "260г", "ref_price_bgn": 8.99, "ref_price_eur": 4.60},
     {"id": 7, "name": "Био пълнозърнест сусамов тахан", "weight": "700г", "ref_price_bgn": 18.79, "ref_price_eur": 9.61},
-    {"id": 8, "name": "Био кашкавал от краве мляко", "weight": "300г", "ref_price_bgn": 13.49, "ref_price_eur": 6.90},
-    {"id": 9, "name": "Био крема сирене", "weight": "125г", "ref_price_bgn": 5.69, "ref_price_eur": 2.91},
-    {"id": 10, "name": "Био вафла с лимец и кокос", "weight": "30г", "ref_price_bgn": 1.39, "ref_price_eur": 0.71},
-    {"id": 11, "name": "Био краве сирене", "weight": "400г", "ref_price_bgn": 12.59, "ref_price_eur": 6.44},
-    {"id": 12, "name": "Био пълнозърнести кори за баница", "weight": "400г", "ref_price_bgn": 7.99, "ref_price_eur": 4.09},
-    {"id": 13, "name": "Био фъстъчено масло", "weight": "250г", "ref_price_bgn": 9.39, "ref_price_eur": 4.80},
-    {"id": 14, "name": "Био слънчогледово масло", "weight": "500мл", "ref_price_bgn": 8.29, "ref_price_eur": 4.24},
-    {"id": 15, "name": "Био тунквана вафла Chocobiotic", "weight": "40г", "ref_price_bgn": 2.29, "ref_price_eur": 1.17},
-    {"id": 16, "name": "Био сироп от бъз", "weight": "750мл", "ref_price_bgn": 15.49, "ref_price_eur": 7.92},
-    {"id": 17, "name": "Био прясно мляко 3,6%", "weight": "1л", "ref_price_bgn": 5.39, "ref_price_eur": 2.76},
-    {"id": 18, "name": "Био солети от лимец", "weight": "50г", "ref_price_bgn": 2.59, "ref_price_eur": 1.32},
-    {"id": 19, "name": "Био пълнозърнести солети", "weight": "60г", "ref_price_bgn": 2.09, "ref_price_eur": 1.07},
-    {"id": 20, "name": "Био кисело пълномаслено мляко", "weight": "400г", "ref_price_bgn": 2.79, "ref_price_eur": 1.43},
-    {"id": 21, "name": "Био извара", "weight": "500г", "ref_price_bgn": 3.69, "ref_price_eur": 1.89},
-    {"id": 22, "name": "Био студено пресовано слънчогледово масло", "weight": "500мл", "ref_price_bgn": 8.29, "ref_price_eur": 4.24},
-    {"id": 23, "name": "Био кисело мляко 2%", "weight": "400г", "ref_price_bgn": 2.79, "ref_price_eur": 1.43},
-    {"id": 24, "name": "Био кефир", "weight": "500мл", "ref_price_bgn": 3.89, "ref_price_eur": 1.99},
-    # Нови продукти от Zelen.bg (сухи изделия на Harmonica)
-    {"id": 25, "name": "Био локум натурален", "weight": "140г", "ref_price_bgn": 4.28, "ref_price_eur": 2.19},
-    {"id": 26, "name": "Био локум роза", "weight": "140г", "ref_price_bgn": 4.28, "ref_price_eur": 2.19},
-    {"id": 27, "name": "Био бисквити с масло и какао", "weight": "150г", "ref_price_bgn": 4.49, "ref_price_eur": 2.30},
+    {"id": 8, "name": "Био локум натурален", "weight": "140г", "ref_price_bgn": 4.28, "ref_price_eur": 2.19},  # Zelen продукт
+    {"id": 9, "name": "Био кашкавал от краве мляко", "weight": "300г", "ref_price_bgn": 13.49, "ref_price_eur": 6.90},
+    {"id": 10, "name": "Био крема сирене", "weight": "125г", "ref_price_bgn": 5.69, "ref_price_eur": 2.91},
+    {"id": 11, "name": "Био вафла с лимец и кокос", "weight": "30г", "ref_price_bgn": 1.39, "ref_price_eur": 0.71},
+    {"id": 12, "name": "Био краве сирене", "weight": "400г", "ref_price_bgn": 12.59, "ref_price_eur": 6.44},
+    {"id": 13, "name": "Био пълнозърнести кори за баница", "weight": "400г", "ref_price_bgn": 7.99, "ref_price_eur": 4.09},
+    {"id": 14, "name": "Био фъстъчено масло", "weight": "250г", "ref_price_bgn": 9.39, "ref_price_eur": 4.80},
+    {"id": 15, "name": "Био локум роза", "weight": "140г", "ref_price_bgn": 4.28, "ref_price_eur": 2.19},  # Zelen продукт
+    {"id": 16, "name": "Био слънчогледово масло", "weight": "500мл", "ref_price_bgn": 8.29, "ref_price_eur": 4.24},
+    {"id": 17, "name": "Био тунквана вафла Chocobiotic", "weight": "40г", "ref_price_bgn": 2.29, "ref_price_eur": 1.17},
+    {"id": 18, "name": "Био сироп от бъз", "weight": "750мл", "ref_price_bgn": 15.49, "ref_price_eur": 7.92},
+    {"id": 19, "name": "Био прясно мляко 3,6%", "weight": "1л", "ref_price_bgn": 5.39, "ref_price_eur": 2.76},
+    {"id": 20, "name": "Био солети от лимец", "weight": "50г", "ref_price_bgn": 2.59, "ref_price_eur": 1.32},
+    {"id": 21, "name": "Био бисквити с масло и какао", "weight": "150г", "ref_price_bgn": 4.49, "ref_price_eur": 2.30},  # Zelen продукт
+    {"id": 22, "name": "Био пълнозърнести солети", "weight": "60г", "ref_price_bgn": 2.09, "ref_price_eur": 1.07},
+    {"id": 23, "name": "Био кисело пълномаслено мляко", "weight": "400г", "ref_price_bgn": 2.79, "ref_price_eur": 1.43},
+    {"id": 24, "name": "Био извара", "weight": "500г", "ref_price_bgn": 3.69, "ref_price_eur": 1.89},
+    {"id": 25, "name": "Био студено пресовано слънчогледово масло", "weight": "500мл", "ref_price_bgn": 8.29, "ref_price_eur": 4.24},
+    {"id": 26, "name": "Био кисело мляко 2%", "weight": "400г", "ref_price_bgn": 2.79, "ref_price_eur": 1.43},
+    {"id": 27, "name": "Био кефир", "weight": "500мл", "ref_price_bgn": 3.89, "ref_price_eur": 1.99},
 ]
 
 # Визуални описания на продуктите за по-точна идентификация
@@ -170,23 +186,26 @@ PRODUCT_VISUAL_DESCRIPTIONS = {
     5: "Бяла пластмасова кутия кисело мляко 3.6%, 400г",
     6: "Буркан лютеница Хаджиеви, червен цвят, 260г",
     7: "Буркан сусамов тахан, 700г",
-    8: "Жълта опаковка кашкавал от краве мляко, 300г",
-    9: "Бяла пластмасова кутийка крема сирене, 125г",
-    10: "Кафява/бежова опаковка вафла с лимец и кокос, 30г",
-    11: "Бяла опаковка краве сирене, 400г",
-    12: "Опаковка пълнозърнести кори за баница, 400г",
-    13: "Буркан фъстъчено масло, 250г",
-    14: "Бутилка слънчогледово масло, 500мл",
-    15: "Тунквана вафла Chocobiotic с шоколад и пробиотик, 40г",
-    16: "Висока стъклена бутилка сироп от бъз, 750мл",
-    17: "Кутия прясно мляко 3.6%, 1л",
-    18: "Опаковка солети от лимец, 50г",
-    19: "Опаковка пълнозърнести солети, 60г",
-    20: "Бяла пластмасова кутия кисело пълномаслено мляко, 400г",
-    21: "Бяла кутия извара, 500г",
-    22: "Бутилка студено пресовано слънчогледово масло, 500мл",
-    23: "Бяла пластмасова кутия кисело мляко 2%, 400г",
-    24: "Бяла бутилка кефир, 500мл",
+    8: "Опаковка локум натурален, 140г",  # Zelen продукт
+    9: "Жълта опаковка кашкавал от краве мляко, 300г",
+    10: "Бяла пластмасова кутийка крема сирене, 125г",
+    11: "Кафява/бежова опаковка вафла с лимец и кокос, 30г",
+    12: "Бяла опаковка краве сирене, 400г",
+    13: "Опаковка пълнозърнести кори за баница, 400г",
+    14: "Буркан фъстъчено масло, 250г",
+    15: "Опаковка локум роза, 140г",  # Zelen продукт
+    16: "Бутилка слънчогледово масло, 500мл",
+    17: "Тунквана вафла Chocobiotic с шоколад и пробиотик, 40г",
+    18: "Висока стъклена бутилка сироп от бъз, 750мл",
+    19: "Кутия прясно мляко 3.6%, 1л",
+    20: "Опаковка солети от лимец, 50г",
+    21: "Опаковка бисквити с масло и какао, 150г",  # Zelen продукт
+    22: "Опаковка пълнозърнести солети, 60г",
+    23: "Бяла пластмасова кутия кисело пълномаслено мляко, 400г",
+    24: "Бяла кутия извара, 500г",
+    25: "Бутилка студено пресовано слънчогледово масло, 500мл",
+    26: "Бяла пластмасова кутия кисело мляко 2%, 400г",
+    27: "Бяла бутилка кефир, 500мл",
 }
 
 # Алтернативни имена на продукти за по-добро съпоставяне
@@ -550,7 +569,7 @@ def verify_product_with_vision(client, screenshot_base64, text_name, text_price,
     
     try:
         message = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=CLAUDE_MODEL_VISION,  # Haiku за визуална верификация
             max_tokens=200,
             messages=[{
                 "role": "user",
@@ -979,7 +998,7 @@ def phase1_extract_all_products(client, page_text, store_name):
 
     try:
         message = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=CLAUDE_MODEL_PHASE1,
             max_tokens=2000,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -1143,7 +1162,7 @@ def phase2_match_products(client, extracted_products, store_name):
 
     try:
         message = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=CLAUDE_MODEL_PHASE2,  # Sonnet за по-точно семантично съпоставяне
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -1807,20 +1826,20 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v8.2', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v8.4', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([
             f'Актуализация: {now}', '', 
             f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
-            f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', '', '', '', '', '', ''
+            f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', '', '', '', '', '', '', ''
         ])
         
         # Ред 3: Празен
-        all_data.append([''] * 17)
+        all_data.append([''] * 18)
         
-        # Ред 4: Заглавия (17 колони) - BGN е основна, 8 магазина
-        headers = ['№', 'Продукт', 'Грамаж', 'Реф.BGN', 'Реф.EUR', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Randi', 'Bio-Market', 'BeFit', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']
+        # Ред 4: Заглавия (18 колони) - BGN е основна, 9 магазина
+        headers = ['№', 'Продукт', 'Грамаж', 'Реф.BGN', 'Реф.EUR', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Randi', 'Bio-Market', 'BeFit', 'Laika', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']
         all_data.append(headers)
         
         # Ред 5+: Данни
@@ -1839,6 +1858,7 @@ def update_google_sheets(results):
                 r['prices'].get('Randi', '') or '',
                 r['prices'].get('BioMarket', '') or '',
                 r['prices'].get('BeFit', '') or '',
+                r['prices'].get('Laika', '') or '',
                 r['avg_bgn'] if r['avg_bgn'] else '',
                 r['avg_eur'] if r['avg_eur'] else '',
                 f"{r['deviation']}%" if r['deviation'] is not None else '',
@@ -1849,16 +1869,16 @@ def update_google_sheets(results):
         sheet.update(values=all_data, range_name='A1')
         print(f"  ✓ Записани {len(all_data)} реда")
         
-        # Форматиране v8.2 - 17 колони с 8 магазина
-        # A=№, B=Продукт, C=Грамаж, D=Реф.BGN, E=Реф.EUR, F=eBag, G=Кашон, H=Balev, I=Metro, J=Zelen, K=Randi, L=Bio-Market, M=BeFit, N=Ср.BGN, O=Ср.EUR, P=Откл.%, Q=Статус
+        # Форматиране v8.3 - 18 колони с 9 магазина
+        # A=№, B=Продукт, C=Грамаж, D=Реф.BGN, E=Реф.EUR, F=eBag, G=Кашон, H=Balev, I=Metro, J=Zelen, K=Randi, L=Bio-Market, M=BeFit, N=Laika, O=Ср.BGN, P=Ср.EUR, Q=Откл.%, R=Статус
         try:
             last_row = 4 + len(results)
             format_requests = []
             
-            # 1. Заглавен ред (A1:Q1) - тъмно зелено
+            # 1. Заглавен ред (A1:R1) - тъмно зелено
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 17},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 18},
                     "cell": {
                         "userEnteredFormat": {
                             "backgroundColor": {"red": 0.13, "green": 0.35, "blue": 0.22},
@@ -1870,10 +1890,10 @@ def update_google_sheets(results):
                 }
             })
             
-            # 2. Метаданни ред (A2:Q2) - светло зелено
+            # 2. Метаданни ред (A2:R2) - светло зелено
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 0, "endColumnIndex": 17},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 0, "endColumnIndex": 18},
                     "cell": {
                         "userEnteredFormat": {
                             "backgroundColor": {"red": 0.92, "green": 0.97, "blue": 0.92},
@@ -1899,7 +1919,7 @@ def update_google_sheets(results):
                 }
             })
             
-            # 4. Магазини заглавия F-M (8 магазина) - различни нюанси зелено
+            # 4. Магазини заглавия F-N (9 магазина) - различни нюанси зелено
             store_colors = [
                 (5, {"red": 0.56, "green": 0.77, "blue": 0.49}),   # F: eBag
                 (6, {"red": 0.42, "green": 0.68, "blue": 0.42}),   # G: Кашон
@@ -1909,6 +1929,7 @@ def update_google_sheets(results):
                 (10, {"red": 0.35, "green": 0.62, "blue": 0.45}),  # K: Randi
                 (11, {"red": 0.50, "green": 0.73, "blue": 0.52}),  # L: Bio-Market
                 (12, {"red": 0.40, "green": 0.65, "blue": 0.48}),  # M: BeFit
+                (13, {"red": 0.32, "green": 0.60, "blue": 0.40}),  # N: Laika
             ]
             for col_idx, bg_color in store_colors:
                 format_requests.append({
@@ -1925,10 +1946,10 @@ def update_google_sheets(results):
                     }
                 })
             
-            # 5. Обобщение заглавия N-Q (Ср.BGN, Ср.EUR, Откл.%, Статус) - базово зелено
+            # 5. Обобщение заглавия O-R (Ср.BGN, Ср.EUR, Откл.%, Статус) - базово зелено
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 3, "endRowIndex": 4, "startColumnIndex": 13, "endColumnIndex": 17},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 3, "endRowIndex": 4, "startColumnIndex": 14, "endColumnIndex": 18},
                     "cell": {
                         "userEnteredFormat": {
                             "backgroundColor": {"red": 0.2, "green": 0.5, "blue": 0.3},
@@ -1940,7 +1961,7 @@ def update_google_sheets(results):
                 }
             })
             
-            # 6. Фон на магазин колоните (F-M, 8 магазина) - леки нюанси зелено
+            # 6. Фон на магазин колоните (F-N, 9 магазина) - леки нюанси зелено
             store_data_colors = [
                 (5, {"red": 0.92, "green": 0.97, "blue": 0.90}),   # F: eBag
                 (6, {"red": 0.88, "green": 0.95, "blue": 0.87}),   # G: Кашон
@@ -1950,6 +1971,7 @@ def update_google_sheets(results):
                 (10, {"red": 0.86, "green": 0.94, "blue": 0.85}),  # K: Randi
                 (11, {"red": 0.88, "green": 0.95, "blue": 0.86}),  # L: Bio-Market
                 (12, {"red": 0.84, "green": 0.93, "blue": 0.83}),  # M: BeFit
+                (13, {"red": 0.82, "green": 0.92, "blue": 0.82}),  # N: Laika
             ]
             for col_idx, bg_color in store_data_colors:
                 format_requests.append({
@@ -1998,18 +2020,18 @@ def update_google_sheets(results):
                     "fields": "userEnteredFormat(horizontalAlignment)"
                 }
             })
-            # N-P (Ср.BGN, Ср.EUR, Откл.%) - дясно
+            # O-Q (Ср.BGN, Ср.EUR, Откл.%) - дясно
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 13, "endColumnIndex": 16},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 14, "endColumnIndex": 17},
                     "cell": {"userEnteredFormat": {"horizontalAlignment": "RIGHT"}},
                     "fields": "userEnteredFormat(horizontalAlignment)"
                 }
             })
-            # Q (Статус) - център
+            # R (Статус) - център
             format_requests.append({
                 "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 16, "endColumnIndex": 17},
+                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 17, "endColumnIndex": 18},
                     "cell": {"userEnteredFormat": {"horizontalAlignment": "CENTER"}},
                     "fields": "userEnteredFormat(horizontalAlignment)"
                 }
@@ -2029,11 +2051,11 @@ def update_google_sheets(results):
                 else:
                     no_data_rows.append(row_idx)
             
-            # OK редове - зелен статус (колона Q=16)
+            # OK редове - зелен статус (колона R=17)
             for row_idx in ok_rows:
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 16, "endColumnIndex": 17},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 17, "endColumnIndex": 18},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 0.85, "green": 0.95, "blue": 0.85},
@@ -2043,10 +2065,10 @@ def update_google_sheets(results):
                         "fields": "userEnteredFormat(backgroundColor,textFormat)"
                     }
                 })
-                # Средни цени N-O - светло зелено
+                # Средни цени O-P - светло зелено
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 13, "endColumnIndex": 15},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 14, "endColumnIndex": 16},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 0.9, "green": 0.97, "blue": 0.9},
@@ -2059,10 +2081,10 @@ def update_google_sheets(results):
             
             # ВНИМАНИЕ редове - червен статус и фон
             for row_idx in warning_rows:
-                # Статус Q - червено
+                # Статус R - червено
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 16, "endColumnIndex": 17},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 17, "endColumnIndex": 18},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 1, "green": 0.85, "blue": 0.85},
@@ -2072,10 +2094,10 @@ def update_google_sheets(results):
                         "fields": "userEnteredFormat(backgroundColor,textFormat)"
                     }
                 })
-                # Средни цени N-O - светло червено
+                # Средни цени O-P - светло червено
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 13, "endColumnIndex": 15},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 14, "endColumnIndex": 16},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 1, "green": 0.92, "blue": 0.92},
@@ -2085,10 +2107,10 @@ def update_google_sheets(results):
                         "fields": "userEnteredFormat(backgroundColor,textFormat)"
                     }
                 })
-                # Откл.% P - червен фон
+                # Откл.% Q - червен фон
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 15, "endColumnIndex": 16},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 16, "endColumnIndex": 17},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 1, "green": 0.92, "blue": 0.92},
@@ -2115,7 +2137,7 @@ def update_google_sheets(results):
             for row_idx in no_data_rows:
                 format_requests.append({
                     "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 0, "endColumnIndex": 17},
+                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 0, "endColumnIndex": 18},
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": {"red": 0.95, "green": 0.95, "blue": 0.95},
@@ -2126,7 +2148,7 @@ def update_google_sheets(results):
                     }
                 })
             
-            # 9. Ширини на колоните (17 колони за 8 магазина)
+            # 9. Ширини на колоните (18 колони за 9 магазина)
             column_widths = [
                 (0, 35),    # A: №
                 (1, 270),   # B: Продукт
@@ -2141,10 +2163,11 @@ def update_google_sheets(results):
                 (10, 50),   # K: Randi
                 (11, 55),   # L: Bio-Market
                 (12, 50),   # M: BeFit
-                (13, 60),   # N: Ср.BGN
-                (14, 60),   # O: Ср.EUR
-                (15, 55),   # P: Откл.%
-                (16, 80),   # Q: Статус
+                (13, 50),   # N: Laika
+                (14, 60),   # O: Ср.BGN
+                (15, 60),   # P: Ср.EUR
+                (16, 55),   # Q: Откл.%
+                (17, 80),   # R: Статус
             ]
             for col_idx, width in column_widths:
                 format_requests.append({
@@ -2169,8 +2192,8 @@ def update_google_sheets(results):
             try:
                 hist = spreadsheet.worksheet(history_tab_name)
             except:
-                hist = spreadsheet.add_worksheet(history_tab_name, rows=2000, cols=17)
-                hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Randi', 'Bio-Market', 'BeFit', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']], range_name='A1')
+                hist = spreadsheet.add_worksheet(history_tab_name, rows=2000, cols=18)
+                hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Randi', 'Bio-Market', 'BeFit', 'Laika', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']], range_name='A1')
                 hist.freeze(rows=1)
                 print(f"  ✓ Създаден нов таб '{history_tab_name}'")
             
@@ -2189,6 +2212,7 @@ def update_google_sheets(results):
                     r['prices'].get('Randi', '') or '',
                     r['prices'].get('BioMarket', '') or '',
                     r['prices'].get('BeFit', '') or '',
+                    r['prices'].get('Laika', '') or '',
                     r['avg_bgn'] if r['avg_bgn'] else '',
                     r['avg_eur'] if r['avg_eur'] else '',
                     f"{r['deviation']}%" if r['deviation'] is not None else '',
@@ -2378,7 +2402,7 @@ def send_email_report(results, alerts):
     # Футър
     html_parts.append(f"""
         <div class="footer">
-            <p><strong>Harmonica Price Tracker v8.2</strong></p>
+            <p><strong>Harmonica Price Tracker v8.4</strong></p>
             <p>Това съобщение е автоматично генерирано на {date_str} в {time_str} ч.</p>
         </div>
     </body>
@@ -2413,13 +2437,16 @@ def send_email_report(results, alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v8.2")
-    print("27 продукта, 8 магазина")
+    print("HARMONICA PRICE TRACKER v8.4")
+    print("27 продукта, 9 магазина")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
     print("Магазини: " + str(len(STORES)))
     print("Базова валута: BGN")
     print("Claude API: " + ("Наличен" if CLAUDE_AVAILABLE else "Не е наличен"))
+    if CLAUDE_AVAILABLE:
+        print(f"  Фаза 1: {CLAUDE_MODEL_PHASE1.split('-')[1].capitalize()}")
+        print(f"  Фаза 2: {CLAUDE_MODEL_PHASE2.split('-')[1].capitalize()} (семантично съпоставяне)")
     print("Vision: " + ("Активна" if ENABLE_VISUAL_VERIFICATION else "Изключена"))
     print("Stealth: " + ("Наличен" if STEALTH_AVAILABLE else "Не е наличен"))
     print("=" * 60)
