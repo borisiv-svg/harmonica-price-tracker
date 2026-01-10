@@ -1,7 +1,7 @@
 """
-Harmonica Price Tracker v8.4
-- Хибриден Claude подход: Haiku за Фаза 1, Sonnet за Фаза 2
-- Sonnet осигурява по-точно семантично съпоставяне на продукти
+Harmonica Price Tracker v8.5
+- Поправено име на Sonnet модела (claude-sonnet-4-5-20250929)
+- Добавен fallback към Haiku ако Sonnet не е наличен
 - 27 продукта, 9 магазина
 """
 
@@ -52,7 +52,7 @@ BASE_CURRENCY = "BGN"
 # Фаза 2 (съпоставяне): Sonnet - по-точен за семантично разпознаване на продукти
 # Визуална верификация: Haiku - достатъчно добър за разпознаване на опаковки
 CLAUDE_MODEL_PHASE1 = "claude-haiku-4-5-20251001"      # Извличане на продукти от HTML
-CLAUDE_MODEL_PHASE2 = "claude-sonnet-4-5-20250514"    # Семантично съпоставяне
+CLAUDE_MODEL_PHASE2 = "claude-sonnet-4-5-20250929"    # Семантично съпоставяне (Sonnet 4.5)
 CLAUDE_MODEL_VISION = "claude-haiku-4-5-20251001"      # Визуална верификация
 
 STORES = {
@@ -1160,13 +1160,28 @@ def phase2_match_products(client, extracted_products, store_name):
 Пример за правилен отговор: {{"3": 10.99, "5": 2.79, "9": 5.69}}
 Ако няма съвпадения: {{}}"""
 
+    # Опитваме първо с предпочитания модел (Sonnet), с fallback към Haiku ако не е наличен
+    model_to_use = CLAUDE_MODEL_PHASE2
     try:
         message = client.messages.create(
-            model=CLAUDE_MODEL_PHASE2,  # Sonnet за по-точно семантично съпоставяне
+            model=model_to_use,
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}]
         )
-        
+    except Exception as model_error:
+        # Ако Sonnet не е наличен (404), използваме Haiku като резервен вариант
+        if "404" in str(model_error) or "not_found" in str(model_error):
+            print(f"    [ФАЗА 2] Моделът {model_to_use} не е наличен, използваме Haiku...")
+            model_to_use = CLAUDE_MODEL_PHASE1  # Fallback към Haiku
+            message = client.messages.create(
+                model=model_to_use,
+                max_tokens=1000,
+                messages=[{"role": "user", "content": prompt}]
+            )
+        else:
+            raise model_error
+    
+    try:
         response_text = message.content[0].text.strip()
         print(f"    [ФАЗА 2] Отговор: {response_text[:150]}...")
         
@@ -1826,7 +1841,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v8.4', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v8.5', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([
@@ -2402,7 +2417,7 @@ def send_email_report(results, alerts):
     # Футър
     html_parts.append(f"""
         <div class="footer">
-            <p><strong>Harmonica Price Tracker v8.4</strong></p>
+            <p><strong>Harmonica Price Tracker v8.5</strong></p>
             <p>Това съобщение е автоматично генерирано на {date_str} в {time_str} ч.</p>
         </div>
     </body>
@@ -2437,7 +2452,7 @@ def send_email_report(results, alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v8.4")
+    print("HARMONICA PRICE TRACKER v8.5")
     print("27 продукта, 9 магазина")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
@@ -2446,7 +2461,7 @@ def main():
     print("Claude API: " + ("Наличен" if CLAUDE_AVAILABLE else "Не е наличен"))
     if CLAUDE_AVAILABLE:
         print(f"  Фаза 1: {CLAUDE_MODEL_PHASE1.split('-')[1].capitalize()}")
-        print(f"  Фаза 2: {CLAUDE_MODEL_PHASE2.split('-')[1].capitalize()} (семантично съпоставяне)")
+        print(f"  Фаза 2: {CLAUDE_MODEL_PHASE2.split('-')[1].capitalize()} (с Haiku fallback)")
     print("Vision: " + ("Активна" if ENABLE_VISUAL_VERIFICATION else "Изключена"))
     print("Stealth: " + ("Наличен" if STEALTH_AVAILABLE else "Не е наличен"))
     print("=" * 60)
