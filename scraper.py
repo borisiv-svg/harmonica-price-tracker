@@ -1,7 +1,7 @@
 """
-Harmonica Price Tracker v8.5
-- Поправено име на Sonnet модела (claude-sonnet-4-5-20250929)
-- Добавен fallback към Haiku ако Sonnet не е наличен
+Harmonica Price Tracker v8.6
+- Поправено парсване на цени като string (напр. "4.28 лв.")
+- Zelen и други магазини с текстови цени вече работят коректно
 - 27 продукта, 9 магазина
 """
 
@@ -1066,10 +1066,19 @@ def phase1_extract_all_products(client, page_text, store_name):
                     # Обработваме цената - може да е число или string
                     price_raw = p['price']
                     if isinstance(price_raw, str):
-                        # Премахваме валутни символи и whitespace
-                        price_clean = re.sub(r'[лвBGNEUR€\s\.]', '', price_raw)
-                        price_clean = price_clean.replace(',', '.')
-                        price = float(price_clean)
+                        # Извличаме числото от string-а (напр. "4.28 лв." -> 4.28)
+                        # Търсим десетично число или цяло число
+                        price_match = re.search(r'(\d+)[.,](\d+)', price_raw)
+                        if price_match:
+                            # Десетично число: "4.28" или "4,28"
+                            price = float(f"{price_match.group(1)}.{price_match.group(2)}")
+                        else:
+                            # Цяло число: "4"
+                            int_match = re.search(r'(\d+)', price_raw)
+                            if int_match:
+                                price = float(int_match.group(1))
+                            else:
+                                continue
                     else:
                         price = float(price_raw)
                     
@@ -1841,7 +1850,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v8.5', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v8.6', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([
@@ -2417,7 +2426,7 @@ def send_email_report(results, alerts):
     # Футър
     html_parts.append(f"""
         <div class="footer">
-            <p><strong>Harmonica Price Tracker v8.5</strong></p>
+            <p><strong>Harmonica Price Tracker v8.6</strong></p>
             <p>Това съобщение е автоматично генерирано на {date_str} в {time_str} ч.</p>
         </div>
     </body>
@@ -2452,7 +2461,7 @@ def send_email_report(results, alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v8.5")
+    print("HARMONICA PRICE TRACKER v8.6")
     print("27 продукта, 9 магазина")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
