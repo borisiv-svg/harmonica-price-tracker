@@ -1,11 +1,10 @@
 """
-Harmonica Price Tracker v8.9
-- Увеличен max_tokens за Фаза 1 (4000) за магазини с много продукти
-- Retry логика за Фаза 2 - опит с Haiku ако Sonnet върне празен резултат
-- Подобрено fallback търсене с fuzzy matching и Zelen продуктите
-- Конфигурируем price_tolerance за магазини с различни ценови стратегии
-- BeFit с разширен толеранс (70%) за промоционални цени
-- Изчистване на форматирането преди прилагане на новото
+Harmonica Price Tracker v9.0
+- НОВА ЛОГИКА: Средната цена се изчислява от реалните пазарни цени на магазините
+- Откл.% показва максималното отклонение на магазин от средната пазарна цена
+- Оцветяване на клетките: червено за >10% по-скъпо, синьо за >10% по-евтино
+- Статус "ВНИМАНИЕ" ако поне един магазин има отклонение над 10%
+- Референтните цени се запазват за валидиране на извлечените данни
 """
 
 import os
@@ -1825,7 +1824,7 @@ def collect_prices():
     print()
     
     # Обработка на резултатите - нормализация на ниво продукт
-    # Използваме референтната BGN цена за всеки продукт за да определим валутата
+    # v9.0: Новата логика - средната цена се изчислява от реалните пазарни цени
     results = []
     currency_corrections = {"EUR->BGN": 0, "BGN": 0}
     
@@ -1852,14 +1851,41 @@ def collect_prices():
         
         valid_prices = [p for p in normalized_prices.values() if p is not None]
         
+        # v9.0: Нова логика за средна цена и отклонения
+        # Средната цена е от реалните пазарни цени на магазините
+        store_deviations = {}  # Отклонение на всеки магазин от средната
+        max_deviation = None
+        max_deviation_store = None
+        has_anomaly = False  # Има ли магазин с отклонение >10%
+        
         if valid_prices:
+            # Средната цена е от реалните цени на магазините
             avg_bgn = sum(valid_prices) / len(valid_prices)
             avg_eur = avg_bgn / EUR_BGN_RATE
-            # Отклонението се изчислява спрямо BGN референцията
-            deviation = ((avg_bgn - ref_bgn) / ref_bgn) * 100
-            status = "ВНИМАНИЕ" if abs(deviation) > ALERT_THRESHOLD else "OK"
+            
+            # Изчисляваме отклонението на всеки магазин от средната пазарна цена
+            for store_key in STORES:
+                store_price = normalized_prices.get(store_key)
+                if store_price is not None:
+                    # Отклонение: положително = по-скъпо от средното, отрицателно = по-евтино
+                    deviation_pct = ((store_price - avg_bgn) / avg_bgn) * 100
+                    store_deviations[store_key] = round(deviation_pct, 1)
+                    
+                    # Проверяваме за аномалия (>10% отклонение)
+                    if abs(deviation_pct) > ALERT_THRESHOLD:
+                        has_anomaly = True
+                    
+                    # Търсим максималното отклонение (по абсолютна стойност)
+                    if max_deviation is None or abs(deviation_pct) > abs(max_deviation):
+                        max_deviation = deviation_pct
+                        max_deviation_store = store_key
+                else:
+                    store_deviations[store_key] = None
+            
+            # Статусът е ВНИМАНИЕ ако поне един магазин има отклонение >10%
+            status = "ВНИМАНИЕ" if has_anomaly else "OK"
         else:
-            avg_bgn = avg_eur = deviation = None
+            avg_bgn = avg_eur = max_deviation = None
             status = "НЯМА ДАННИ"
         
         results.append({
@@ -1867,10 +1893,13 @@ def collect_prices():
             "weight": product['weight'],
             "ref_bgn": ref_bgn,
             "ref_eur": ref_eur,
-            "prices": normalized_prices,  # Вече са нормализирани към BGN
+            "prices": normalized_prices,  # Цени по магазини (BGN)
+            "store_deviations": store_deviations,  # Отклонения по магазини (%)
             "avg_bgn": round(avg_bgn, 2) if avg_bgn else None,
             "avg_eur": round(avg_eur, 2) if avg_eur else None,
-            "deviation": round(deviation, 1) if deviation is not None else None,
+            "max_deviation": round(max_deviation, 1) if max_deviation is not None else None,
+            "max_deviation_store": max_deviation_store,
+            "has_anomaly": has_anomaly,
             "status": status
         })
     
@@ -1925,7 +1954,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v8.9', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v9.0', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([
@@ -1960,7 +1989,7 @@ def update_google_sheets(results):
                 r['prices'].get('Laika', '') or '',
                 r['avg_bgn'] if r['avg_bgn'] else '',
                 r['avg_eur'] if r['avg_eur'] else '',
-                f"{r['deviation']}%" if r['deviation'] is not None else '',
+                f"{r['max_deviation']}%" if r['max_deviation'] is not None else '',  # v9.0: max отклонение от средната
                 r['status']
             ]
             all_data.append(row)
@@ -2262,7 +2291,57 @@ def update_google_sheets(results):
                     }
                 })
             
-            # 9. Ширини на колоните (18 колони за 9 магазина)
+            # 9. v9.0: Оцветяване на клетките с ценови аномалии (>10% отклонение от средната)
+            # Mapping на store keys към column indices
+            store_column_map = {
+                'eBag': 5,       # F
+                'Kashon': 6,    # G
+                'Balev': 7,     # H
+                'Metro': 8,     # I
+                'Zelen': 9,     # J
+                'Randi': 10,    # K
+                'BioMarket': 11, # L
+                'BeFit': 12,    # M
+                'Laika': 13     # N
+            }
+            
+            for i, r in enumerate(results):
+                row_idx = 4 + i
+                store_deviations = r.get('store_deviations', {})
+                
+                for store_key, col_idx in store_column_map.items():
+                    deviation = store_deviations.get(store_key)
+                    if deviation is not None and abs(deviation) > ALERT_THRESHOLD:
+                        if deviation > 0:
+                            # По-скъпо от средната - червено
+                            format_requests.append({
+                                "repeatCell": {
+                                    "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
+                                    "cell": {
+                                        "userEnteredFormat": {
+                                            "backgroundColor": {"red": 1, "green": 0.85, "blue": 0.85},
+                                            "textFormat": {"bold": True, "foregroundColor": {"red": 0.7, "green": 0, "blue": 0}}
+                                        }
+                                    },
+                                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                                }
+                            })
+                        else:
+                            # По-евтино от средната - синьо/зелено
+                            format_requests.append({
+                                "repeatCell": {
+                                    "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
+                                    "cell": {
+                                        "userEnteredFormat": {
+                                            "backgroundColor": {"red": 0.85, "green": 0.95, "blue": 1},
+                                            "textFormat": {"bold": True, "foregroundColor": {"red": 0, "green": 0.4, "blue": 0.7}}
+                                        }
+                                    },
+                                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                                }
+                            })
+            
+            # 10. Ширини на колоните (18 колони за 9 магазина)
             column_widths = [
                 (0, 35),    # A: №
                 (1, 270),   # B: Продукт
@@ -2516,7 +2595,7 @@ def send_email_report(results, alerts):
     # Футър
     html_parts.append(f"""
         <div class="footer">
-            <p><strong>Harmonica Price Tracker v8.9</strong></p>
+            <p><strong>Harmonica Price Tracker v9.0</strong></p>
             <p>Това съобщение е автоматично генерирано на {date_str} в {time_str} ч.</p>
         </div>
     </body>
@@ -2551,7 +2630,7 @@ def send_email_report(results, alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v8.9")
+    print("HARMONICA PRICE TRACKER v9.0")
     print("27 продукта, 9 магазина")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
