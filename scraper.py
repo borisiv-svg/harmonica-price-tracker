@@ -1,10 +1,11 @@
 """
-Harmonica Price Tracker v9.0
-- НОВА ЛОГИКА: Средната цена се изчислява от реалните пазарни цени на магазините
-- Откл.% показва максималното отклонение на магазин от средната пазарна цена
-- Оцветяване на клетките: червено за >10% по-скъпо, синьо за >10% по-евтино
+Harmonica Price Tracker v9.1
+- Колоната Откл.% показва посоката с ↓ (по-евтино) или ↑ (по-скъпо)
+- Имейл нотификациите показват магазините с визуална индикация:
+  ↓ Balev: 2.03 лв (-23%) за по-евтино (синьо)
+  ↑ Laika: 9.85 лв (+10%) за по-скъпо (червено)
+- Средната цена се изчислява от реалните пазарни цени на магазините
 - Статус "ВНИМАНИЕ" ако поне един магазин има отклонение над 10%
-- Референтните цени се запазват за валидиране на извлечените данни
 """
 
 import os
@@ -1954,7 +1955,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v9.0', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v9.1', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([
@@ -1989,7 +1990,8 @@ def update_google_sheets(results):
                 r['prices'].get('Laika', '') or '',
                 r['avg_bgn'] if r['avg_bgn'] else '',
                 r['avg_eur'] if r['avg_eur'] else '',
-                f"{r['max_deviation']}%" if r['max_deviation'] is not None else '',  # v9.0: max отклонение от средната
+                # v9.1: Показваме посоката на максималното отклонение с ↓/↑
+                (f"↓{abs(r['max_deviation'])}%" if r['max_deviation'] < 0 else f"↑{r['max_deviation']}%") if r['max_deviation'] is not None else '',
                 r['status']
             ]
             all_data.append(row)
@@ -2408,7 +2410,8 @@ def update_google_sheets(results):
                     r['prices'].get('Laika', '') or '',
                     r['avg_bgn'] if r['avg_bgn'] else '',
                     r['avg_eur'] if r['avg_eur'] else '',
-                    f"{r['max_deviation']}%" if r['max_deviation'] is not None else '',  # v9.0
+                    # v9.1: Посока на отклонението
+                    (f"↓{abs(r['max_deviation'])}%" if r['max_deviation'] < 0 else f"↑{r['max_deviation']}%") if r['max_deviation'] is not None else '',
                     r['status']
                 ])
             
@@ -2540,10 +2543,11 @@ def send_email_report(results, alerts):
         
         for a in alerts:
             max_dev = a['max_deviation']
+            # v9.1: Използваме стрелки за посоката
+            dev_arrow = "↑" if max_dev > 0 else "↓"
             dev_class = "positive" if max_dev > 0 else "negative"
-            dev_sign = "+" if max_dev > 0 else ""
             
-            # v9.0: Показваме магазините с отклонения
+            # v9.1: Показваме магазините с отклонения с ↓/↑ формат
             prices_text = []
             store_deviations = a.get('store_deviations', {})
             for store_key, store_name in [('eBag', 'eBag'), ('Kashon', 'Кашон'), ('Balev', 'Balev'), 
@@ -2553,8 +2557,10 @@ def send_email_report(results, alerts):
                 dev = store_deviations.get(store_key)
                 if price:
                     if dev and abs(dev) > ALERT_THRESHOLD:
-                        # Магазин с аномалия - маркираме
-                        prices_text.append(f"<strong>{store_name}: {price:.2f} ({dev:+.1f}%)</strong>")
+                        # Магазин с аномалия - маркираме със стрелка
+                        arrow = "↑" if dev > 0 else "↓"
+                        color = "#c62828" if dev > 0 else "#1565c0"  # червено за по-скъпо, синьо за по-евтино
+                        prices_text.append(f"<strong style='color: {color};'>{arrow} {store_name}: {price:.2f} ({dev:+.1f}%)</strong>")
                     else:
                         prices_text.append(f"{store_name}: {price:.2f}")
             
@@ -2563,7 +2569,7 @@ def send_email_report(results, alerts):
                 <div class="product-name">{a['name']} ({a['weight']})</div>
                 <div class="product-details">
                     Средна пазарна цена: <strong>{a['avg_bgn']:.2f} лв</strong> | 
-                    Макс. отклонение: <span class="deviation {dev_class}">{dev_sign}{max_dev:.1f}%</span>
+                    Макс. отклонение: <span class="deviation {dev_class}">{dev_arrow}{abs(max_dev):.1f}%</span>
                 </div>
                 <div class="product-details">{' | '.join(prices_text)} лв</div>
             </div>
@@ -2604,7 +2610,7 @@ def send_email_report(results, alerts):
     # Футър
     html_parts.append(f"""
         <div class="footer">
-            <p><strong>Harmonica Price Tracker v9.0</strong></p>
+            <p><strong>Harmonica Price Tracker v9.1</strong></p>
             <p>Това съобщение е автоматично генерирано на {date_str} в {time_str} ч.</p>
         </div>
     </body>
@@ -2639,7 +2645,7 @@ def send_email_report(results, alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v9.0")
+    print("HARMONICA PRICE TRACKER v9.1")
     print("27 продукта, 9 магазина")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
