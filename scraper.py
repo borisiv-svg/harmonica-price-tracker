@@ -2408,7 +2408,7 @@ def update_google_sheets(results):
                     r['prices'].get('Laika', '') or '',
                     r['avg_bgn'] if r['avg_bgn'] else '',
                     r['avg_eur'] if r['avg_eur'] else '',
-                    f"{r['deviation']}%" if r['deviation'] is not None else '',
+                    f"{r['max_deviation']}%" if r['max_deviation'] is not None else '',  # v9.0
                     r['status']
                 ])
             
@@ -2539,22 +2539,31 @@ def send_email_report(results, alerts):
         """)
         
         for a in alerts:
-            dev_class = "positive" if a['deviation'] > 0 else "negative"
-            dev_sign = "+" if a['deviation'] > 0 else ""
+            max_dev = a['max_deviation']
+            dev_class = "positive" if max_dev > 0 else "negative"
+            dev_sign = "+" if max_dev > 0 else ""
             
+            # v9.0: Показваме магазините с отклонения
             prices_text = []
-            if a['prices'].get('eBag'): prices_text.append(f"eBag: {a['prices']['eBag']:.2f}")
-            if a['prices'].get('Kashon'): prices_text.append(f"Кашон: {a['prices']['Kashon']:.2f}")
-            if a['prices'].get('Balev'): prices_text.append(f"Balev: {a['prices']['Balev']:.2f}")
-            if a['prices'].get('Metro'): prices_text.append(f"Metro: {a['prices']['Metro']:.2f}")
+            store_deviations = a.get('store_deviations', {})
+            for store_key, store_name in [('eBag', 'eBag'), ('Kashon', 'Кашон'), ('Balev', 'Balev'), 
+                                           ('Metro', 'Metro'), ('Zelen', 'Zelen'), ('Randi', 'Randi'),
+                                           ('BioMarket', 'Bio-Market'), ('BeFit', 'BeFit'), ('Laika', 'Laika')]:
+                price = a['prices'].get(store_key)
+                dev = store_deviations.get(store_key)
+                if price:
+                    if dev and abs(dev) > ALERT_THRESHOLD:
+                        # Магазин с аномалия - маркираме
+                        prices_text.append(f"<strong>{store_name}: {price:.2f} ({dev:+.1f}%)</strong>")
+                    else:
+                        prices_text.append(f"{store_name}: {price:.2f}")
             
             html_parts.append(f"""
             <div class="product-alert">
                 <div class="product-name">{a['name']} ({a['weight']})</div>
                 <div class="product-details">
-                    Референтна цена: <strong>{a['ref_bgn']:.2f} лв</strong> | 
-                    Средна цена: <strong>{a['avg_bgn']:.2f} лв</strong> | 
-                    Отклонение: <span class="deviation {dev_class}">{dev_sign}{a['deviation']:.1f}%</span>
+                    Средна пазарна цена: <strong>{a['avg_bgn']:.2f} лв</strong> | 
+                    Макс. отклонение: <span class="deviation {dev_class}">{dev_sign}{max_dev:.1f}%</span>
                 </div>
                 <div class="product-details">{' | '.join(prices_text)} лв</div>
             </div>
@@ -2647,7 +2656,8 @@ def main():
     results = collect_prices()
     update_google_sheets(results)
     
-    alerts = [r for r in results if r['deviation'] and abs(r['deviation']) > ALERT_THRESHOLD]
+    # v9.0: Използваме has_anomaly вместо deviation
+    alerts = [r for r in results if r.get('has_anomaly', False)]
     
     # Винаги изпращаме имейл отчет
     send_email_report(results, alerts)
