@@ -1,8 +1,11 @@
 """
-Harmonica Price Tracker v8.7
-- Актуализиран промпт за Фаза 2 с новата номерация на 27 продукта
-- Zelen продуктите (#8, #15, #21) вече са включени в референтния списък
-- Добавени алтернативни имена за локум и бисквити
+Harmonica Price Tracker v8.9
+- Увеличен max_tokens за Фаза 1 (4000) за магазини с много продукти
+- Retry логика за Фаза 2 - опит с Haiku ако Sonnet върне празен резултат
+- Подобрено fallback търсене с fuzzy matching и Zelen продуктите
+- Конфигурируем price_tolerance за магазини с различни ценови стратегии
+- BeFit с разширен толеранс (70%) за промоционални цени
+- Изчистване на форматирането преди прилагане на новото
 """
 
 import os
@@ -130,7 +133,10 @@ STORES = {
         "has_pagination": False,
         "has_load_more": False,
         "expected_currency": "BGN",
-        "currency_indicators": ["лв", "лева", "BGN"]
+        "currency_indicators": ["лв", "лева", "BGN"],
+        # BeFit често показва по-ниски цени (промоции) - разширен толеранс
+        "price_tolerance": 0.70,  # 70% вместо стандартните 50%
+        "note": "BeFit е фитнес магазин с по-агресивни промоции"
     },
     "Laika": {
         "url": "https://laika.bg/harmonica-bio-bulgaria-proizvodstvo-magi-maleeva-shoko-ghi-kefir-boza-koze-sirene-ovche-izvara-bulgarska-tzena-kade-da-kupia-magazin-online",
@@ -999,7 +1005,7 @@ def phase1_extract_all_products(client, page_text, store_name):
     try:
         message = client.messages.create(
             model=CLAUDE_MODEL_PHASE1,
-            max_tokens=2000,
+            max_tokens=4000,  # Увеличено от 2000 за магазини с много продукти (eBag: 57, Кашон: 64)
             messages=[{"role": "user", "content": prompt}]
         )
         
@@ -1236,10 +1242,12 @@ def phase2_match_products(client, extracted_products, store_name):
                 # Намираме продукта по ID
                 product = next((p for p in PRODUCTS if p['id'] == product_id), None)
                 if product:
-                    # Валидираме цената (±50% от референтната - по-строго!)
+                    # Валидираме цената - използваме толеранс от store config ако има
                     ref_price = product['ref_price_bgn']
-                    min_valid = 0.5 * ref_price
-                    max_valid = 1.5 * ref_price
+                    store_config = STORES.get(store_name, {})
+                    tolerance = store_config.get('price_tolerance', 0.50)  # По подразбиране 50%
+                    min_valid = (1 - tolerance) * ref_price
+                    max_valid = (1 + tolerance) * ref_price
                     if min_valid <= price <= max_valid:
                         result[product['name']] = price
                     else:
@@ -1276,8 +1284,24 @@ def extract_prices_with_claude_two_phase(page_text, store_name):
     if not extracted:
         return {}
     
-    # Фаза 2: Съпоставяне
+    # Фаза 2: Съпоставяне с retry логика
     matched = phase2_match_products(client, extracted, store_name)
+    
+    # Retry: Ако Sonnet върна празен резултат и имаме поне 5 извлечени продукта,
+    # опитваме отново с Haiku като fallback
+    if len(matched) == 0 and len(extracted) >= 5:
+        print(f"    [ФАЗА 2] Retry: Sonnet върна 0 резултата, опитваме с Haiku...")
+        # Временно сменяме модела на Haiku
+        original_model = globals().get('CLAUDE_MODEL_PHASE2')
+        try:
+            # Използваме директно Haiku за retry
+            globals()['CLAUDE_MODEL_PHASE2'] = CLAUDE_MODEL_PHASE1
+            matched = phase2_match_products(client, extracted, store_name)
+            if len(matched) > 0:
+                print(f"    [ФАЗА 2] Retry успешен: {len(matched)} продукта с Haiku")
+        finally:
+            # Възстановяваме оригиналния модел
+            globals()['CLAUDE_MODEL_PHASE2'] = original_model
     
     return matched
 
@@ -1286,17 +1310,49 @@ def extract_prices_with_claude_two_phase(page_text, store_name):
 # FALLBACK ТЪРСЕНЕ (резервен метод)
 # =============================================================================
 
+def fuzzy_match(text, pattern, threshold=0.7):
+    """
+    Прост fuzzy matching - връща True ако pattern се съдържа в text
+    с позволени дребни разлики (транслитерация, малки/големи букви).
+    """
+    text = text.lower()
+    pattern = pattern.lower()
+    
+    # Директно съвпадение
+    if pattern in text:
+        return True
+    
+    # Транслитерация вариации
+    transliterations = {
+        'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e',
+        'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l',
+        'м': 'm', 'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's',
+        'т': 't', 'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch',
+        'ш': 'sh', 'щ': 'sht', 'ъ': 'a', 'ь': '', 'ю': 'yu', 'я': 'ya'
+    }
+    
+    # Конвертираме pattern към латиница
+    pattern_latin = ''
+    for char in pattern:
+        pattern_latin += transliterations.get(char, char)
+    
+    if pattern_latin in text:
+        return True
+    
+    return False
+
+
 def extract_prices_with_fallback(page_text):
     """
-    Резервен метод с ключови думи.
+    Резервен метод с ключови думи и fuzzy matching.
     Използва се само ако Claude не намери нищо.
     По-стриктен - изисква съвпадение на грамаж.
-    Актуализирано за 24 продукта (v7.1).
+    Актуализирано за 27 продукта (v8.8) с Zelen продуктите.
     """
     prices = {}
     page_lower = page_text.lower()
     
-    # Специфични ключови думи с грамаж за 24 продукта
+    # Специфични ключови думи с грамаж за 27 продукта
     # Включени са алтернативни имена от различни магазини
     keywords_map = {
         "Био вафла с лимонов крем": [("вафла", "лимон", "30"), ("вафла", "крем", "30")],
@@ -1306,18 +1362,24 @@ def extract_prices_with_fallback(page_text):
         "Био кисело мляко 3,6%": [("кисело", "мляко", "3.6", "400"), ("кисело", "мляко", "3,6", "400")],
         "Био лютеница Хаджиеви": [("лютеница", "хаджиев", "260")],
         "Био пълнозърнест сусамов тахан": [("тахан", "сусам", "700"), ("tahini", "700")],
+        # Zelen продукт #8 - Био локум натурален
+        "Био локум натурален": [("локум", "натурален", "140"), ("локум", "natural", "140")],
         "Био кашкавал от краве мляко": [("кашкавал", "краве", "300")],
         "Био крема сирене": [("крема", "сирене", "125"), ("cream", "cheese", "125")],
         "Био вафла с лимец и кокос": [("вафла", "лимец", "кокос", "30")],
         "Био краве сирене": [("краве", "сирене", "400"), ("сирене", "краве", "400")],
         "Био пълнозърнести кори за баница": [("кори", "баница", "400")],
         "Био фъстъчено масло": [("фъстъчено", "масло", "250"), ("peanut", "butter", "250")],
+        # Zelen продукт #15 - Био локум роза
+        "Био локум роза": [("локум", "роза", "140"), ("локум", "rose", "140")],
         "Био слънчогледово масло": [("слънчогледово", "масло", "500"), ("слънчогледово", "олио", "500"), ("олио", "готвене", "500")],
         "Био тунквана вафла Chocobiotic": [("chocobiotic", "40"), ("тунквана", "вафла", "40")],
         # Сироп от бъз - Кашон го нарича "Сироп от плод на бъз"
         "Био сироп от бъз": [("сироп", "бъз", "750"), ("сироп", "плод", "бъз", "750")],
         "Био прясно мляко 3,6%": [("прясно", "мляко", "1л"), ("прясно", "мляко", "1l")],
         "Био солети от лимец": [("солети", "лимец", "50")],
+        # Zelen продукт #21 - Био бисквити с масло и какао
+        "Био бисквити с масло и какао": [("бисквити", "масло", "какао", "150"), ("бисквити", "какао", "150"), ("обикновени", "бисквити", "150")],
         # Пълнозърнести солети - Кашон го нарича "Солети пълнозърнести"
         "Био пълнозърнести солети": [("пълнозърнести", "солети", "60"), ("солети", "пълнозърнести", "60")],
         # Пълномаслено мляко - Кашон го нарича "По-кисело кисело мляко"
@@ -1336,8 +1398,11 @@ def extract_prices_with_fallback(page_text):
         keywords_list = keywords_map.get(name, [])
         
         for keywords in keywords_list:
-            # Проверяваме дали ВСИЧКИ ключови думи са в текста
-            all_found = all(kw in page_lower for kw in keywords)
+            # Проверяваме дали ВСИЧКИ ключови думи са в текста (с fuzzy matching)
+            all_found = all(
+                kw in page_lower or fuzzy_match(page_lower, kw) 
+                for kw in keywords
+            )
             
             if not all_found:
                 continue
@@ -1345,10 +1410,16 @@ def extract_prices_with_fallback(page_text):
             # Намираме позицията на първата ключова дума
             idx = page_lower.find(keywords[0])
             if idx == -1:
-                continue
+                # Опитваме с fuzzy
+                for i, char in enumerate(page_lower):
+                    if page_lower[i:i+len(keywords[0])] == keywords[0]:
+                        idx = i
+                        break
+                if idx == -1:
+                    continue
             
-            # Извличаме контекст
-            context = page_text[max(0, idx-80):idx+150]
+            # Извличаме контекст (по-голям за по-добро намиране на цена)
+            context = page_text[max(0, idx-100):idx+200]
             
             # Търсим цена - избираме НАЙ-БЛИЗКАТА до референцията
             price_matches = re.findall(r'(\d+)[,.](\d{2})', context)
@@ -1854,7 +1925,7 @@ def update_google_sheets(results):
         all_data = []
         
         # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v8.7', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
+        all_data.append(['HARMONICA - Ценови Тракер v8.9', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
         
         # Ред 2: Метаданни
         all_data.append([
@@ -1897,11 +1968,26 @@ def update_google_sheets(results):
         sheet.update(values=all_data, range_name='A1')
         print(f"  ✓ Записани {len(all_data)} реда")
         
-        # Форматиране v8.3 - 18 колони с 9 магазина
+        # Форматиране v8.7 - 18 колони с 9 магазина
         # A=№, B=Продукт, C=Грамаж, D=Реф.BGN, E=Реф.EUR, F=eBag, G=Кашон, H=Balev, I=Metro, J=Zelen, K=Randi, L=Bio-Market, M=BeFit, N=Laika, O=Ср.BGN, P=Ср.EUR, Q=Откл.%, R=Статус
         try:
             last_row = 4 + len(results)
             format_requests = []
+            
+            # 0. ИЗЧИСТВАНЕ на форматирането за data редовете (ред 5 до края)
+            # Това гарантира, че старо форматиране от предишни изпълнения няма да остане
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 0, "endColumnIndex": 18},
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": {"red": 1, "green": 1, "blue": 1},
+                            "textFormat": {"bold": False, "italic": False, "fontSize": 10, "foregroundColor": {"red": 0, "green": 0, "blue": 0}}
+                        }
+                    },
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                }
+            })
             
             # 1. Заглавен ред (A1:R1) - тъмно зелено
             format_requests.append({
@@ -2430,7 +2516,7 @@ def send_email_report(results, alerts):
     # Футър
     html_parts.append(f"""
         <div class="footer">
-            <p><strong>Harmonica Price Tracker v8.7</strong></p>
+            <p><strong>Harmonica Price Tracker v8.9</strong></p>
             <p>Това съобщение е автоматично генерирано на {date_str} в {time_str} ч.</p>
         </div>
     </body>
@@ -2465,7 +2551,7 @@ def send_email_report(results, alerts):
 
 def main():
     print("=" * 60)
-    print("HARMONICA PRICE TRACKER v8.7")
+    print("HARMONICA PRICE TRACKER v8.9")
     print("27 продукта, 9 магазина")
     print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     print("Продукти: " + str(len(PRODUCTS)))
