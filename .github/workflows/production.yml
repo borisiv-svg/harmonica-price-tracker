@@ -73,15 +73,17 @@ jobs:
       # ========== СТЪПКА 4: Инсталиране на зависимости ==========
       - name: 📚 Install dependencies
         run: |
-          # Ъпгрейд на pip до последна версия
           python -m pip install --upgrade pip
-          
-          # Инсталиране на всички пакети от requirements.txt
           pip install -r requirements.txt
           
-          # Инсталиране на Chromium браузър за Playwright
-          # --with-deps инсталира и системните зависимости (шрифтове, библиотеки)
-          playwright install chromium --with-deps
+          # Поправка за Ubuntu 24.04 - инсталиране на системни зависимости ръчно
+          sudo apt-get update
+          sudo apt-get install -y libasound2t64 libatk1.0-0 libcups2 libdbus-1-3 \
+            libdrm2 libgbm1 libgtk-3-0 libnspr4 libnss3 libpango-1.0-0 \
+            libxcomposite1 libxdamage1 libxfixes3 libxkbcommon0 libxrandr2 xvfb
+          
+          # Инсталиране на Playwright без --with-deps (вече имаме зависимостите)
+          playwright install chromium
       
       # ========== СТЪПКА 5: Информация за средата (за debug) ==========
       - name: ℹ️ Environment info
