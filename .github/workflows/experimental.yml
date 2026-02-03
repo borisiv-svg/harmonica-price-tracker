@@ -108,6 +108,7 @@ jobs:
           USE_CRAWL4AI: ${{ github.event.inputs.use_crawl4ai || 'false' }}
           # Записване в отделен таб в Google Sheets
           SHEET_TAB_SUFFIX: "_experimental"
+          ALERT_EMAIL: "boris.iv@gmail.com"
         run: |
           echo "=========================================="
           echo "Starting experimental scraper"
