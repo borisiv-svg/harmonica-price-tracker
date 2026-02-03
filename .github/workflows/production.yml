@@ -1,0 +1,124 @@
+# =============================================================================
+# PRODUCTION WORKFLOW - Harmonica Price Tracker
+# =============================================================================
+# Този workflow изпълнява стабилната production версия на scraper-а.
+# Стартира автоматично всеки ден в 06:00 UTC (08:00 българско време).
+# ВАЖНО: Използва САМО код от main branch-а!
+# =============================================================================
+
+# Името на workflow-а, което се показва в GitHub Actions таба
+name: 🏭 Production Daily Scraper
+
+# Секция "on" дефинира КОГА да се изпълни workflow-ът
+on:
+  # Schedule (график) - изпълнява се автоматично по cron schedule
+  schedule:
+    # Cron синтаксис: минута час ден месец ден-от-седмицата
+    # '0 6 * * *' означава: в 0 минути, 6 часа, всеки ден, всеки месец, всеки ден от седмицата
+    # GitHub Actions използва UTC време, така че 06:00 UTC = 08:00 българско време (зимно)
+    - cron: '0 6 * * *'
+  
+  # workflow_dispatch позволява ръчно стартиране от GitHub UI
+  # Полезно за тестване или ако трябва да пуснеш извънредно сканиране
+  workflow_dispatch:
+
+# Секция "jobs" дефинира КАКВО да се изпълни
+jobs:
+  # Името на job-а (може да е произволно, но описателно)
+  production-scrape:
+    # runs-on определя операционната система
+    # ubuntu-latest е Linux машина, предоставена безплатно от GitHub
+    runs-on: ubuntu-latest
+    
+    # КРИТИЧНА ПРОВЕРКА: Този job се изпълнява САМО ако сме на main branch
+    # Това е предпазна мярка - дори ако някой случайно стартира workflow от друг branch,
+    # job-ът няма да се изпълни
+    if: github.ref == 'refs/heads/main'
+    
+    # Steps са отделните стъпки, които се изпълняват последователно
+    steps:
+      # ========== СТЪПКА 1: Изтегляне на кода ==========
+      # actions/checkout е официално GitHub action за клониране на repository
+      - name: 📥 Checkout production code
+        uses: actions/checkout@v4
+        with:
+          # Изрично указваме main branch за допълнителна сигурност
+          ref: main
+      
+      # ========== СТЪПКА 2: Настройка на Python ==========
+      # actions/setup-python инсталира указаната версия на Python
+      - name: 🐍 Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          # cache: 'pip' кешира pip пакетите между изпълненията
+          # Това ускорява workflow-а значително
+          cache: 'pip'
+      
+      # ========== СТЪПКА 3: Кеширане на Playwright браузъри ==========
+      # Playwright браузърите са големи (~200MB) и отнемат време за изтегляне
+      # Кеширането ги запазва между изпълненията
+      - name: 📦 Cache Playwright browsers
+        uses: actions/cache@v3
+        with:
+          # Пътят, където Playwright съхранява браузърите
+          path: ~/.cache/ms-playwright
+          # Ключът определя кога кешът е валиден
+          # Ако requirements.txt се промени, кешът се обновява
+          key: playwright-prod-${{ hashFiles('requirements.txt') }}
+          # restore-keys позволява използване на частично съвпадащ кеш
+          restore-keys: |
+            playwright-prod-
+      
+      # ========== СТЪПКА 4: Инсталиране на зависимости ==========
+      - name: 📚 Install dependencies
+        run: |
+          # Ъпгрейд на pip до последна версия
+          python -m pip install --upgrade pip
+          
+          # Инсталиране на всички пакети от requirements.txt
+          pip install -r requirements.txt
+          
+          # Инсталиране на Chromium браузър за Playwright
+          # --with-deps инсталира и системните зависимости (шрифтове, библиотеки)
+          playwright install chromium --with-deps
+      
+      # ========== СТЪПКА 5: Информация за средата (за debug) ==========
+      - name: ℹ️ Environment info
+        run: |
+          echo "=========================================="
+          echo "PRODUCTION SCRAPER - Environment Info"
+          echo "=========================================="
+          echo "Python version: $(python --version)"
+          echo "Branch: $(git branch --show-current)"
+          echo "Commit: $(git log -1 --oneline)"
+          echo "Date: $(date)"
+          echo "=========================================="
+      
+      # ========== СТЪПКА 6: Изпълнение на scraper-а ==========
+      - name: 🏭 Run Production Scraper
+        env:
+          # Secrets се дефинират в GitHub Settings → Secrets and variables → Actions
+          # Те са криптирани и не се показват в логовете
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          # Флаг, който кодът може да използва за различно поведение
+          PRODUCTION_MODE: "true"
+        run: |
+          echo "Starting production scraper at $(date)"
+          python scraper.py
+          echo "Production scraper completed at $(date)"
+      
+      # ========== СТЪПКА 7: Запазване на логове като artifact ==========
+      # Artifacts са файлове, които се запазват след изпълнението
+      # Полезни за debug ако нещо се обърка
+      - name: 📋 Upload logs
+        if: always()  # Изпълнява се дори ако предишна стъпка е неуспешна
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-logs-${{ github.run_number }}
+          path: |
+            *.log
+            logs/
+          retention-days: 7  # Запазва логовете за 7 дни
