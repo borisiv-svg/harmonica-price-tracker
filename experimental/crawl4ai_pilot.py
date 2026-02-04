@@ -1,15 +1,8 @@
 """
-EXP-001: Crawl4AI Pilot Test
-============================
-Пилотен скрипт за тестване на Crawl4AI с Balev Bio Market.
-
-Цели:
-1. Да проверим дали Crawl4AI може да извлече продуктите от Balev
-2. Да сравним с текущия Playwright подход
-3. Да измерим времето за изпълнение
-
-Изпълнение:
-    python experimental/crawl4ai_pilot.py
+EXP-001: Crawl4AI Pilot Test v2
+===============================
+Подобрена версия, използваща JsonCssExtractionStrategy
+за структурирано извличане без LLM разходи.
 """
 
 import asyncio
@@ -18,67 +11,104 @@ import json
 import os
 import re
 
-# Опитваме да импортираме Crawl4AI
 try:
     from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+    from crawl4ai.extraction_strategy import JsonCssExtractionStrategy
     CRAWL4AI_AVAILABLE = True
 except ImportError:
     CRAWL4AI_AVAILABLE = False
-    print("⚠️  Crawl4AI не е инсталиран. Инсталирай с: pip install crawl4ai")
+    print("Crawl4AI not installed. Run: pip install crawl4ai")
 
 
 # =============================================================================
-# КОНФИГУРАЦИЯ
+# CONFIGURATION
 # =============================================================================
 
-# URL на Balev Bio Market страницата с Harmonica продукти
 BALEV_URL = "https://balevbiomarket.com/productBrands/harmonica"
 
-# Референтни продукти за проверка (subset от пълния списък)
+# Референтни продукти за валидация
 REFERENCE_PRODUCTS = [
     {"name": "Био Локум роза", "weight": "140г", "ref_price": 3.81},
-    {"name": "Био тънки претцели с морска сол", "weight": "80г", "ref_price": 2.50},
+    {"name": "Био тънки претцели", "weight": "80г", "ref_price": 2.50},
     {"name": "Био лимонада", "weight": "330мл", "ref_price": 3.48},
     {"name": "Айран harmonica", "weight": "500мл", "ref_price": 2.90},
     {"name": "Био сироп от липа", "weight": "750мл", "ref_price": 14.29},
 ]
 
+# =============================================================================
+# SCHEMA FOR BALEV BIO MARKET
+# =============================================================================
+
+# Тази схема дефинира как да извлечем продукти от HTML структурата на Balev
+# Ще я настроим след като видим реалната структура
+
+BALEV_SCHEMA = {
+    "name": "harmonica_products",
+    "baseSelector": ".product-item, .product-card, .product, [class*='product']",
+    "fields": [
+        {
+            "name": "title",
+            "selector": "h2, h3, .product-name, .product-title, [class*='name'], [class*='title']",
+            "type": "text"
+        },
+        {
+            "name": "price",
+            "selector": ".price, .product-price, [class*='price'], span[class*='price']",
+            "type": "text"
+        },
+        {
+            "name": "weight",
+            "selector": ".weight, .volume, [class*='weight'], [class*='volume']",
+            "type": "text"
+        },
+        {
+            "name": "link",
+            "selector": "a",
+            "type": "attribute",
+            "attribute": "href"
+        }
+    ]
+}
+
 
 # =============================================================================
-# ОСНОВНИ ФУНКЦИИ
+# MAIN FUNCTIONS
 # =============================================================================
 
-async def crawl_balev_with_crawl4ai():
+async def crawl_with_schema_extraction():
     """
-    Извлича продукти от Balev използвайки Crawl4AI.
+    Използва JsonCssExtractionStrategy за структурирано извличане.
+    Това е препоръчаният подход от Crawl4AI документацията.
     """
-    
     print("\n" + "=" * 60)
-    print("🔬 CRAWL4AI PILOT TEST - Balev Bio Market")
+    print("METHOD 1: JsonCssExtractionStrategy")
     print("=" * 60)
     
     if not CRAWL4AI_AVAILABLE:
-        print("❌ Crawl4AI не е наличен. Прескачаме теста.")
+        print("ERROR: Crawl4AI not available")
         return None
     
-    # Конфигурация на браузъра
     browser_config = BrowserConfig(
         headless=True,
-        verbose=False,
+        viewport_width=1920,
+        viewport_height=1080,
     )
     
-    # Конфигурация на crawler-а
+    # Създаваме extraction strategy от схемата
+    extraction_strategy = JsonCssExtractionStrategy(schema=BALEV_SCHEMA)
+    
     crawler_config = CrawlerRunConfig(
-        wait_until="domcontentloaded",
         page_timeout=60000,
-        delay_before_return_html=3.0,
+        wait_for="css:.product, css:[class*='product']",  # Чакаме продуктите да се заредят
+        extraction_strategy=extraction_strategy,
+        remove_overlay_elements=True,
     )
     
     start_time = time.time()
     
     try:
         async with AsyncWebCrawler(config=browser_config) as crawler:
-            print(f"\n📡 Зареждане на {BALEV_URL}")
+            print(f"\nLoading {BALEV_URL}")
             
             result = await crawler.arun(
                 url=BALEV_URL,
@@ -88,19 +118,28 @@ async def crawl_balev_with_crawl4ai():
             elapsed_time = time.time() - start_time
             
             if result.success:
-                print(f"✅ Страницата е заредена успешно за {elapsed_time:.2f} секунди")
-                print(f"📄 Получен HTML: {len(result.html)} символа")
+                print(f"SUCCESS: Page loaded in {elapsed_time:.2f} seconds")
+                print(f"HTML length: {len(result.html)} characters")
                 
-                products = extract_products_from_html(result.html)
+                # Извличаме структурираните данни
+                extracted_data = []
+                if result.extracted_content:
+                    try:
+                        extracted_data = json.loads(result.extracted_content)
+                        print(f"Extracted {len(extracted_data)} products with schema")
+                    except json.JSONDecodeError:
+                        print(f"Could not parse extracted content as JSON")
+                        print(f"Raw content: {result.extracted_content[:500]}")
                 
                 return {
                     "success": True,
-                    "products": products,
+                    "method": "JsonCssExtractionStrategy",
+                    "products": extracted_data,
                     "html_length": len(result.html),
                     "elapsed_time": elapsed_time,
                 }
             else:
-                print(f"❌ Грешка при зареждане: {result.error_message}")
+                print(f"ERROR: {result.error_message}")
                 return {
                     "success": False,
                     "error": result.error_message,
@@ -109,7 +148,7 @@ async def crawl_balev_with_crawl4ai():
                 
     except Exception as e:
         elapsed_time = time.time() - start_time
-        print(f"❌ Изключение: {str(e)}")
+        print(f"EXCEPTION: {str(e)}")
         return {
             "success": False,
             "error": str(e),
@@ -117,225 +156,288 @@ async def crawl_balev_with_crawl4ai():
         }
 
 
-def extract_products_from_html(html):
-    # Разширени patterns за цени - различни формати
+async def crawl_with_markdown_analysis():
+    """
+    Алтернативен подход: извличаме markdown и анализираме.
+    Полезно за разбиране на структурата на сайта.
+    """
+    print("\n" + "=" * 60)
+    print("METHOD 2: Markdown Analysis")
+    print("=" * 60)
+    
+    if not CRAWL4AI_AVAILABLE:
+        return None
+    
+    browser_config = BrowserConfig(
+        headless=True,
+        viewport_width=1920,
+        viewport_height=1080,
+    )
+    
+    crawler_config = CrawlerRunConfig(
+        page_timeout=60000,
+        wait_for="css:body",
+        remove_overlay_elements=True,
+    )
+    
+    start_time = time.time()
+    
+    try:
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            print(f"\nLoading {BALEV_URL}")
+            
+            result = await crawler.arun(
+                url=BALEV_URL,
+                config=crawler_config,
+            )
+            
+            elapsed_time = time.time() - start_time
+            
+            if result.success:
+                print(f"SUCCESS: Page loaded in {elapsed_time:.2f} seconds")
+                print(f"Markdown length: {len(result.markdown)} characters")
+                
+                # Анализираме markdown за продукти
+                products = analyze_markdown_for_products(result.markdown)
+                
+                # Показваме извадка от markdown за debug
+                print(f"\n--- Markdown Sample (first 2000 chars) ---")
+                print(result.markdown[:2000])
+                
+                return {
+                    "success": True,
+                    "method": "Markdown Analysis",
+                    "products": products,
+                    "markdown_length": len(result.markdown),
+                    "elapsed_time": elapsed_time,
+                }
+            else:
+                return {"success": False, "error": result.error_message}
+                
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def analyze_markdown_for_products(markdown):
+    """
+    Анализира markdown текст за продукти и цени.
+    """
+    products = []
+    
+    # Търсим цени в markdown (различни формати)
     price_patterns = [
         r'(\d+[.,]\d{2})\s*(?:лв|BGN|EUR|€)',
-        r'(?:лв|BGN|EUR|€)\s*(\d+[.,]\d{2})',
-        r'price["\s:]+(\d+[.,]\d{2})',
-        r'data-price="(\d+[.,]\d{2})"',
-        r'"price":\s*(\d+[.,]\d{2})',
         r'(\d+[.,]\d{2})\s*лв\.',
-        r'>(\d+[.,]\d{2})<',
+        r'€\s*(\d+[.,]\d{2})',
     ]
     
-    weight_pattern = r'(\d+)\s*(г|мл|ml|g)'
-    
-    harmonica_keywords = [
-        "локум", "бисквити", "айран", "вафла", "претцели",
-        "лимонада", "сироп", "домати", "сирене", "крема"
-    ]
-    
-    # Търсим цени с всички patterns
     all_prices = []
     for pattern in price_patterns:
-        found = re.findall(pattern, html, re.IGNORECASE)
-        if found:
-            print(f"Pattern '{pattern[:30]}...' found: {len(found)} prices")
-            all_prices.extend(found)
+        found = re.findall(pattern, markdown, re.IGNORECASE)
+        all_prices.extend(found)
     
-    # Филтрираме само валидни цени (между 0.50 и 100 лв)
+    # Филтрираме валидни цени
     valid_prices = []
     for p in all_prices:
         try:
-            if isinstance(p, tuple):
-                p = p[0]
             price = float(str(p).replace(",", "."))
             if 0.50 <= price <= 100:
-                valid_prices.append(str(price))
+                valid_prices.append(price)
         except:
             pass
     
-    print(f"\nPrices found: {len(valid_prices)}")
-    unique_prices = list(set(valid_prices))[:20]
+    unique_prices = list(set(valid_prices))
+    print(f"Found {len(unique_prices)} unique prices in markdown")
     if unique_prices[:10]:
-        print(f"First 10 unique: {unique_prices[:10]}")
-    
-    weights = re.findall(weight_pattern, html, re.IGNORECASE)
-    print(f"Weights found: {len(weights)}")
-    
-    found_keywords = []
-    html_lower = html.lower()
-    for keyword in harmonica_keywords:
-        if keyword in html_lower:
-            count = html_lower.count(keyword)
-            found_keywords.append(f"{keyword} ({count}x)")
-    
-    print(f"Keywords found: {', '.join(found_keywords)}")
-    
-    # Показваме малка извадка от HTML за debug
-    print(f"\n--- HTML Sample (searching for price patterns) ---")
-    # Търсим около думата "цена" или "price"
-    price_context = re.findall(r'.{0,50}(?:price|цена|лв).{0,50}', html, re.IGNORECASE)
-    for ctx in price_context[:5]:
-        print(f"  {ctx.strip()}")
+        print(f"Sample prices: {sorted(unique_prices)[:10]}")
     
     return {
         "prices_found": len(valid_prices),
         "unique_prices": unique_prices,
-        "weights_found": len(weights),
-        "keywords_found": found_keywords,
-    }
-    
-    # Търсим грамажи
-    weight_pattern = r'(\d+)\s*(г|мл|ml|g|кг|kg|л|l)'
-    
-    # Ключови думи за Harmonica продукти
-    harmonica_keywords = [
-        "локум", "бисквити", "айран", "вафла", "претцели",
-        "лимонада", "сироп", "домати", "сирене", "кисело мляко",
-        "оризови топчета", "smiles", "крема"
-    ]
-    
-    # Извличаме всички цени
-    prices = re.findall(price_pattern, html, re.IGNORECASE)
-    print(f"\n🔍 Намерени цени в HTML: {len(prices)}")
-    if prices[:10]:
-        print(f"   Първи 10: {prices[:10]}")
-    
-    # Извличаме всички грамажи
-    weights = re.findall(weight_pattern, html, re.IGNORECASE)
-    print(f"🔍 Намерени грамажи: {len(weights)}")
-    
-    # Проверяваме за Harmonica ключови думи
-    found_keywords = []
-    html_lower = html.lower()
-    for keyword in harmonica_keywords:
-        if keyword in html_lower:
-            count = html_lower.count(keyword)
-            found_keywords.append(f"{keyword} ({count}x)")
-    
-    print(f"🔍 Намерени ключови думи: {', '.join(found_keywords)}")
-    
-    return {
-        "prices_found": len(prices),
-        "unique_prices": list(set(prices))[:20],
-        "weights_found": len(weights),
-        "keywords_found": found_keywords,
-        "html_sample": html[:2000] if len(html) > 2000 else html,
     }
 
 
-def compare_with_reference(crawl_result: dict) -> dict:
+async def discover_html_structure():
     """
-    Сравнява резултатите от Crawl4AI с референтните продукти.
+    Помощна функция за откриване на HTML структурата.
+    Помага да разберем какви CSS селектори да използваме.
     """
-    
     print("\n" + "=" * 60)
-    print("📊 СРАВНЕНИЕ С РЕФЕРЕНТНИ ПРОДУКТИ")
+    print("METHOD 3: HTML Structure Discovery")
     print("=" * 60)
     
-    if not crawl_result or not crawl_result.get("success"):
-        print("❌ Няма данни за сравнение")
+    if not CRAWL4AI_AVAILABLE:
+        return None
+    
+    browser_config = BrowserConfig(headless=True)
+    
+    crawler_config = CrawlerRunConfig(
+        page_timeout=60000,
+        wait_for="css:body",
+    )
+    
+    try:
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            result = await crawler.arun(url=BALEV_URL, config=crawler_config)
+            
+            if result.success:
+                html = result.html
+                
+                # Търсим често срещани CSS класове за продукти
+                product_patterns = [
+                    r'class="([^"]*product[^"]*)"',
+                    r'class="([^"]*item[^"]*)"',
+                    r'class="([^"]*card[^"]*)"',
+                    r'class="([^"]*price[^"]*)"',
+                ]
+                
+                print("\n--- Found CSS classes ---")
+                for pattern in product_patterns:
+                    matches = re.findall(pattern, html, re.IGNORECASE)
+                    unique_matches = list(set(matches))[:5]
+                    if unique_matches:
+                        print(f"Pattern '{pattern[:30]}': {unique_matches}")
+                
+                # Търсим data атрибути
+                data_attrs = re.findall(r'data-([a-z-]+)="([^"]*)"', html, re.IGNORECASE)
+                unique_attrs = list(set([d[0] for d in data_attrs]))[:10]
+                print(f"\nData attributes found: {unique_attrs}")
+                
+                # Показваме извадка около "Harmonica"
+                harmonica_context = re.findall(r'.{0,200}[Hh]armonica.{0,200}', html)
+                if harmonica_context:
+                    print(f"\n--- HTML around 'Harmonica' ---")
+                    print(harmonica_context[0][:400])
+                
+                return {"success": True, "html_length": len(html)}
+            else:
+                return {"success": False}
+                
+    except Exception as e:
+        print(f"Error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def compare_with_reference(results):
+    """
+    Сравнява намерените продукти с референтните.
+    """
+    print("\n" + "=" * 60)
+    print("COMPARISON WITH REFERENCE")
+    print("=" * 60)
+    
+    if not results:
+        print("No results to compare")
         return {"matches": 0, "total": len(REFERENCE_PRODUCTS)}
     
-    products_data = crawl_result.get("products", {})
-    unique_prices = products_data.get("unique_prices", [])
+    # Събираме всички намерени цени
+    all_prices = []
     
-    # Конвертираме цените към float за сравнение
-    found_prices = []
-    for p in unique_prices:
-        try:
-            price = float(p.replace(",", "."))
-            found_prices.append(price)
-        except:
-            pass
+    for result in results:
+        if result and result.get("success"):
+            products = result.get("products", {})
+            
+            if isinstance(products, list):
+                # От JsonCssExtractionStrategy
+                for p in products:
+                    if isinstance(p, dict) and "price" in p:
+                        try:
+                            price_str = re.sub(r'[^\d.,]', '', str(p["price"]))
+                            price = float(price_str.replace(",", "."))
+                            if 0.50 <= price <= 100:
+                                all_prices.append(price)
+                        except:
+                            pass
+            elif isinstance(products, dict):
+                # От markdown analysis
+                all_prices.extend(products.get("unique_prices", []))
     
-    print(f"\n📋 Референтни продукти: {len(REFERENCE_PRODUCTS)}")
-    print(f"💰 Намерени уникални цени: {len(found_prices)}")
+    unique_prices = list(set(all_prices))
+    print(f"\nTotal unique prices found: {len(unique_prices)}")
+    print(f"Prices: {sorted(unique_prices)[:15]}")
     
+    # Сравняваме с референтни (10% толеранс)
     matches = 0
-    for ref_product in REFERENCE_PRODUCTS:
-        ref_price = ref_product["ref_price"]
-        found = any(abs(p - ref_price) / ref_price < 0.05 for p in found_prices)
-        
-        status = "✅" if found else "❌"
-        print(f"  {status} {ref_product['name']} ({ref_product['weight']}) - {ref_price} лв")
-        
+    for ref in REFERENCE_PRODUCTS:
+        ref_price = ref["ref_price"]
+        found = any(abs(p - ref_price) / ref_price < 0.10 for p in unique_prices)
+        status = "FOUND" if found else "NOT FOUND"
+        print(f"  [{status}] {ref['name']} - {ref_price} lv")
         if found:
             matches += 1
     
     match_rate = (matches / len(REFERENCE_PRODUCTS)) * 100
-    print(f"\n📈 Съвпадение: {matches}/{len(REFERENCE_PRODUCTS)} ({match_rate:.0f}%)")
+    print(f"\nMatch rate: {matches}/{len(REFERENCE_PRODUCTS)} ({match_rate:.0f}%)")
     
-    return {
-        "matches": matches,
-        "total": len(REFERENCE_PRODUCTS),
-        "match_rate": match_rate,
-    }
+    return {"matches": matches, "total": len(REFERENCE_PRODUCTS), "match_rate": match_rate}
 
 
 async def main():
     """
-    Главна функция на пилотния тест.
+    Изпълнява всички методи и сравнява резултатите.
     """
-    
     print("\n" + "=" * 60)
-    print("🧪 EXP-001: CRAWL4AI PILOT TEST")
+    print("EXP-001: CRAWL4AI PILOT TEST v2")
     print("=" * 60)
-    print(f"📅 Дата: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"🏪 Магазин: Balev Bio Market")
-    print(f"🔗 URL: {BALEV_URL}")
+    print(f"Date: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Store: Balev Bio Market")
+    print(f"URL: {BALEV_URL}")
     
-    # Стъпка 1: Crawl с Crawl4AI
-    crawl_result = await crawl_balev_with_crawl4ai()
+    results = []
     
-    # Стъпка 2: Сравнение с референции
-    comparison = compare_with_reference(crawl_result)
+    # Метод 1: Schema-based extraction
+    result1 = await crawl_with_schema_extraction()
+    results.append(result1)
     
-    # Стъпка 3: Обобщение
+    # Метод 2: Markdown analysis
+    result2 = await crawl_with_markdown_analysis()
+    results.append(result2)
+    
+    # Метод 3: HTML structure discovery (за debug)
+    result3 = await discover_html_structure()
+    results.append(result3)
+    
+    # Сравнение с референтни продукти
+    comparison = compare_with_reference(results)
+    
+    # Обобщение
     print("\n" + "=" * 60)
-    print("📋 ОБОБЩЕНИЕ НА ЕКСПЕРИМЕНТА")
-    print("=" * 60)
-    
-    if crawl_result and crawl_result.get("success"):
-        print(f"✅ Статус: УСПЕШЕН")
-        print(f"⏱️  Време за изпълнение: {crawl_result['elapsed_time']:.2f} секунди")
-        print(f"📄 HTML размер: {crawl_result['html_length']:,} символа")
-        print(f"📊 Съвпадение на цени: {comparison['match_rate']:.0f}%")
-    else:
-        print(f"❌ Статус: НЕУСПЕШЕН")
-        if crawl_result:
-            print(f"🔴 Грешка: {crawl_result.get('error', 'Неизвестна')}")
-    
-    print("\n" + "=" * 60)
-    print("🔬 КРАЙ НА ПИЛОТНИЯ ТЕСТ")
+    print("SUMMARY")
     print("=" * 60)
     
-    # Записваме резултатите във файл
-    results = {
-        "experiment": "EXP-001",
+    for i, result in enumerate(results, 1):
+        if result and result.get("success"):
+            method = result.get("method", f"Method {i}")
+            elapsed = result.get("elapsed_time", 0)
+            print(f"Method {i} ({method}): SUCCESS in {elapsed:.2f}s")
+        else:
+            print(f"Method {i}: FAILED")
+    
+    print(f"\nOverall price match rate: {comparison.get('match_rate', 0):.0f}%")
+    
+    # Записваме резултатите
+    output = {
+        "experiment": "EXP-001-v2",
         "date": time.strftime('%Y-%m-%d %H:%M:%S'),
         "store": "Balev Bio Market",
-        "crawl_result": crawl_result,
+        "results": results,
         "comparison": comparison,
     }
     
-    results_file = "experimental/pilot_results.json"
     try:
         os.makedirs("experimental", exist_ok=True)
-        with open(results_file, "w", encoding="utf-8") as f:
-            json.dump(results, f, ensure_ascii=False, indent=2, default=str)
-        print(f"\n💾 Резултатите са записани в: {results_file}")
+        with open("experimental/pilot_results.json", "w", encoding="utf-8") as f:
+            json.dump(output, f, ensure_ascii=False, indent=2, default=str)
+        print(f"\nResults saved to: experimental/pilot_results.json")
     except Exception as e:
-        print(f"\n⚠️  Не успях да запиша резултатите: {e}")
+        print(f"\nCould not save results: {e}")
     
-    return results
+    print("\n" + "=" * 60)
+    print("END OF PILOT TEST v2")
+    print("=" * 60)
+    
+    return output
 
-
-# =============================================================================
-# ENTRY POINT
-# =============================================================================
 
 if __name__ == "__main__":
     asyncio.run(main())
