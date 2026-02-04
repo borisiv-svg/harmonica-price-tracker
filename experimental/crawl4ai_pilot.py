@@ -1,46 +1,53 @@
-name: 🧪 Crawl4AI Pilot Test
+"""
+EXP-001: Crawl4AI Pilot Test
+============================
+Пилотен скрипт за тестване на Crawl4AI с Balev Bio Market.
 
-on:
-  workflow_dispatch:
+Цели:
+1. Да проверим дали Crawl4AI може да извлече продуктите от Balev
+2. Да сравним с текущия Playwright подход
+3. Да измерим времето за изпълнение
 
-jobs:
-  pilot-test:
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-      
-      - name: 🐍 Setup Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      
-      - name: 📚 Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install crawl4ai
-          
-          # Поправка за Ubuntu 24.04
-          sudo apt-get update
-          sudo apt-get install -y libasound2t64 libatk1.0-0 libcups2 libdbus-1-3 \
-            libdrm2 libgbm1 libgtk-3-0 libnspr4 libnss3 libpango-1.0-0 \
-            libxcomposite1 libxdamage1 libxfixes3 libxkbcommon0 libxrandr2 xvfb
-          
-          # Инициализация на Crawl4AI
-          crawl4ai-setup || true
-      
-      - name: 🧪 Run Pilot Test
-        run: |
-          echo "Starting Crawl4AI pilot test..."
-          python experimental/crawl4ai_pilot.py
-      
-      - name: 📋 Upload results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pilot-results-${{ github.run_number }}
-          path: |
-            experimental/pilot_results.json
-            *.log
-          retention-days: 30
+Изпълнение:
+    python experimental/crawl4ai_pilot.py
+"""
+
+import asyncio
+import time
+import json
+import os
+import re
+
+# Опитваме да импортираме Crawl4AI
+try:
+    from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+    CRAWL4AI_AVAILABLE = True
+except ImportError:
+    CRAWL4AI_AVAILABLE = False
+    print("⚠️  Crawl4AI не е инсталиран. Инсталирай с: pip install crawl4ai")
+
+
+# =============================================================================
+# КОНФИГУРАЦИЯ
+# =============================================================================
+
+# URL на Balev Bio Market страницата с Harmonica продукти
+BALEV_URL = "https://balevbiomarket.com/productBrands/harmonica"
+
+# Референтни продукти за проверка (subset от пълния списък)
+REFERENCE_PRODUCTS = [
+    {"name": "Био Локум роза", "weight": "140г", "ref_price": 3.81},
+    {"name": "Био тънки претцели с морска сол", "weight": "80г", "ref_price": 2.50},
+    {"name": "Био лимонада", "weight": "330мл", "ref_price": 3.48},
+    {"name": "Айран harmonica", "weight": "500мл", "ref_price": 2.90},
+    {"name": "Био сироп от липа", "weight": "750мл", "ref_price": 14.29},
+]
+
+
+# =============================================================================
+# ОСНОВНИ ФУНКЦИИ
+# =============================================================================
+
+async def crawl_balev_with_crawl4ai():
+    """
+    Извлича продукти от Bal
