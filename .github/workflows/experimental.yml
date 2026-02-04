@@ -83,7 +83,7 @@ jobs:
           EXPERIMENTAL_MODE: "true"
           USE_CRAWL4AI: ${{ github.event.inputs.use_crawl4ai || 'false' }}
           SHEET_TAB_SUFFIX: "_experimental"
-          ALERT_EMAIL: "tvoyat_email@example.com"
+          ALERT_EMAIL: "boris.iv@gmail.com"
         run: |
           echo "Starting experimental scraper..."
           
