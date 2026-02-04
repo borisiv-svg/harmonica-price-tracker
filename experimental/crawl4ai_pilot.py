@@ -117,15 +117,75 @@ async def crawl_balev_with_crawl4ai():
         }
 
 
-def extract_products_from_html(html: str) -> list:
-    """
-    Извлича продукти от HTML използвайки регулярни изрази.
-    """
+def extract_products_from_html(html):
+    # Разширени patterns за цени - различни формати
+    price_patterns = [
+        r'(\d+[.,]\d{2})\s*(?:лв|BGN|EUR|€)',
+        r'(?:лв|BGN|EUR|€)\s*(\d+[.,]\d{2})',
+        r'price["\s:]+(\d+[.,]\d{2})',
+        r'data-price="(\d+[.,]\d{2})"',
+        r'"price":\s*(\d+[.,]\d{2})',
+        r'(\d+[.,]\d{2})\s*лв\.',
+        r'>(\d+[.,]\d{2})<',
+    ]
     
-    products = []
+    weight_pattern = r'(\d+)\s*(г|мл|ml|g)'
     
-    # Търсим patterns за цени
-    price_pattern = r'(\d+[.,]\d{2})\s*(?:лв|BGN|€|EUR)'
+    harmonica_keywords = [
+        "локум", "бисквити", "айран", "вафла", "претцели",
+        "лимонада", "сироп", "домати", "сирене", "крема"
+    ]
+    
+    # Търсим цени с всички patterns
+    all_prices = []
+    for pattern in price_patterns:
+        found = re.findall(pattern, html, re.IGNORECASE)
+        if found:
+            print(f"Pattern '{pattern[:30]}...' found: {len(found)} prices")
+            all_prices.extend(found)
+    
+    # Филтрираме само валидни цени (между 0.50 и 100 лв)
+    valid_prices = []
+    for p in all_prices:
+        try:
+            if isinstance(p, tuple):
+                p = p[0]
+            price = float(str(p).replace(",", "."))
+            if 0.50 <= price <= 100:
+                valid_prices.append(str(price))
+        except:
+            pass
+    
+    print(f"\nPrices found: {len(valid_prices)}")
+    unique_prices = list(set(valid_prices))[:20]
+    if unique_prices[:10]:
+        print(f"First 10 unique: {unique_prices[:10]}")
+    
+    weights = re.findall(weight_pattern, html, re.IGNORECASE)
+    print(f"Weights found: {len(weights)}")
+    
+    found_keywords = []
+    html_lower = html.lower()
+    for keyword in harmonica_keywords:
+        if keyword in html_lower:
+            count = html_lower.count(keyword)
+            found_keywords.append(f"{keyword} ({count}x)")
+    
+    print(f"Keywords found: {', '.join(found_keywords)}")
+    
+    # Показваме малка извадка от HTML за debug
+    print(f"\n--- HTML Sample (searching for price patterns) ---")
+    # Търсим около думата "цена" или "price"
+    price_context = re.findall(r'.{0,50}(?:price|цена|лв).{0,50}', html, re.IGNORECASE)
+    for ctx in price_context[:5]:
+        print(f"  {ctx.strip()}")
+    
+    return {
+        "prices_found": len(valid_prices),
+        "unique_prices": unique_prices,
+        "weights_found": len(weights),
+        "keywords_found": found_keywords,
+    }
     
     # Търсим грамажи
     weight_pattern = r'(\d+)\s*(г|мл|ml|g|кг|kg|л|l)'
