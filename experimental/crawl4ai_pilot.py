@@ -69,8 +69,9 @@ async def crawl_balev_with_crawl4ai():
     
     # Конфигурация на crawler-а
     crawler_config = CrawlerRunConfig(
-        wait_until="networkidle",
-        page_timeout=30000,
+        wait_until="domcontentloaded",
+        page_timeout=60000,
+        delay_before_return_html=3.0,
     )
     
     start_time = time.time()
