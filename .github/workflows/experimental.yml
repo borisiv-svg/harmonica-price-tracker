@@ -1,30 +1,18 @@
 # =============================================================================
 # EXPERIMENTAL WORKFLOW - Harmonica Digital Lab
 # =============================================================================
-# Този workflow изпълнява експерименталните версии на scraper-а.
-# Стартира автоматично в 07:00 UTC (1 час след production).
-# Може да се стартира ръчно от всеки experimental или feature branch.
-# Записва резултатите в отделен Google Sheets таб за сравнение.
-# =============================================================================
-
 name: 🔬 Experimental Scraper
 
 on:
-  # Автоматично изпълнение - 1 час след production
   schedule:
-    - cron: '0 7 * * *'  # 07:00 UTC = 09:00 българско време
-  
-  # Ръчно стартиране с възможност за избор на branch
+    - cron: '0 7 * * *'
   workflow_dispatch:
     inputs:
-      # Това създава dropdown меню при ръчно стартиране
       branch:
         description: 'Branch за тестване'
         required: true
         default: 'experimental'
         type: string
-      
-      # Checkbox за включване/изключване на Crawl4AI
       use_crawl4ai:
         description: 'Използвай Crawl4AI вместо Playwright'
         required: false
@@ -34,117 +22,79 @@ on:
 jobs:
   experimental-scrape:
     runs-on: ubuntu-latest
-    
-    # КРИТИЧНО: Този job НЕ се изпълнява от main branch
-    # Обратното на production - защитава main от experimental код
     if: github.ref != 'refs/heads/main'
     
     steps:
-      # ========== СТЪПКА 1: Изтегляне на кода ==========
       - name: 📥 Checkout experimental code
         uses: actions/checkout@v4
         with:
-          # При ръчно стартиране използва избрания branch
-          # При scheduled run използва branch-а, от който е тригнат workflow-ът
           ref: ${{ github.event.inputs.branch || github.ref }}
       
-      # ========== СТЪПКА 2: Настройка на Python ==========
       - name: 🐍 Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
       
-      # ========== СТЪПКА 3: Кеширане на браузъри ==========
       - name: 📦 Cache Playwright browsers
         uses: actions/cache@v3
         with:
           path: ~/.cache/ms-playwright
-          # Различен ключ от production за да не споделят кеш
           key: playwright-exp-${{ hashFiles('requirements.txt') }}
           restore-keys: |
             playwright-exp-
       
-      # ========== СТЪПКА 4: Инсталиране на зависимости ==========
       - name: 📚 Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           
-          # НОВО: Инсталиране на Crawl4AI за експериментите
+          # Инсталиране на Crawl4AI за експериментите
           pip install crawl4ai
           
-          # Поправка за Ubuntu 24.04 - инсталиране на системни зависимости ръчно
+          # Поправка за Ubuntu 24.04
           sudo apt-get update
           sudo apt-get install -y libasound2t64 libatk1.0-0 libcups2 libdbus-1-3 \
             libdrm2 libgbm1 libgtk-3-0 libnspr4 libnss3 libpango-1.0-0 \
             libxcomposite1 libxdamage1 libxfixes3 libxkbcommon0 libxrandr2 xvfb
           
-          # Инсталиране на браузъри (без --with-deps, вече имаме зависимостите)
+          # Инсталиране на браузъри
           playwright install chromium
           
           # Инициализация на Crawl4AI
           crawl4ai-setup || true
       
-      # ========== СТЪПКА 5: Информация за средата ==========
       - name: ℹ️ Environment info
         run: |
           echo "=========================================="
-          echo "EXPERIMENTAL SCRAPER - Environment Info"
+          echo "EXPERIMENTAL SCRAPER"
           echo "=========================================="
           echo "Python: $(python --version)"
           echo "Branch: $(git branch --show-current)"
-          echo "Commit: $(git log -1 --oneline)"
           echo "Use Crawl4AI: ${{ github.event.inputs.use_crawl4ai || 'false' }}"
           echo "Date: $(date)"
           echo "=========================================="
-          echo ""
-          echo "Installed packages:"
-          pip list | grep -E "(crawl4ai|playwright|anthropic|gspread)"
       
-      # ========== СТЪПКА 6: Изпълнение на experimental scraper ==========
       - name: 🔬 Run Experimental Scraper
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          # Флагове за experimental режим
           EXPERIMENTAL_MODE: "true"
           USE_CRAWL4AI: ${{ github.event.inputs.use_crawl4ai || 'false' }}
-          # Записване в отделен таб в Google Sheets
           SHEET_TAB_SUFFIX: "_experimental"
-          ALERT_EMAIL: "boris.iv@gmail.com"
+          ALERT_EMAIL: "tvoyat_email@example.com"
         run: |
-          echo "=========================================="
-          echo "Starting experimental scraper"
-          echo "=========================================="
+          echo "Starting experimental scraper..."
           
-          # Проверка дали съществува experimental версия на scraper-а
           if [ -f "scraper_experimental.py" ]; then
-            echo "Running scraper_experimental.py"
             python scraper_experimental.py
           else
-            echo "Running standard scraper.py in experimental mode"
             python scraper.py
           fi
           
-          echo "=========================================="
-          echo "Experimental scraper completed"
-          echo "=========================================="
+          echo "Experimental scraper completed!"
       
-      # ========== СТЪПКА 7: Сравнение с production (ако е възможно) ==========
-      - name: 📊 Compare results
-        if: success()
-        continue-on-error: true  # Не спира workflow-а ако скриптът липсва
-        run: |
-          if [ -f "scripts/compare_results.py" ]; then
-            echo "Running comparison script..."
-            python scripts/compare_results.py
-          else
-            echo "Comparison script not found, skipping..."
-          fi
-      
-      # ========== СТЪПКА 8: Запазване на артефакти ==========
       - name: 📋 Upload experiment artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -152,7 +102,5 @@ jobs:
           name: experimental-results-${{ github.run_number }}
           path: |
             *.log
-            *.json
-            experimental/
             logs/
-          retention-days: 14  # По-дълго запазване за анализ
+          retention-days: 14
