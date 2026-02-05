@@ -5,6 +5,26 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v9.2.0 - 2026-02-05
+
+### Добавено
+- **SHEET_TAB_SUFFIX поддръжка** - Възможност за записване в отделни Google Sheets табове чрез environment variable
+- Experimental workflow вече записва в "Ценови Тракер_experimental" и "История_2026_experimental" табове
+- Пълна изолация между production и experimental данни
+
+### Променено
+- `update_google_sheets()` функцията вече използва динамични имена на табове
+- Актуализиран `experimental.yml` с правилни credentials (SPREADSHEET_ID, GMAIL_USER, GMAIL_APP_PASSWORD)
+
+### Поправено
+- Синхронизация между main и experimental branches
+- Липсващи environment variables в experimental workflow
+
+### Технически детайли
+- Нова константа: `SHEET_TAB_SUFFIX = os.environ.get("SHEET_TAB_SUFFIX", "")`
+- Production използва празен suffix (оригинални табове)
+- Experimental използва "_experimental" suffix
+
 
 ## [Unreleased]
 
