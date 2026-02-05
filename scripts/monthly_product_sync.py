@@ -154,12 +154,30 @@ def extract_keywords(name):
 
 
 # =============================================================================
-# KASHON EXTRACTION
+# KASHON EXTRACTION (IMPROVED)
 # =============================================================================
+
+def is_harmonica_product(name, url_slug):
+    """
+    Проверява дали продуктът е на марка Harmonica.
+    Търси в името И в URL slug-а.
+    """
+    name_lower = name.lower()
+    slug_lower = url_slug.lower()
+    
+    # Проверяваме за harmonica/хармоника
+    if "harmonica" in name_lower or "хармоника" in name_lower:
+        return True
+    if "harmonica" in slug_lower:
+        return True
+    
+    return False
+
 
 def extract_kashon_products(markdown):
     """
-    Извлича всички Harmonica продукти от Кашон markdown.
+    Извлича САМО Harmonica продукти от Кашон markdown.
+    Подобрено извличане на EUR цени.
     """
     products = []
     seen = set()
@@ -177,6 +195,10 @@ def extract_kashon_products(markdown):
         if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
             continue
         
+        # *** НОВО: Филтрираме само Harmonica продукти ***
+        if not is_harmonica_product(name, url_slug):
+            continue
+        
         # Проверяваме за дубликати
         name_key = name.lower()[:30]
         if name_key in seen:
@@ -186,12 +208,8 @@ def extract_kashon_products(markdown):
         if not is_food_product(name):
             continue
         
-        # Търсим цена в контекста
-        idx = match.end()
-        context = markdown[idx:idx+300]
-        
-        eur = extract_eur_price(context)
-        bgn = extract_bgn_price(context)
+        # *** ПОДОБРЕНО: Търсим цени и преди, и след продукта ***
+        eur, bgn = extract_prices_from_context(markdown, match.start(), search_range=400)
         
         if eur or bgn:
             seen.add(name_key)
