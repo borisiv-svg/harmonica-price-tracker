@@ -160,18 +160,38 @@ def extract_keywords(name):
 def is_harmonica_product(name, url_slug):
     """
     Проверява дали продуктът е на марка Harmonica.
-    Търси в името И в URL slug-а.
+    
+    Логика: Всички продукти на kashonharmonica.bg са Harmonica,
+    ОСВЕН ако са от друга марка (партньори на сайта).
     """
     name_lower = name.lower()
     slug_lower = url_slug.lower()
     
-    # Проверяваме за harmonica/хармоника
-    if "harmonica" in name_lower or "хармоника" in name_lower:
-        return True
-    if "harmonica" in slug_lower:
-        return True
+    # Списък с НЕ-Harmonica марки (партньори на сайта)
+    non_harmonica_brands = [
+        "черноморски улов",
+        "вила кътина",
+        "vila katina",
+        "bio organic",
+        "поморийска",
+        "свинско месо",
+        "агнешко",
+        "пилешко",
+        "телешко",
+        "кайма",
+    ]
     
-    return False
+    # Ако името съдържа не-Harmonica марка, връщаме False
+    for brand in non_harmonica_brands:
+        if brand in name_lower:
+            return False
+    
+    # Ако е категория или навигация, връщаме False
+    if url_slug.startswith("field_"):
+        return False
+    
+    # Всичко останало е Harmonica
+    return True
 
 
 def extract_kashon_products(markdown):
