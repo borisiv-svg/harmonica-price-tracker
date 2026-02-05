@@ -1,6 +1,6 @@
 # Harmonica Price Tracker - Experiments Log
 
-Документация на експерименти в Digital Lab инфраструктурата.
+Документация на експерименти в Digital Lab инфраструктура.
 
 ---
 
