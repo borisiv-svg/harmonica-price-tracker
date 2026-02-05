@@ -1,7 +1,12 @@
 """
-EXP-001: Crawl4AI Dynamic Tracker v6.2 DEBUG
+EXP-001: Crawl4AI Dynamic Tracker v6.3 FINAL
 =============================================
-DEBUG версия - записва markdown samples за анализ.
+Финална версия с правилни patterns за всеки сайт.
+
+Структура на данните:
+- Кашон: [Име продукт](URL) с цени наблизо
+- eBag: [![Име](img)](url) + ### [Име ... X,XX € ... X,XX лв.]
+- Balev: Редове с грамаж + цени EUR/BGN
 """
 
 import asyncio
@@ -20,12 +25,12 @@ except ImportError:
 
 
 # =============================================================================
-# STORE CONFIGURATION
+# STORES
 # =============================================================================
 
 STORES = {
     "kashon": {
-        "name": "Кашон Harmonica (Official)",
+        "name": "Кашон Harmonica",
         "url": "https://kashonharmonica.bg/bg/products",
         "scroll_times": 10,
         "is_reference": True,
@@ -51,11 +56,12 @@ STORES = {
 
 FOOD_KEYWORDS = [
     "мляко", "айран", "кефир", "сирене", "кашкавал", "масло", "сметана",
-    "извара", "йогурт", "крема", "сок", "лимонада", "нектар", "сироп",
+    "извара", "йогурт", "крема", "сок", "лимонада", "боза", "сироп",
     "локум", "бисквит", "вафла", "шоколад", "бонбон", "сладко", "халва",
     "претцел", "солет", "крекер", "соленки", "лешник", "бадем", "орех",
     "домат", "кетчуп", "лютеница", "пюре", "паста", "хляб", "кори",
     "олио", "оцет", "зехтин", "мед", "чай", "smiles", "топчета",
+    "нахут", "хумус", "яйца", "тахан", "фъстъчено",
 ]
 
 NON_FOOD_KEYWORDS = [
@@ -65,21 +71,23 @@ NON_FOOD_KEYWORDS = [
 
 
 def is_food_product(name):
-    """Проверява дали е хранителен продукт."""
+    """Проверява дали е храна."""
     name_lower = name.lower()
-    
     for kw in NON_FOOD_KEYWORDS:
         if kw in name_lower:
             return False
-    
     for kw in FOOD_KEYWORDS:
         if kw in name_lower:
             return True
-    
     if re.search(r'\d+\s*(?:г|мл|ml|g|kg|л)\b', name_lower):
         return True
-    
     return True
+
+
+def is_harmonica_product(name):
+    """Проверява дали е Harmonica продукт."""
+    name_lower = name.lower()
+    return "harmonica" in name_lower or "хармоника" in name_lower
 
 
 # =============================================================================
@@ -88,168 +96,193 @@ def is_food_product(name):
 
 def extract_eur_price(text):
     """Извлича EUR цена."""
-    patterns = [
-        r'(\d+[.,]\d{2})\s*(?:€|EUR|eur|евро)',
-        r'(?:€|EUR)\s*(\d+[.,]\d{2})',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            try:
-                price = float(match.group(1).replace(",", "."))
-                if 0.20 <= price <= 100:
-                    return round(price, 2)
-            except:
-                pass
+    # Pattern: X,XX € или X.XX €
+    match = re.search(r'(\d+)[,.](\d{2})\s*€', text)
+    if match:
+        try:
+            price = float(f"{match.group(1)}.{match.group(2)}")
+            if 0.20 <= price <= 100:
+                return round(price, 2)
+        except:
+            pass
     return None
 
 
 def extract_bgn_price(text):
     """Извлича BGN цена."""
-    patterns = [
-        r'(\d+[.,]\d{2})\s*(?:лв\.?|лева|BGN)',
-        r'(?:BGN|лв\.?)\s*(\d+[.,]\d{2})',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            try:
-                price = float(match.group(1).replace(",", "."))
-                if 0.50 <= price <= 200:
-                    return round(price, 2)
-            except:
-                pass
+    # Pattern: X,XX лв или X.XX лв
+    match = re.search(r'(\d+)[,.](\d{2})\s*лв', text)
+    if match:
+        try:
+            price = float(f"{match.group(1)}.{match.group(2)}")
+            if 0.50 <= price <= 200:
+                return round(price, 2)
+        except:
+            pass
     return None
 
 
 # =============================================================================
-# DEBUG: ANALYZE MARKDOWN STRUCTURE
+# KASHON EXTRACTION
 # =============================================================================
 
-def analyze_markdown_structure(markdown, store_name):
-    """
-    DEBUG: Анализира структурата на markdown-а.
-    Показва примерни редове и patterns.
-    """
-    print(f"\n{'='*60}")
-    print(f"DEBUG: Analyzing {store_name} markdown structure")
-    print(f"{'='*60}")
-    print(f"Total length: {len(markdown)} chars")
-    
-    lines = markdown.split('\n')
-    print(f"Total lines: {len(lines)}")
-    
-    # Показваме първите 50 непразни реда
-    print(f"\n--- First 50 non-empty lines ---")
-    count = 0
-    for line in lines:
-        line = line.strip()
-        if line and len(line) > 3:
-            print(f"  {count+1}: {line[:100]}")
-            count += 1
-            if count >= 50:
-                break
-    
-    # Търсим линкове
-    links = re.findall(r'\[([^\]]+)\]\(([^\)]+)\)', markdown)
-    print(f"\n--- Found {len(links)} markdown links ---")
-    for text, url in links[:20]:
-        print(f"  [{text[:50]}]({url[:50]})")
-    
-    # Търсим цени
-    prices_bgn = re.findall(r'(\d+[.,]\d{2})\s*лв', markdown)
-    prices_eur = re.findall(r'(\d+[.,]\d{2})\s*€', markdown)
-    print(f"\n--- Found {len(prices_bgn)} BGN prices, {len(prices_eur)} EUR prices ---")
-    print(f"BGN sample: {prices_bgn[:10]}")
-    print(f"EUR sample: {prices_eur[:10]}")
-    
-    # Търсим продуктови имена (с грамаж)
-    products_with_weight = re.findall(r'([^\n\[\]]{5,60}?\d+\s*(?:г|мл|ml|g)\b[^\n\[\]]{0,20})', markdown)
-    print(f"\n--- Found {len(products_with_weight)} potential product names (with weight) ---")
-    for p in products_with_weight[:15]:
-        print(f"  {p.strip()[:70]}")
-    
-    # Търсим Harmonica/Хармоника mentions
-    harmonica_context = []
-    for match in re.finditer(r'.{0,50}(?:harmonica|хармоника).{0,50}', markdown, re.IGNORECASE):
-        harmonica_context.append(match.group().strip())
-    print(f"\n--- Found {len(harmonica_context)} Harmonica mentions ---")
-    for ctx in harmonica_context[:10]:
-        print(f"  {ctx[:80]}")
-    
-    return {
-        "lines": len(lines),
-        "links": len(links),
-        "prices_bgn": len(prices_bgn),
-        "prices_eur": len(prices_eur),
-        "products_with_weight": len(products_with_weight),
-    }
-
-
-# =============================================================================
-# PRODUCT EXTRACTION (IMPROVED)
-# =============================================================================
-
-def extract_products_from_kashon(markdown, html):
+def extract_kashon_products(markdown):
     """
     Извлича продукти от Кашон.
-    Използва множество стратегии.
+    Формат: [Име на продукт](https://kashonharmonica.bg/bg/products/...)
     """
     products = []
     seen = set()
     
-    # Стратегия 1: Markdown линкове с текст
-    print("\n  Strategy 1: Markdown links...")
-    link_pattern = r'\[([^\]]{5,80})\]\(https://kashonharmonica\.bg[^\)]+\)'
-    for match in re.finditer(link_pattern, markdown):
+    # Pattern за markdown links към продукти
+    pattern = r'\[([^\]]{5,80})\]\(https://kashonharmonica\.bg/bg/products/([^\)]+)\)'
+    
+    for match in re.finditer(pattern, markdown):
         name = match.group(1).strip()
         
-        # Пропускаме ако е URL или изображение
-        if name.startswith('http') or name.startswith('!') or 'logo' in name.lower():
+        # Пропускаме невалидни
+        if name.startswith('!') or 'logo' in name.lower():
             continue
-        
-        # Пропускаме ако няма букви
         if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
             continue
         
-        name_key = name.lower()[:25]
+        # Проверяваме за дубликати
+        name_key = name.lower()[:30]
         if name_key in seen:
             continue
         
+        # Филтрираме само храни
         if not is_food_product(name):
             continue
         
-        # Търсим цена около линка
-        idx = markdown.find(match.group(0))
-        context = markdown[max(0,idx-100):idx+200]
+        # Търсим цена в контекста (следващите 300 символа)
+        idx = match.end()
+        context = markdown[idx:idx+300]
+        
         eur = extract_eur_price(context)
         bgn = extract_bgn_price(context)
         
         if eur or bgn:
             seen.add(name_key)
-            products.append({"name": name, "eur": eur, "bgn": bgn, "method": "link"})
+            products.append({
+                "name": name,
+                "eur": eur,
+                "bgn": bgn,
+            })
     
-    print(f"    Found {len(products)} from links")
+    return products
+
+
+# =============================================================================
+# EBAG EXTRACTION
+# =============================================================================
+
+def extract_ebag_products(markdown):
+    """
+    Извлича продукти от eBag.
     
-    # Стратегия 2: Редове с грамаж
-    print("\n  Strategy 2: Lines with weight...")
+    Формат 1: [![Име продукт](image_url)](product_url)
+    Формат 2: ### [Име продукт Годно до: XX/XX/XXXX X,XX €X,XX € X,XX лв.X,XX лв.]
+    """
+    products = []
+    seen = set()
+    
+    # Pattern 1: Alt текст на изображения
+    img_pattern = r'\[!\[([^\]]+)\]\([^\)]+\)\]\([^\)]+\)'
+    
+    for match in re.finditer(img_pattern, markdown):
+        name = match.group(1).strip()
+        
+        if len(name) < 5 or 'flag' in name.lower():
+            continue
+        
+        # Проверяваме дали е Harmonica
+        if not is_harmonica_product(name):
+            continue
+        
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+        
+        # Търсим цени в контекста
+        idx = match.start()
+        context = markdown[max(0, idx-50):idx+500]
+        
+        eur = extract_eur_price(context)
+        bgn = extract_bgn_price(context)
+        
+        if eur or bgn:
+            seen.add(name_key)
+            products.append({
+                "name": name,
+                "eur": eur,
+                "bgn": bgn,
+            })
+    
+    # Pattern 2: Заглавия с цени
+    # ### [Био Боза Harmonica от Ръж Годно до: 15/02/2026 1,88 €2,35 € 3,68 лв.4,60 лв. ...]
+    title_pattern = r'###\s*\[\s*([^\]]+?)\s+Годно до:[^\]]*?(\d+[,\.]\d{2})\s*€[^\]]*?(\d+[,\.]\d{2})\s*лв'
+    
+    for match in re.finditer(title_pattern, markdown):
+        name = match.group(1).strip()
+        
+        if len(name) < 5:
+            continue
+        
+        if not is_harmonica_product(name):
+            continue
+        
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+        
+        try:
+            eur = float(match.group(2).replace(",", "."))
+            bgn = float(match.group(3).replace(",", "."))
+            
+            if 0.20 <= eur <= 100 and 0.50 <= bgn <= 200:
+                seen.add(name_key)
+                products.append({
+                    "name": name,
+                    "eur": round(eur, 2),
+                    "bgn": round(bgn, 2),
+                })
+        except:
+            pass
+    
+    return products
+
+
+# =============================================================================
+# BALEV EXTRACTION
+# =============================================================================
+
+def extract_balev_products(markdown):
+    """
+    Извлича продукти от Balev.
+    
+    Формат: Редове с грамаж близо до цени EUR/BGN.
+    Пример: "Био пълнозърнести солети 60г" + "1.07€" / "2.09лв"
+    """
+    products = []
+    seen = set()
+    
     lines = markdown.split('\n')
     
     for i, line in enumerate(lines):
         line = line.strip()
         
-        # Търсим ред с грамаж
-        weight_match = re.search(r'\d+\s*(?:г|мл|ml|g|kg|л)\b', line, re.IGNORECASE)
-        if not weight_match:
+        # Търсим редове с грамаж
+        if not re.search(r'\d+\s*(?:г|мл|ml|g)\b', line, re.IGNORECASE):
             continue
         
-        # Почистваме реда
+        # Почистваме името
         name = line
-        name = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', name)  # [text](url) -> text
-        name = re.sub(r'https?://[^\s]+', '', name)  # Remove URLs
-        name = re.sub(r'\d+[.,]\d{2}\s*(?:лв|€|EUR|BGN)\.?', '', name)  # Remove prices
-        name = re.sub(r'^[\-\*\•\>\|\s/]+', '', name)  # Leading chars
-        name = re.sub(r'[\-\*\•\>\|\s/]+$', '', name)  # Trailing chars
+        name = re.sub(r'\[([^\]]*)\]\([^\)]*\)', r'\1', name)  # [text](url) -> text
+        name = re.sub(r'!\[[^\]]*\]\([^\)]*\)', '', name)  # ![alt](url) -> remove
+        name = re.sub(r'https?://[^\s]+', '', name)
+        name = re.sub(r'\*\*([^\*]+)\*\*', r'\1', name)  # **bold** -> bold
+        name = re.sub(r'^\s*[\-\*\#\|\>]+\s*', '', name)
         name = re.sub(r'\s+', ' ', name).strip()
         
         if len(name) < 5 or len(name) > 80:
@@ -258,113 +291,33 @@ def extract_products_from_kashon(markdown, html):
         if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
             continue
         
-        name_key = name.lower()[:25]
+        # Проверяваме дали е Harmonica
+        if not (is_harmonica_product(name) or 'harmonica' in markdown[max(0,i-5):i+5].lower()):
+            # Проверяваме контекста за Harmonica
+            context_lines = '\n'.join(lines[max(0,i-3):i+3])
+            if not ('harmonica' in context_lines.lower() or 'хармоника' in context_lines.lower()):
+                continue
+        
+        name_key = name.lower()[:30]
         if name_key in seen:
             continue
         
         if not is_food_product(name):
             continue
         
-        # Търсим цена в контекста
+        # Търсим цени в контекста
         context = '\n'.join(lines[max(0,i-2):i+5])
+        
         eur = extract_eur_price(context)
         bgn = extract_bgn_price(context)
         
         if eur or bgn:
             seen.add(name_key)
-            products.append({"name": name, "eur": eur, "bgn": bgn, "method": "weight_line"})
-    
-    print(f"    Found {len([p for p in products if p['method']=='weight_line'])} from weight lines")
-    
-    # Стратегия 3: HTML product titles
-    print("\n  Strategy 3: HTML titles...")
-    html_patterns = [
-        r'title="([^"]{10,80})"',
-        r'alt="([^"]{10,80})"',
-        r'>([^<]{10,60}(?:г|мл|ml|g)\b[^<]{0,20})<',
-    ]
-    
-    for pattern in html_patterns:
-        for match in re.finditer(pattern, html):
-            name = match.group(1).strip()
-            
-            if 'http' in name.lower() or 'logo' in name.lower():
-                continue
-            
-            if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
-                continue
-            
-            name_key = name.lower()[:25]
-            if name_key in seen:
-                continue
-            
-            if not is_food_product(name):
-                continue
-            
-            idx = html.find(name)
-            context = html[max(0,idx-200):idx+300]
-            eur = extract_eur_price(context)
-            bgn = extract_bgn_price(context)
-            
-            if eur or bgn:
-                seen.add(name_key)
-                products.append({"name": name, "eur": eur, "bgn": bgn, "method": "html"})
-    
-    print(f"    Found {len([p for p in products if p['method']=='html'])} from HTML")
-    
-    return products
-
-
-def extract_products_from_store(markdown, html, store_name):
-    """Извлича продукти от eBag или Balev."""
-    products = []
-    seen = set()
-    
-    combined = markdown + "\n" + html[:100000]
-    
-    # Търсим продукти с грамаж и цена
-    # Pattern: име с грамаж ... цена
-    patterns = [
-        r'([^\n<>]{5,60}?\d+\s*(?:г|мл|ml|g)\b[^\n<>]{0,20})[^\d]{0,50}?(\d+[.,]\d{2})\s*(?:лв|€)',
-        r'(\d+[.,]\d{2})\s*(?:лв|€)[^\n<>]{0,30}?([^\n<>]{5,60}?\d+\s*(?:г|мл|ml|g)\b)',
-    ]
-    
-    for pattern in patterns:
-        for match in re.finditer(pattern, combined, re.IGNORECASE):
-            groups = match.groups()
-            
-            # Определяме кое е името
-            if re.match(r'^\d+[.,]\d{2}$', groups[0].strip()):
-                price_str, name = groups
-            else:
-                name, price_str = groups
-            
-            # Почистваме
-            name = re.sub(r'\s+', ' ', name).strip()
-            name = re.sub(r'^[\-\*\•\>\|]+', '', name).strip()
-            
-            if len(name) < 5 or len(name) > 80:
-                continue
-            
-            name_key = name.lower()[:25]
-            if name_key in seen:
-                continue
-            
-            try:
-                price = float(price_str.replace(",", "."))
-                if not (0.5 <= price <= 100):
-                    continue
-            except:
-                continue
-            
-            seen.add(name_key)
-            
-            # Определяме валутата
-            context = match.group(0)
-            eur = price if '€' in context or 'EUR' in context else None
-            bgn = price if 'лв' in context or 'BGN' in context else None
-            
-            products.append({"name": name, "eur": eur, "bgn": bgn})
+            products.append({
+                "name": name,
+                "eur": eur,
+                "bgn": bgn,
+            })
     
     return products
 
@@ -373,29 +326,56 @@ def extract_products_from_store(markdown, html, store_name):
 # MATCHING
 # =============================================================================
 
-def match_product_in_store(ref_product, store_products):
+def normalize_name(name):
+    """Нормализира име за сравнение."""
+    name = name.lower()
+    name = re.sub(r'harmonica|хармоника|био\s*', '', name)
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name
+
+
+def extract_keywords(name):
+    """Извлича ключови думи от име."""
+    name = normalize_name(name)
+    # Думи + числа с мерни единици
+    keywords = re.findall(r'[а-я]{3,}|\d+(?:\s*(?:г|мл|ml|g|%|л))?', name)
+    return set(keywords)
+
+
+def match_products(ref_products, store_products):
     """
-    Намира съответствие между референтен продукт и продукти от магазин.
+    Съпоставя продукти от магазин с референтния списък.
+    Връща dict с matches.
     """
-    ref_name = ref_product["name"].lower()
-    ref_keywords = set(re.findall(r'[а-я]{3,}|\d+(?:г|мл|ml|g)', ref_name))
+    matches = {}
     
-    best_match = None
-    best_score = 0
-    
-    for prod in store_products:
-        prod_name = prod["name"].lower()
-        prod_keywords = set(re.findall(r'[а-я]{3,}|\d+(?:г|мл|ml|g)', prod_name))
+    for ref in ref_products:
+        ref_keywords = extract_keywords(ref["name"])
+        best_match = None
+        best_score = 0
         
-        # Изчисляваме overlap
-        common = ref_keywords & prod_keywords
-        score = len(common)
+        for store_prod in store_products:
+            store_keywords = extract_keywords(store_prod["name"])
+            
+            # Общи keywords
+            common = ref_keywords & store_keywords
+            score = len(common)
+            
+            # Бонус за съвпадение на грамаж
+            ref_weight = re.search(r'(\d+)\s*(?:г|мл|ml|g)', ref["name"].lower())
+            store_weight = re.search(r'(\d+)\s*(?:г|мл|ml|g)', store_prod["name"].lower())
+            
+            if ref_weight and store_weight and ref_weight.group(1) == store_weight.group(1):
+                score += 2
+            
+            if score >= 2 and score > best_score:
+                best_score = score
+                best_match = store_prod
         
-        if score >= 2 and score > best_score:
-            best_score = score
-            best_match = prod
+        if best_match:
+            matches[ref["name"]] = best_match
     
-    return best_match
+    return matches
 
 
 # =============================================================================
@@ -411,7 +391,6 @@ async def crawl_store(crawler, store_key, store_config):
     
     print(f"\n{'='*60}")
     print(f"CRAWLING: {store_name}")
-    print(f"URL: {url[:60]}...")
     print("="*60)
     
     scroll_js = f"""
@@ -420,53 +399,49 @@ async def crawl_store(crawler, store_key, store_config):
             window.scrollTo(0, document.body.scrollHeight);
             await new Promise(r => setTimeout(r, 1500));
         }}
-        window.scrollTo(0, 0);
     }}
     await scrollPage();
     """
     
-    crawler_config = CrawlerRunConfig(
+    config = CrawlerRunConfig(
         page_timeout=90000,
         remove_overlay_elements=True,
         js_code=scroll_js,
     )
     
-    start_time = time.time()
+    start = time.time()
     
     try:
-        result = await crawler.arun(url=url, config=crawler_config)
-        elapsed = time.time() - start_time
+        result = await crawler.arun(url=url, config=config)
+        elapsed = time.time() - start
         
         if not result.success:
             print(f"FAILED: {result.error_message}")
-            return {"success": False, "store": store_name, "error": result.error_message}
+            return {"success": False, "error": result.error_message}
         
-        print(f"SUCCESS: {elapsed:.2f}s, {len(result.markdown)} chars markdown")
+        print(f"SUCCESS: {elapsed:.2f}s, {len(result.markdown)} chars")
         
         return {
             "success": True,
-            "store": store_name,
             "store_key": store_key,
-            "elapsed_time": elapsed,
+            "elapsed": elapsed,
             "markdown": result.markdown,
-            "html": result.html,
         }
-        
     except Exception as e:
-        print(f"EXCEPTION: {str(e)}")
-        return {"success": False, "store": store_name, "error": str(e)}
+        print(f"ERROR: {e}")
+        return {"success": False, "error": str(e)}
 
 
-async def crawl_all_stores():
+async def crawl_all():
     """Сканира всички магазини."""
     
     browser_config = BrowserConfig(headless=True, viewport_width=1920, viewport_height=1080)
     results = {}
     
     async with AsyncWebCrawler(config=browser_config) as crawler:
-        for store_key, store_config in STORES.items():
-            results[store_key] = await crawl_store(crawler, store_key, store_config)
-            await asyncio.sleep(3)
+        for key, cfg in STORES.items():
+            results[key] = await crawl_store(crawler, key, cfg)
+            await asyncio.sleep(2)
     
     return results
 
@@ -477,7 +452,7 @@ async def crawl_all_stores():
 
 async def main():
     print("\n" + "="*60)
-    print("EXP-001: CRAWL4AI v6.2 DEBUG")
+    print("EXP-001: CRAWL4AI v6.3 FINAL")
     print("="*60)
     print(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
@@ -487,109 +462,131 @@ async def main():
     
     total_start = time.time()
     
-    # Crawl всички магазини
-    crawl_results = await crawl_all_stores()
+    # 1. Crawl
+    crawl_results = await crawl_all()
     
-    # DEBUG: Анализираме структурата
+    # 2. Extract products
     print("\n" + "="*60)
-    print("DEBUG ANALYSIS")
+    print("EXTRACTING PRODUCTS")
     print("="*60)
     
-    debug_info = {}
-    for store_key, data in crawl_results.items():
-        if data.get("success"):
-            debug_info[store_key] = analyze_markdown_structure(
-                data["markdown"], 
-                STORES[store_key]["name"]
-            )
+    # Кашон (референтен)
+    kashon_products = []
+    if crawl_results.get("kashon", {}).get("success"):
+        kashon_products = extract_kashon_products(crawl_results["kashon"]["markdown"])
+        print(f"\nКашон: {len(kashon_products)} Harmonica products")
+        for p in kashon_products[:10]:
+            eur = f"{p['eur']:.2f}€" if p['eur'] else "N/A"
+            bgn = f"{p['bgn']:.2f}лв" if p['bgn'] else "N/A"
+            print(f"  - {p['name'][:45]}: {eur} / {bgn}")
     
-    # Извличаме продукти
+    # eBag
+    ebag_products = []
+    if crawl_results.get("ebag", {}).get("success"):
+        ebag_products = extract_ebag_products(crawl_results["ebag"]["markdown"])
+        print(f"\neBag: {len(ebag_products)} Harmonica products")
+        for p in ebag_products[:10]:
+            eur = f"{p['eur']:.2f}€" if p['eur'] else "N/A"
+            bgn = f"{p['bgn']:.2f}лв" if p['bgn'] else "N/A"
+            print(f"  - {p['name'][:45]}: {eur} / {bgn}")
+    
+    # Balev
+    balev_products = []
+    if crawl_results.get("balev", {}).get("success"):
+        balev_products = extract_balev_products(crawl_results["balev"]["markdown"])
+        print(f"\nBalev: {len(balev_products)} Harmonica products")
+        for p in balev_products[:10]:
+            eur = f"{p['eur']:.2f}€" if p['eur'] else "N/A"
+            bgn = f"{p['bgn']:.2f}лв" if p['bgn'] else "N/A"
+            print(f"  - {p['name'][:45]}: {eur} / {bgn}")
+    
+    # 3. Match products
     print("\n" + "="*60)
-    print("PRODUCT EXTRACTION")
+    print("MATCHING PRODUCTS")
     print("="*60)
     
-    # От Кашон
-    kashon_data = crawl_results.get("kashon", {})
-    if kashon_data.get("success"):
-        print("\n--- Extracting from Kashon ---")
-        kashon_products = extract_products_from_kashon(
-            kashon_data["markdown"],
-            kashon_data["html"]
-        )
-        print(f"\nTotal Kashon products: {len(kashon_products)}")
-        
-        if kashon_products:
-            print("\nSample products:")
-            for p in kashon_products[:15]:
-                eur = f"{p['eur']:.2f}€" if p['eur'] else "N/A"
-                bgn = f"{p['bgn']:.2f}лв" if p['bgn'] else "N/A"
-                print(f"  [{p['method']}] {p['name'][:45]}: {eur} / {bgn}")
-    else:
-        kashon_products = []
+    # Построяваме финален списък
+    final_products = []
     
-    # От другите магазини
-    store_products = {}
-    for store_key in ["ebag", "balev"]:
-        data = crawl_results.get(store_key, {})
-        if data.get("success"):
-            print(f"\n--- Extracting from {STORES[store_key]['name']} ---")
-            products = extract_products_from_store(
-                data["markdown"],
-                data["html"],
-                store_key
-            )
-            store_products[store_key] = products
-            print(f"Found {len(products)} products")
-            
-            for p in products[:10]:
-                eur = f"{p['eur']:.2f}€" if p['eur'] else "N/A"
-                bgn = f"{p['bgn']:.2f}лв" if p['bgn'] else "N/A"
-                print(f"  {p['name'][:45]}: {eur} / {bgn}")
+    for ref in kashon_products:
+        product = {
+            "name": ref["name"],
+            "kashon": {"eur": ref["eur"], "bgn": ref["bgn"]},
+            "ebag": None,
+            "balev": None,
+        }
+        final_products.append(product)
     
-    # Matching
+    # Match с eBag
+    ebag_matches = match_products(kashon_products, ebag_products)
+    for product in final_products:
+        if product["name"] in ebag_matches:
+            m = ebag_matches[product["name"]]
+            product["ebag"] = {"eur": m["eur"], "bgn": m["bgn"]}
+    
+    # Match с Balev
+    balev_matches = match_products(kashon_products, balev_products)
+    for product in final_products:
+        if product["name"] in balev_matches:
+            m = balev_matches[product["name"]]
+            product["balev"] = {"eur": m["eur"], "bgn": m["bgn"]}
+    
+    # 4. Statistics
     print("\n" + "="*60)
-    print("MATCHING")
+    print("FINAL STATISTICS")
     print("="*60)
     
-    for product in kashon_products:
-        product["stores"] = {"kashon": {"eur": product["eur"], "bgn": product["bgn"]}}
-        
-        for store_key, products in store_products.items():
-            match = match_product_in_store(product, products)
-            if match:
-                product["stores"][store_key] = {"eur": match["eur"], "bgn": match["bgn"]}
+    kashon_count = len([p for p in final_products if p["kashon"]])
+    ebag_count = len([p for p in final_products if p["ebag"]])
+    balev_count = len([p for p in final_products if p["balev"]])
     
-    # Statistics
-    print("\nStore coverage:")
-    for store_key in STORES.keys():
-        count = sum(1 for p in kashon_products if store_key in p.get("stores", {}))
-        pct = (count / len(kashon_products) * 100) if kashon_products else 0
-        print(f"  {STORES[store_key]['name']}: {count}/{len(kashon_products)} ({pct:.0f}%)")
+    print(f"\nReference products (Кашон): {kashon_count}")
+    print(f"eBag matches: {ebag_count} ({ebag_count/kashon_count*100:.0f}%)" if kashon_count else "")
+    print(f"Balev matches: {balev_count} ({balev_count/kashon_count*100:.0f}%)" if kashon_count else "")
+    
+    # Показваме примерни продукти с цени от всички магазини
+    print("\n--- Sample products with prices ---")
+    matched_products = [p for p in final_products if p["ebag"] or p["balev"]][:10]
+    
+    for p in matched_products:
+        print(f"\n{p['name'][:50]}:")
+        if p["kashon"]:
+            eur = f"{p['kashon']['eur']:.2f}€" if p['kashon'].get('eur') else "N/A"
+            bgn = f"{p['kashon']['bgn']:.2f}лв" if p['kashon'].get('bgn') else "N/A"
+            print(f"  Кашон: {eur} / {bgn}")
+        if p["ebag"]:
+            eur = f"{p['ebag']['eur']:.2f}€" if p['ebag'].get('eur') else "N/A"
+            bgn = f"{p['ebag']['bgn']:.2f}лв" if p['ebag'].get('bgn') else "N/A"
+            print(f"  eBag:  {eur} / {bgn}")
+        if p["balev"]:
+            eur = f"{p['balev']['eur']:.2f}€" if p['balev'].get('eur') else "N/A"
+            bgn = f"{p['balev']['bgn']:.2f}лв" if p['balev'].get('bgn') else "N/A"
+            print(f"  Balev: {eur} / {bgn}")
     
     total_time = time.time() - total_start
     
-    # Save results
+    # 5. Save results
     output = {
-        "experiment": "EXP-001-v6.2-debug",
+        "experiment": "EXP-001-v6.3-final",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        "total_time": total_time,
-        "debug_info": debug_info,
-        "kashon_products": kashon_products,
-        "store_products": {k: v[:20] for k, v in store_products.items()},
-        "markdown_samples": {
-            store_key: data.get("markdown", "")[:3000]
-            for store_key, data in crawl_results.items()
-            if data.get("success")
+        "total_time": round(total_time, 2),
+        "stats": {
+            "kashon_products": kashon_count,
+            "ebag_products": len(ebag_products),
+            "ebag_matches": ebag_count,
+            "balev_products": len(balev_products),
+            "balev_matches": balev_count,
         },
+        "products": final_products,
     }
     
     try:
         os.makedirs("experimental", exist_ok=True)
         with open("experimental/pilot_results.json", "w", encoding="utf-8") as f:
-            json.dump(output, f, ensure_ascii=False, indent=2, default=str)
-        print(f"\nResults saved to: experimental/pilot_results.json")
+            json.dump(output, f, ensure_ascii=False, indent=2)
+        print(f"\n✓ Results saved to: experimental/pilot_results.json")
     except Exception as e:
-        print(f"Save error: {e}")
+        print(f"\n✗ Save error: {e}")
     
     print(f"\n{'='*60}")
     print(f"DONE in {total_time:.2f}s")
