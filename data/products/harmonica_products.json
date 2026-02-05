@@ -1,0 +1,15 @@
+{
+  "last_sync": "2026-02-05",
+  "source": "kashonharmonica.bg",
+  "products": [
+    {
+      "id": 1,
+      "name": "Кисело мляко 3,6% harmonica 400g",
+      "keywords": ["кисело", "мляко", "3.6", "400"],
+      "ref_eur": 1.40,
+      "ref_bgn": 2.74,
+      "active": true
+    },
+    ...
+  ]
+}
