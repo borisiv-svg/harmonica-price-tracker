@@ -50,6 +50,9 @@ ALERT_THRESHOLD = 10
 # След това може да се смени на EUR
 BASE_CURRENCY = "BGN"
 
+# Suffix за worksheet името (за experimental branch)
+SHEET_TAB_SUFFIX = os.environ.get("SHEET_TAB_SUFFIX", "")
+
 # Claude модели - хибриден подход за оптимална точност и скорост
 # Фаза 1 (извличане): Haiku - бърз и евтин за парсване на HTML
 # Фаза 2 (съпоставяне): Sonnet - по-точен за семантично разпознаване на продукти
@@ -1941,10 +1944,12 @@ def update_google_sheets(results):
         gc = get_sheets_client()
         spreadsheet = gc.open_by_key(spreadsheet_id)
         
+       # Използваме suffix за experimental branch
+        main_tab_name = f"Ценови Тракер{SHEET_TAB_SUFFIX}"
         try:
-            sheet = spreadsheet.worksheet("Ценови Тракер")
+            sheet = spreadsheet.worksheet(main_tab_name)
         except:
-            sheet = spreadsheet.add_worksheet("Ценови Тракер", rows=30, cols=15)
+            sheet = spreadsheet.add_worksheet(main_tab_name, rows=30, cols=15)
         
         sheet.clear()
         print("  Лист изчистен")
@@ -2382,7 +2387,7 @@ def update_google_sheets(results):
         # История - годишни табове
         try:
             current_year = datetime.now().year
-            history_tab_name = f"История_{current_year}"
+            history_tab_name = f"История_{current_year}{SHEET_TAB_SUFFIX}"
             
             try:
                 hist = spreadsheet.worksheet(history_tab_name)
