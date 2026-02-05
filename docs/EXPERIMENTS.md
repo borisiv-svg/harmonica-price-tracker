@@ -227,19 +227,54 @@ scripts/
 
 ---
 
-## EXP-002: Production Integration (ПЛАНИРАН)
-
-**Статус:** 📋 ПЛАНИРАН  
-**Зависимост:** EXP-001 ✅
+## EXP-002: Production Integration
+**Статус:** ✅ ЗАВЪРШЕН  
+**Период:** 05 февруари 2026  
+**Branch:** experimental
 
 ### Цел
-Интегриране на Crawl4AI в production scraper като допълнителен метод за extraction.
+Интегриране на възможност за паралелно записване на experimental резултати в отделни Google Sheets табове, без да се засягат production данните.
 
-### План
-1. Създаване на `products.json` със статичен списък
-2. Модифициране на `scraper.py` да използва Crawl4AI за някои магазини
-3. A/B тестване: Playwright vs Crawl4AI
-4. Постепенна миграция
+### Имплементация
+
+#### Промени в scraper.py
+Добавена нова константа за динамично определяне на tab suffix:
+```python
+SHEET_TAB_SUFFIX = os.environ.get("SHEET_TAB_SUFFIX", "")
+```
+
+Модифицирана `update_google_sheets()` функцията да използва динамични имена:
+```python
+main_tab_name = f"Ценови Тракер{SHEET_TAB_SUFFIX}"
+history_tab_name = f"История_{current_year}{SHEET_TAB_SUFFIX}"
+```
+
+#### Промени в experimental.yml
+Добавени липсващи environment variables:
+- `SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}`
+- `GMAIL_USER: ${{ secrets.GMAIL_USER }}`
+- `GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}`
+- `SHEET_TAB_SUFFIX: "_experimental"`
+
+### Резултати
+| Метрика | Статус |
+|---------|--------|
+| Production табове | ✅ Непроменени |
+| Experimental табове | ✅ Създадени автоматично |
+| Данни изолирани | ✅ Да |
+| Имейл известия | ✅ Работят |
+
+### Създадени табове в Google Sheets
+- `Ценови Тракер_experimental` - текущи цени от experimental runs
+- `История_2026_experimental` - история на experimental данни
+
+### Изводи
+EXP-002 е успешно завършен. Digital Lab инфраструктурата вече позволява пълна изолация между production и experimental среди. Това отключва възможността за безопасно тестване на нови функции (Crawl4AI интеграция, нови магазини) без риск за production данните.
+
+### Следващи стъпки
+- [ ] EXP-003: Добавяне на нови магазини (Lilly, DM, Zelen, ХИТ, Zoya)
+- [ ] Интеграция на Crawl4AI scraper в experimental workflow
+- [ ] A/B тестване: Playwright vs Crawl4AI
 
 ---
 
