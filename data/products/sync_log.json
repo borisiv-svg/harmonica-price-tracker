@@ -29,5 +29,12 @@
     "added": 0,
     "removed": 6,
     "price_changes": 1
+  },
+  {
+    "date": "2026-02-05 10:48",
+    "action": "initial_create",
+    "total_products": 65,
+    "added": 65,
+    "removed": 0
   }
 ]
