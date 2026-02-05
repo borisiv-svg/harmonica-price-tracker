@@ -85,34 +85,63 @@ def is_food_product(name):
 
 
 # =============================================================================
-# PRICE EXTRACTION
+# PRICE EXTRACTION (IMPROVED)
 # =============================================================================
 
 def extract_eur_price(text):
-    """Извлича EUR цена."""
-    match = re.search(r'(\d+)[,.](\d{2})\s*€', text)
-    if match:
-        try:
-            price = float(f"{match.group(1)}.{match.group(2)}")
-            if 0.20 <= price <= 100:
-                return round(price, 2)
-        except:
-            pass
+    """Извлича EUR цена - търси в различни формати."""
+    patterns = [
+        r'(\d+)[,.](\d{2})\s*€',           # 2.38 € или 2,38 €
+        r'€\s*(\d+)[,.](\d{2})',            # € 2.38
+        r'(\d+)[,.](\d{2})\s*EUR',          # 2.38 EUR
+        r'(\d+)[,.](\d{2})\s*евро',         # 2.38 евро
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            try:
+                price = float(f"{match.group(1)}.{match.group(2)}")
+                if 0.20 <= price <= 100:
+                    return round(price, 2)
+            except:
+                pass
     return None
 
 
 def extract_bgn_price(text):
-    """Извлича BGN цена."""
-    match = re.search(r'(\d+)[,.](\d{2})\s*лв', text)
-    if match:
-        try:
-            price = float(f"{match.group(1)}.{match.group(2)}")
-            if 0.50 <= price <= 200:
-                return round(price, 2)
-        except:
-            pass
+    """Извлича BGN цена - търси в различни формати."""
+    patterns = [
+        r'(\d+)[,.](\d{2})\s*лв',           # 2.74 лв
+        r'(\d+)[,.](\d{2})\s*лева',         # 2.74 лева
+        r'(\d+)[,.](\d{2})\s*BGN',          # 2.74 BGN
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            try:
+                price = float(f"{match.group(1)}.{match.group(2)}")
+                if 0.50 <= price <= 200:
+                    return round(price, 2)
+            except:
+                pass
     return None
 
+
+def extract_prices_from_context(markdown, position, search_range=500):
+    """
+    Извлича EUR и BGN цени от контекста около позиция.
+    Търси и преди, и след позицията.
+    """
+    start = max(0, position - search_range)
+    end = min(len(markdown), position + search_range)
+    context = markdown[start:end]
+    
+    eur = extract_eur_price(context)
+    bgn = extract_bgn_price(context)
+    
+    return eur, bgn
 
 def extract_keywords(name):
     """Извлича ключови думи за matching."""
