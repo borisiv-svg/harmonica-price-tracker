@@ -2,11 +2,13 @@
 EXP-001: Crawl4AI Dynamic Tracker v6.3 FINAL
 =============================================
 Финална версия с правилни patterns за всеки сайт.
++ EXP-003: Lilly Drogerie интеграция с in_stock tracking
 
 Структура на данните:
 - Кашон: [Име продукт](URL) с цени наблизо
 - eBag: [![Име](img)](url) + ### [Име ... X,XX € ... X,XX лв.]
 - Balev: Редове с грамаж + цени EUR/BGN
+- Lilly: [![ALT](img)](url) [NAME](url) X,XX € / X,XX лв. Изчерпан
 """
 
 import asyncio
@@ -50,7 +52,7 @@ STORES = {
     "lilly": {
         "name": "Lilly Drogerie",
         "url": "https://lillydrogerie.bg/brands/harmonica",
-        "scroll_times": 0,  # SSR - не трябва scroll, продуктите са в статичния HTML
+        "scroll_times": 0,  # SSR — продуктите са в статичния HTML, без нужда от scroll
         "is_reference": False,
     },
 }
@@ -68,6 +70,8 @@ FOOD_KEYWORDS = [
     "домат", "кетчуп", "лютеница", "пюре", "паста", "хляб", "кори",
     "олио", "оцет", "зехтин", "мед", "чай", "smiles", "топчета",
     "нахут", "хумус", "яйца", "тахан", "фъстъчено",
+    # Добавени за Lilly Drogerie продукти:
+    "мармалад",
 ]
 
 NON_FOOD_KEYWORDS = [
@@ -102,7 +106,6 @@ def is_harmonica_product(name):
 
 def extract_eur_price(text):
     """Извлича EUR цена."""
-    # Pattern: X,XX € или X.XX €
     match = re.search(r'(\d+)[,.](\d{2})\s*€', text)
     if match:
         try:
@@ -116,7 +119,6 @@ def extract_eur_price(text):
 
 def extract_bgn_price(text):
     """Извлича BGN цена."""
-    # Pattern: X,XX лв или X.XX лв
     match = re.search(r'(\d+)[,.](\d{2})\s*лв', text)
     if match:
         try:
@@ -140,28 +142,23 @@ def extract_kashon_products(markdown):
     products = []
     seen = set()
     
-    # Pattern за markdown links към продукти
     pattern = r'\[([^\]]{5,80})\]\(https://kashonharmonica\.bg/bg/products/([^\)]+)\)'
     
     for match in re.finditer(pattern, markdown):
         name = match.group(1).strip()
         
-        # Пропускаме невалидни
         if name.startswith('!') or 'logo' in name.lower():
             continue
         if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
             continue
         
-        # Проверяваме за дубликати
         name_key = name.lower()[:30]
         if name_key in seen:
             continue
         
-        # Филтрираме само храни
         if not is_food_product(name):
             continue
         
-        # Търсим цена в контекста (следващите 300 символа)
         idx = match.end()
         context = markdown[idx:idx+300]
         
@@ -193,7 +190,6 @@ def extract_ebag_products(markdown):
     products = []
     seen = set()
     
-    # Pattern 1: Alt текст на изображения
     img_pattern = r'\[!\[([^\]]+)\]\([^\)]+\)\]\([^\)]+\)'
     
     for match in re.finditer(img_pattern, markdown):
@@ -202,7 +198,6 @@ def extract_ebag_products(markdown):
         if len(name) < 5 or 'flag' in name.lower():
             continue
         
-        # Проверяваме дали е Harmonica
         if not is_harmonica_product(name):
             continue
         
@@ -210,7 +205,6 @@ def extract_ebag_products(markdown):
         if name_key in seen:
             continue
         
-        # Търсим цени в контекста
         idx = match.start()
         context = markdown[max(0, idx-50):idx+500]
         
@@ -225,8 +219,6 @@ def extract_ebag_products(markdown):
                 "bgn": bgn,
             })
     
-    # Pattern 2: Заглавия с цени
-    # ### [Био Боза Harmonica от Ръж Годно до: 15/02/2026 1,88 €2,35 € 3,68 лв.4,60 лв. ...]
     title_pattern = r'###\s*\[\s*([^\]]+?)\s+Годно до:[^\]]*?(\d+[,\.]\d{2})\s*€[^\]]*?(\d+[,\.]\d{2})\s*лв'
     
     for match in re.finditer(title_pattern, markdown):
@@ -278,16 +270,14 @@ def extract_balev_products(markdown):
     for i, line in enumerate(lines):
         line = line.strip()
         
-        # Търсим редове с грамаж
         if not re.search(r'\d+\s*(?:г|мл|ml|g)\b', line, re.IGNORECASE):
             continue
         
-        # Почистваме името
         name = line
-        name = re.sub(r'\[([^\]]*)\]\([^\)]*\)', r'\1', name)  # [text](url) -> text
-        name = re.sub(r'!\[[^\]]*\]\([^\)]*\)', '', name)  # ![alt](url) -> remove
+        name = re.sub(r'\[([^\]]*)\]\([^\)]*\)', r'\1', name)
+        name = re.sub(r'!\[[^\]]*\]\([^\)]*\)', '', name)
         name = re.sub(r'https?://[^\s]+', '', name)
-        name = re.sub(r'\*\*([^\*]+)\*\*', r'\1', name)  # **bold** -> bold
+        name = re.sub(r'\*\*([^\*]+)\*\*', r'\1', name)
         name = re.sub(r'^\s*[\-\*\#\|\>]+\s*', '', name)
         name = re.sub(r'\s+', ' ', name).strip()
         
@@ -297,9 +287,7 @@ def extract_balev_products(markdown):
         if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
             continue
         
-        # Проверяваме дали е Harmonica
         if not (is_harmonica_product(name) or 'harmonica' in markdown[max(0,i-5):i+5].lower()):
-            # Проверяваме контекста за Harmonica
             context_lines = '\n'.join(lines[max(0,i-3):i+3])
             if not ('harmonica' in context_lines.lower() or 'хармоника' in context_lines.lower()):
                 continue
@@ -311,7 +299,6 @@ def extract_balev_products(markdown):
         if not is_food_product(name):
             continue
         
-        # Търсим цени в контекста
         context = '\n'.join(lines[max(0,i-2):i+5])
         
         eur = extract_eur_price(context)
@@ -326,7 +313,14 @@ def extract_balev_products(markdown):
             })
     
     return products
-    def extract_lilly_products(markdown_text):
+
+
+# =============================================================================
+# LILLY DROGERIE EXTRACTION (EXP-003)
+# =============================================================================
+# ^^^ ВАЖНО: Тази функция е на TOP LEVEL (без indent), НЕ вътре в extract_balev!
+
+def extract_lilly_products(markdown_text):
     """
     Извлича Harmonica продукти от Lilly Drogerie brand page.
     
@@ -335,6 +329,9 @@ def extract_balev_products(markdown):
       [PRODUCT NAME](product_url)        <-- text link (извличаме)
       X,XX € / X,XX лв.                 <-- двойна цена
       Изчерпан                           <-- наличност (опционално)
+    
+    Връща list of dicts с допълнително поле 'in_stock' (bool).
+    Когато in_stock=False, цената е информативна — продуктът не може да се поръча.
     """
     products = []
     product_blocks = re.split(r'\n\s*\*\s+', markdown_text)
@@ -377,7 +374,6 @@ def extract_balev_products(markdown):
             })
     
     return products
-    
 
 
 # =============================================================================
@@ -395,7 +391,6 @@ def normalize_name(name):
 def extract_keywords(name):
     """Извлича ключови думи от име."""
     name = normalize_name(name)
-    # Думи + числа с мерни единици
     keywords = re.findall(r'[а-я]{3,}|\d+(?:\s*(?:г|мл|ml|g|%|л))?', name)
     return set(keywords)
 
@@ -415,11 +410,9 @@ def match_products(ref_products, store_products):
         for store_prod in store_products:
             store_keywords = extract_keywords(store_prod["name"])
             
-            # Общи keywords
             common = ref_keywords & store_keywords
             score = len(common)
             
-            # Бонус за съвпадение на грамаж
             ref_weight = re.search(r'(\d+)\s*(?:г|мл|ml|g)', ref["name"].lower())
             store_weight = re.search(r'(\d+)\s*(?:г|мл|ml|g)', store_prod["name"].lower())
             
@@ -451,20 +444,23 @@ async def crawl_store(crawler, store_key, store_config):
     print(f"CRAWLING: {store_name}")
     print("="*60)
     
-    scroll_js = f"""
-    async function scrollPage() {{
-        for (let i = 0; i < {scroll_times}; i++) {{
-            window.scrollTo(0, document.body.scrollHeight);
-            await new Promise(r => setTimeout(r, 1500));
+    # За Lilly (scroll_times=0) няма нужда от scroll JS
+    scroll_js = ""
+    if scroll_times > 0:
+        scroll_js = f"""
+        async function scrollPage() {{
+            for (let i = 0; i < {scroll_times}; i++) {{
+                window.scrollTo(0, document.body.scrollHeight);
+                await new Promise(r => setTimeout(r, 1500));
+            }}
         }}
-    }}
-    await scrollPage();
-    """
+        await scrollPage();
+        """
     
     config = CrawlerRunConfig(
         page_timeout=90000,
         remove_overlay_elements=True,
-        js_code=scroll_js,
+        js_code=scroll_js if scroll_js else None,
     )
     
     start = time.time()
@@ -510,7 +506,7 @@ async def crawl_all():
 
 async def main():
     print("\n" + "="*60)
-    print("EXP-001: CRAWL4AI v6.3 FINAL")
+    print("EXP-003: CRAWL4AI v6.3 + Lilly Drogerie")
     print("="*60)
     print(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
@@ -557,8 +553,8 @@ async def main():
             eur = f"{p['eur']:.2f}€" if p['eur'] else "N/A"
             bgn = f"{p['bgn']:.2f}лв" if p['bgn'] else "N/A"
             print(f"  - {p['name'][:45]}: {eur} / {bgn}")
-            
-    # Lilly Drogerie
+    
+    # Lilly Drogerie (EXP-003)
     lilly_products = []
     if crawl_results.get("lilly", {}).get("success"):
         lilly_products = extract_lilly_products(crawl_results["lilly"]["markdown"])
@@ -574,7 +570,9 @@ async def main():
     print("MATCHING PRODUCTS")
     print("="*60)
     
-    # Построяваме финален списък
+    # =========================================================================
+    # ПОПРАВКА: Lilly е добавена в структурата на final_products
+    # =========================================================================
     final_products = []
     
     for ref in kashon_products:
@@ -583,6 +581,7 @@ async def main():
             "kashon": {"eur": ref["eur"], "bgn": ref["bgn"]},
             "ebag": None,
             "balev": None,
+            "lilly": None,   # ← ДОБАВЕНО: слот за Lilly
         }
         final_products.append(product)
     
@@ -600,6 +599,19 @@ async def main():
             m = balev_matches[product["name"]]
             product["balev"] = {"eur": m["eur"], "bgn": m["bgn"]}
     
+    # =========================================================================
+    # ДОБАВЕНО: Match с Lilly — запазваме и in_stock за сиво форматиране
+    # =========================================================================
+    lilly_matches = match_products(kashon_products, lilly_products)
+    for product in final_products:
+        if product["name"] in lilly_matches:
+            m = lilly_matches[product["name"]]
+            product["lilly"] = {
+                "eur": m["eur"],
+                "bgn": m["bgn"],
+                "in_stock": m.get("in_stock", True),  # ← ключово за сивото
+            }
+    
     # 4. Statistics
     print("\n" + "="*60)
     print("FINAL STATISTICS")
@@ -608,14 +620,21 @@ async def main():
     kashon_count = len([p for p in final_products if p["kashon"]])
     ebag_count = len([p for p in final_products if p["ebag"]])
     balev_count = len([p for p in final_products if p["balev"]])
+    lilly_count = len([p for p in final_products if p["lilly"]])
+    lilly_oos_count = len([p for p in final_products
+                           if p["lilly"] and not p["lilly"].get("in_stock", True)])
     
     print(f"\nReference products (Кашон): {kashon_count}")
-    print(f"eBag matches: {ebag_count} ({ebag_count/kashon_count*100:.0f}%)" if kashon_count else "")
-    print(f"Balev matches: {balev_count} ({balev_count/kashon_count*100:.0f}%)" if kashon_count else "")
+    if kashon_count:
+        print(f"eBag matches: {ebag_count} ({ebag_count/kashon_count*100:.0f}%)")
+        print(f"Balev matches: {balev_count} ({balev_count/kashon_count*100:.0f}%)")
+        print(f"Lilly matches: {lilly_count} ({lilly_count/kashon_count*100:.0f}%)"
+              f" — {lilly_oos_count} изчерпани")
     
     # Показваме примерни продукти с цени от всички магазини
     print("\n--- Sample products with prices ---")
-    matched_products = [p for p in final_products if p["ebag"] or p["balev"]][:10]
+    matched_products = [p for p in final_products
+                        if p["ebag"] or p["balev"] or p["lilly"]][:10]
     
     for p in matched_products:
         print(f"\n{p['name'][:50]}:")
@@ -631,12 +650,17 @@ async def main():
             eur = f"{p['balev']['eur']:.2f}€" if p['balev'].get('eur') else "N/A"
             bgn = f"{p['balev']['bgn']:.2f}лв" if p['balev'].get('bgn') else "N/A"
             print(f"  Balev: {eur} / {bgn}")
+        if p["lilly"]:
+            eur = f"{p['lilly']['eur']:.2f}€" if p['lilly'].get('eur') else "N/A"
+            bgn = f"{p['lilly']['bgn']:.2f}лв" if p['lilly'].get('bgn') else "N/A"
+            stock = "✅" if p['lilly'].get('in_stock', True) else "⬜ изчерпан"
+            print(f"  Lilly: {eur} / {bgn} {stock}")
     
     total_time = time.time() - total_start
     
     # 5. Save results
     output = {
-        "experiment": "EXP-001-v6.3-final",
+        "experiment": "EXP-003-lilly-integration",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stats": {
@@ -645,6 +669,9 @@ async def main():
             "ebag_matches": ebag_count,
             "balev_products": len(balev_products),
             "balev_matches": balev_count,
+            "lilly_products": len(lilly_products),
+            "lilly_matches": lilly_count,
+            "lilly_out_of_stock": lilly_oos_count,
         },
         "products": final_products,
     }
