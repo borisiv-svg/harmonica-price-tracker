@@ -25,6 +25,20 @@ except ImportError:
     CRAWL4AI_AVAILABLE = False
     print("ERROR: Crawl4AI not installed")
 
+try:
+    import gspread
+    GSPREAD_AVAILABLE = True
+except ImportError:
+    GSPREAD_AVAILABLE = False
+    print("WARNING: gspread not installed — Sheets write disabled")
+
+
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+
+EUR_BGN_RATE = 1.9558  # Фиксиран курс
+
 
 # =============================================================================
 # STORES
@@ -501,6 +515,337 @@ async def crawl_all():
 
 
 # =============================================================================
+# GOOGLE SHEETS WRITER — универсален, с in_stock сиво форматиране
+# =============================================================================
+#
+# ДИЗАЙН ПРИНЦИПИ:
+# 1. Колоните на магазините се генерират АВТОМАТИЧНО от STORES dict.
+#    Добавяш нов магазин в STORES → той се появява в Sheets без промяна тук.
+# 2. in_stock=False → сив текст. Работи за ВСЕКИ магазин, не само за Lilly.
+# 3. Цените остават числа (не текст) — формулите за средна цена работят.
+# 4. Форматирането е в един batch_update — минимални API заявки.
+#
+
+def extract_weight(name):
+    """Извлича грамаж от име на продукт. Напр. 'Био вафли 40г' → '40г'"""
+    match = re.search(r'(\d+)\s*(г|мл|ml|g|kg|л|l)\b', name, re.IGNORECASE)
+    if match:
+        return f"{match.group(1)}{match.group(2)}"
+    return ""
+
+
+def write_to_sheets(final_products, stats):
+    """
+    Записва данните в Google Sheets с автоматично сиво форматиране
+    за изчерпани продукти (in_stock=False).
+    
+    Колоните на магазините се генерират от STORES dict — добавянето
+    на нов магазин в STORES автоматично създава нова колона.
+    
+    Използва SHEET_TAB_SUFFIX env variable за experimental/production tabs.
+    """
+    if not GSPREAD_AVAILABLE:
+        print("\n⚠ gspread not available — skipping Sheets write")
+        return False
+    
+    # --- Настройки ---
+    SPREADSHEET_NAME = "Harmonica Price Tracker"
+    BASE_TAB = "Ценови Тракер"
+    tab_suffix = os.environ.get("SHEET_TAB_SUFFIX", "")
+    tab_name = f"{BASE_TAB}{tab_suffix}"
+    
+    # Кои магазини са не-референтни (те стават колони за цени)
+    store_columns = [key for key, cfg in STORES.items() if not cfg.get("is_reference")]
+    store_display_names = {key: cfg["name"] for key, cfg in STORES.items()}
+    
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    print(f"\n{'='*60}")
+    print(f"WRITING TO GOOGLE SHEETS")
+    print(f"Tab: {tab_name}")
+    print(f"Store columns: {', '.join(store_display_names[s] for s in store_columns)}")
+    print("="*60)
+    
+    # --- Свързване ---
+    try:
+        creds_json = os.environ.get("GOOGLE_CREDENTIALS")
+        if creds_json:
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                f.write(creds_json)
+                creds_path = f.name
+            gc = gspread.service_account(filename=creds_path)
+            os.unlink(creds_path)
+        else:
+            gc = gspread.service_account(filename='credentials.json')
+        
+        spreadsheet = gc.open(SPREADSHEET_NAME)
+        
+        # Създаваме tab-а ако не съществува
+        try:
+            sheet = spreadsheet.worksheet(tab_name)
+        except gspread.exceptions.WorksheetNotFound:
+            sheet = spreadsheet.add_worksheet(title=tab_name, rows=200, cols=26)
+            print(f"  Created new tab: {tab_name}")
+        
+        print(f"  ✓ Connected to '{tab_name}'")
+        
+    except Exception as e:
+        print(f"  ✗ Connection failed: {e}")
+        return False
+    
+    # --- Изграждане на данните ---
+    # Колони: №, Продукт, Грамаж, Реф.BGN, Реф.EUR, [магазин1], [магазин2], ..., Ср.BGN, Откл.%, Статус
+    #
+    # STORE_COL_START е индексът (0-based) на първата магазинна колона.
+    # Това е ключът за универсалното сиво форматиране — ние знаем
+    # точния col_index на всеки магазин спрямо неговата позиция в store_columns.
+    
+    HEADER_ROW = 4       # Ред 4 в Sheets (0-based index: 3)
+    DATA_START_ROW = 5   # Ред 5 в Sheets (0-based index: 4)
+    STORE_COL_START = 5  # Колона F (0-based index: 5) — първият магазин
+    
+    headers = ['№', 'Продукт', 'Грамаж', 'Реф.BGN', 'Реф.EUR']
+    for store_key in store_columns:
+        headers.append(store_display_names[store_key])
+    headers.extend(['Ср.BGN', 'Откл.%', 'Статус'])
+    
+    all_data = []
+    
+    # Ред 1: Заглавие
+    all_data.append([f'HARMONICA - Ценови Тракер (EXP-003)'] + [''] * (len(headers) - 1))
+    
+    # Ред 2: Метаданни
+    meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
+            f'Магазини: {len(store_columns) + 1}']
+    meta.extend([''] * (len(headers) - len(meta)))
+    all_data.append(meta)
+    
+    # Ред 3: Празен
+    all_data.append([''] * len(headers))
+    
+    # Ред 4: Headers
+    all_data.append(headers)
+    
+    # =====================================================================
+    # УНИВЕРСАЛЕН ТРАКЕР ЗА ИЗЧЕРПАНИ ПРОДУКТИ
+    # 
+    # out_of_stock_cells събира (row_index, col_index) за ВСЯКА клетка
+    # от ВСЕКИ магазин, където in_stock=False.
+    # Не е специфичен за Lilly — работи за всеки магазин.
+    # =====================================================================
+    out_of_stock_cells = []
+    
+    # Ред 5+: Данни
+    for i, product in enumerate(final_products, 1):
+        ref = product.get("kashon") or {}
+        ref_bgn = ref.get("bgn")
+        ref_eur = ref.get("eur")
+        
+        row = [
+            i,
+            product["name"],
+            extract_weight(product["name"]),
+            ref_bgn if ref_bgn else '',
+            ref_eur if ref_eur else '',
+        ]
+        
+        # Магазинни колони — обхождаме store_columns по ред
+        store_prices_bgn = []
+        
+        for col_offset, store_key in enumerate(store_columns):
+            store_data = product.get(store_key)
+            col_index = STORE_COL_START + col_offset  # абсолютен 0-based индекс
+            row_index = DATA_START_ROW - 1 + i        # 0-based row в Sheets
+            
+            if store_data:
+                price_bgn = store_data.get("bgn")
+                row.append(price_bgn if price_bgn else '')
+                
+                if price_bgn:
+                    store_prices_bgn.append(price_bgn)
+                
+                # === УНИВЕРСАЛНО ПРАВИЛО ЗА СИВО ===
+                # Ако магазинът има in_stock=False, маркираме клетката.
+                # Магазини без in_stock поле (напр. eBag, Balev) 
+                # default-ват на True и никога не стават сиви.
+                if not store_data.get("in_stock", True):
+                    out_of_stock_cells.append((row_index, col_index))
+            else:
+                row.append('')
+        
+        # Средна цена (само от наличните магазини)
+        if store_prices_bgn:
+            avg_bgn = round(sum(store_prices_bgn) / len(store_prices_bgn), 2)
+            row.append(avg_bgn)
+        else:
+            avg_bgn = None
+            row.append('')
+        
+        # Отклонение от референтна цена
+        if avg_bgn and ref_bgn and ref_bgn > 0:
+            deviation = round((avg_bgn - ref_bgn) / ref_bgn * 100, 1)
+            row.append(f"{deviation}%")
+        else:
+            row.append('')
+        
+        # Статус
+        matched_count = sum(1 for s in store_columns if product.get(s))
+        row.append(f"{matched_count}/{len(store_columns)}")
+        
+        all_data.append(row)
+    
+    # --- Запис на данните ---
+    try:
+        sheet.clear()
+        sheet.update(values=all_data, range_name='A1')
+        print(f"  ✓ Записани {len(all_data)} реда × {len(headers)} колони")
+    except Exception as e:
+        print(f"  ✗ Data write error: {e}")
+        return False
+    
+    # --- Форматиране ---
+    try:
+        last_row = HEADER_ROW + len(final_products)
+        last_col = len(headers)
+        format_requests = []
+        
+        # 1. Заглавен ред — тъмно зелено
+        format_requests.append({
+            "repeatCell": {
+                "range": {"sheetId": sheet.id,
+                          "startRowIndex": 0, "endRowIndex": 1,
+                          "startColumnIndex": 0, "endColumnIndex": last_col},
+                "cell": {"userEnteredFormat": {
+                    "backgroundColor": {"red": 0.13, "green": 0.35, "blue": 0.22},
+                    "textFormat": {"bold": True, "fontSize": 14,
+                                   "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+                    "horizontalAlignment": "CENTER"
+                }},
+                "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)"
+            }
+        })
+        
+        # Merge заглавния ред
+        format_requests.append({
+            "mergeCells": {
+                "range": {"sheetId": sheet.id,
+                          "startRowIndex": 0, "endRowIndex": 1,
+                          "startColumnIndex": 0, "endColumnIndex": last_col},
+                "mergeType": "MERGE_ALL"
+            }
+        })
+        
+        # 2. Метаданни — светло зелено
+        format_requests.append({
+            "repeatCell": {
+                "range": {"sheetId": sheet.id,
+                          "startRowIndex": 1, "endRowIndex": 2,
+                          "startColumnIndex": 0, "endColumnIndex": last_col},
+                "cell": {"userEnteredFormat": {
+                    "backgroundColor": {"red": 0.92, "green": 0.97, "blue": 0.92},
+                    "textFormat": {"italic": True, "fontSize": 10}
+                }},
+                "fields": "userEnteredFormat(backgroundColor,textFormat)"
+            }
+        })
+        
+        # 3. Header ред — сиво-зелен фон, bold
+        format_requests.append({
+            "repeatCell": {
+                "range": {"sheetId": sheet.id,
+                          "startRowIndex": HEADER_ROW - 1, "endRowIndex": HEADER_ROW,
+                          "startColumnIndex": 0, "endColumnIndex": last_col},
+                "cell": {"userEnteredFormat": {
+                    "backgroundColor": {"red": 0.85, "green": 0.92, "blue": 0.85},
+                    "textFormat": {"bold": True, "fontSize": 10},
+                    "horizontalAlignment": "CENTER"
+                }},
+                "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)"
+            }
+        })
+        
+        # 4. Числов формат за ценовите колони
+        price_start = 3  # Колона D (Реф.BGN) — 0-based index
+        price_end = STORE_COL_START + len(store_columns) + 1  # включва Ср.BGN
+        if last_row > HEADER_ROW:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": HEADER_ROW, "endRowIndex": last_row,
+                              "startColumnIndex": price_start, "endColumnIndex": price_end},
+                    "cell": {"userEnteredFormat": {
+                        "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"}
+                    }},
+                    "fields": "userEnteredFormat.numberFormat"
+                }
+            })
+        
+        # 5. Ширини на колоните
+        col_widths = {0: 35, 1: 250, 2: 55}  # №, Продукт, Грамаж
+        col_widths[3] = 75   # Реф.BGN
+        col_widths[4] = 75   # Реф.EUR
+        for offset in range(len(store_columns)):
+            col_widths[STORE_COL_START + offset] = 85  # магазинни колони
+        col_widths[STORE_COL_START + len(store_columns)] = 75      # Ср.BGN
+        col_widths[STORE_COL_START + len(store_columns) + 1] = 65  # Откл.%
+        col_widths[STORE_COL_START + len(store_columns) + 2] = 55  # Статус
+        
+        for col_idx, width in col_widths.items():
+            format_requests.append({
+                "updateDimensionProperties": {
+                    "range": {"sheetId": sheet.id,
+                              "dimension": "COLUMNS",
+                              "startIndex": col_idx, "endIndex": col_idx + 1},
+                    "properties": {"pixelSize": width},
+                    "fields": "pixelSize"
+                }
+            })
+        
+        # =================================================================
+        # 6. УНИВЕРСАЛНО СИВО ФОРМАТИРАНЕ ЗА ИЗЧЕРПАНИ ПРОДУКТИ
+        #
+        # Всяка клетка в out_of_stock_cells получава сив текст (#999999).
+        # Цената остава число — формулите работят нормално.
+        # Визуално е ясно, че продуктът не може да се поръча.
+        #
+        # Това работи за ВСЕКИ магазин — не е Lilly-специфично.
+        # Ако утре eBag започне да маркира изчерпани продукти,
+        # просто добави in_stock в eBag extraction и всичко работи.
+        # =================================================================
+        
+        for row_idx, col_idx in out_of_stock_cells:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": row_idx, "endRowIndex": row_idx + 1,
+                              "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
+                    "cell": {"userEnteredFormat": {
+                        "textFormat": {
+                            "foregroundColorStyle": {
+                                "rgbColor": {"red": 0.6, "green": 0.6, "blue": 0.6}
+                            }
+                        }
+                    }},
+                    "fields": "userEnteredFormat.textFormat.foregroundColorStyle"
+                }
+            })
+        
+        # Изпращаме всичко в ЕДИН batch — минимални API заявки
+        if format_requests:
+            sheet.spreadsheet.batch_update({"requests": format_requests})
+            print(f"  ✓ Форматиране приложено ({len(format_requests)} заявки)")
+            if out_of_stock_cells:
+                print(f"  ✓ Сиво форматиране: {len(out_of_stock_cells)} изчерпани клетки")
+        
+        return True
+        
+    except Exception as e:
+        print(f"  ⚠ Formatting error (data is saved): {e}")
+        return True  # данните са записани, само форматирането е пропуснато
+
+
+# =============================================================================
 # MAIN
 # =============================================================================
 
@@ -658,7 +1003,16 @@ async def main():
     
     total_time = time.time() - total_start
     
-    # 5. Save results
+    # 5. Write to Google Sheets
+    write_to_sheets(final_products, {
+        "kashon_products": kashon_count,
+        "ebag_matches": ebag_count,
+        "balev_matches": balev_count,
+        "lilly_matches": lilly_count,
+        "lilly_out_of_stock": lilly_oos_count,
+    })
+    
+    # 6. Save JSON (backup / debugging)
     output = {
         "experiment": "EXP-003-lilly-integration",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
