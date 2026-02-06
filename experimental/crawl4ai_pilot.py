@@ -47,6 +47,12 @@ STORES = {
         "scroll_times": 8,
         "is_reference": False,
     },
+    "lilly": {
+        "name": "Lilly Drogerie",
+        "url": "https://lillydrogerie.bg/brands/harmonica",
+        "scroll_times": 0,  # SSR - не трябва scroll, продуктите са в статичния HTML
+        "is_reference": False,
+    },
 }
 
 
@@ -320,6 +326,58 @@ def extract_balev_products(markdown):
             })
     
     return products
+    def extract_lilly_products(markdown_text):
+    """
+    Извлича Harmonica продукти от Lilly Drogerie brand page.
+    
+    Markdown структура (Magento 2 SSR):
+      [![ALT](img_url)](product_url)    <-- image link (пропускаме)
+      [PRODUCT NAME](product_url)        <-- text link (извличаме)
+      X,XX € / X,XX лв.                 <-- двойна цена
+      Изчерпан                           <-- наличност (опционално)
+    """
+    products = []
+    product_blocks = re.split(r'\n\s*\*\s+', markdown_text)
+    
+    for block in product_blocks:
+        if 'lillydrogerie.bg' not in block:
+            continue
+        
+        # Име и URL — negative lookbehind за "!" пропуска image линковете
+        # Изключваме /media/ URL-и (изображения)
+        name_match = re.search(
+            r'(?<!!)\[([^\]]*HARMONICA[^\]]*)\]\(https://lillydrogerie\.bg/(?!media/)([^\s\)]+)',
+            block
+        )
+        if not name_match:
+            continue
+        
+        product_name = name_match.group(1).strip()
+        product_slug = name_match.group(2).strip('" ')
+        product_url = f"https://lillydrogerie.bg/{product_slug}"
+        
+        # EUR цена (формат: X,XX €)
+        eur_match = re.search(r'(\d+[.,]\d{2})\s*€', block)
+        price_eur = float(eur_match.group(1).replace(',', '.')) if eur_match else None
+        
+        # BGN цена (формат: X,XX лв.)
+        bgn_match = re.search(r'(\d+[.,]\d{2})\s*лв', block)
+        price_bgn = float(bgn_match.group(1).replace(',', '.')) if bgn_match else None
+        
+        # Наличност — "Изчерпан" означава продуктът е на сайта, но не може да се поръча
+        in_stock = 'Изчерпан' not in block
+        
+        if product_name and (price_eur or price_bgn):
+            products.append({
+                'name': product_name,
+                'eur': price_eur,
+                'bgn': price_bgn,
+                'in_stock': in_stock,
+                'url': product_url,
+            })
+    
+    return products
+    
 
 
 # =============================================================================
@@ -499,6 +557,17 @@ async def main():
             eur = f"{p['eur']:.2f}€" if p['eur'] else "N/A"
             bgn = f"{p['bgn']:.2f}лв" if p['bgn'] else "N/A"
             print(f"  - {p['name'][:45]}: {eur} / {bgn}")
+            
+    # Lilly Drogerie
+    lilly_products = []
+    if crawl_results.get("lilly", {}).get("success"):
+        lilly_products = extract_lilly_products(crawl_results["lilly"]["markdown"])
+        print(f"\nLilly Drogerie: {len(lilly_products)} Harmonica products")
+        for p in lilly_products[:10]:
+            eur = f"{p['eur']:.2f}€" if p['eur'] else "N/A"
+            bgn = f"{p['bgn']:.2f}лв" if p['bgn'] else "N/A"
+            stock = "✅" if p['in_stock'] else "⬜"
+            print(f"  {stock} {p['name'][:45]}: {eur} / {bgn}")
     
     # 3. Match products
     print("\n" + "="*60)
