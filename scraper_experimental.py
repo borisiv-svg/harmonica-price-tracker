@@ -66,7 +66,7 @@ STORES = {
     "lilly": {
         "name": "Lilly Drogerie",
         "url": "https://lillydrogerie.bg/brands/harmonica",
-        "scroll_times": 0,  # SSR — продуктите са в статичния HTML, без нужда от scroll
+        "scroll_times": 3,  # SSR — продуктите са в статичния HTML, без нужда от scroll
         "is_reference": False,
     },
 }
