@@ -27,6 +27,7 @@ except ImportError:
 
 try:
     import gspread
+    from google.oauth2.service_account import Credentials
     GSPREAD_AVAILABLE = True
 except ImportError:
     GSPREAD_AVAILABLE = False
@@ -66,8 +67,9 @@ STORES = {
     "lilly": {
         "name": "Lilly Drogerie",
         "url": "https://lillydrogerie.bg/brands/harmonica",
-        "scroll_times": 3,  # SSR — продуктите са в статичния HTML, без нужда от scroll
+        "scroll_times": 3,
         "is_reference": False,
+        "wait_for": "div.products-grid, ol.products",  # Magento 2 product grid
     },
 }
 
@@ -453,6 +455,7 @@ async def crawl_store(crawler, store_key, store_config):
     store_name = store_config["name"]
     url = store_config["url"]
     scroll_times = store_config.get("scroll_times", 5)
+    wait_for_selector = store_config.get("wait_for")
     
     print(f"\n{'='*60}")
     print(f"CRAWLING: {store_name}")
@@ -471,11 +474,17 @@ async def crawl_store(crawler, store_key, store_config):
         await scrollPage();
         """
     
-    config = CrawlerRunConfig(
-        page_timeout=90000,
-        remove_overlay_elements=True,
-        js_code=scroll_js if scroll_js else None,
-    )
+    config_kwargs = {
+        "page_timeout": 90000,
+        "remove_overlay_elements": True,
+    }
+    if scroll_js:
+        config_kwargs["js_code"] = scroll_js
+    if wait_for_selector:
+        config_kwargs["wait_for"] = f"css:{wait_for_selector}"
+        print(f"  Waiting for: {wait_for_selector}")
+    
+    config = CrawlerRunConfig(**config_kwargs)
     
     start = time.time()
     
@@ -566,17 +575,20 @@ def write_to_sheets(final_products, stats):
     print(f"Store columns: {', '.join(store_display_names[s] for s in store_columns)}")
     print("="*60)
     
-    # --- Свързване ---
+    # --- Свързване (същият метод като production scraper.py) ---
     try:
         creds_json = os.environ.get("GOOGLE_CREDENTIALS")
         if creds_json:
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                f.write(creds_json)
-                creds_path = f.name
-            gc = gspread.service_account(filename=creds_path)
-            os.unlink(creds_path)
+            # Production pattern: parse JSON → create Credentials → authorize
+            credentials_dict = json.loads(creds_json)
+            scopes = [
+                'https://www.googleapis.com/auth/spreadsheets',
+                'https://www.googleapis.com/auth/drive'
+            ]
+            credentials = Credentials.from_service_account_info(credentials_dict, scopes=scopes)
+            gc = gspread.authorize(credentials)
         else:
+            # Локално: credentials.json файл
             gc = gspread.service_account(filename='credentials.json')
         
         spreadsheet = gc.open(SPREADSHEET_NAME)
@@ -902,7 +914,12 @@ async def main():
     # Lilly Drogerie (EXP-003)
     lilly_products = []
     if crawl_results.get("lilly", {}).get("success"):
-        lilly_products = extract_lilly_products(crawl_results["lilly"]["markdown"])
+        lilly_md = crawl_results["lilly"]["markdown"]
+        # Debug: показваме какво е получено (за диагностика на 1-char проблема)
+        print(f"\n[DEBUG] Lilly markdown length: {len(lilly_md)} chars")
+        print(f"[DEBUG] Lilly markdown repr: {repr(lilly_md[:500])}")
+        
+        lilly_products = extract_lilly_products(lilly_md)
         print(f"\nLilly Drogerie: {len(lilly_products)} Harmonica products")
         for p in lilly_products[:10]:
             eur = f"{p['eur']:.2f}€" if p['eur'] else "N/A"
