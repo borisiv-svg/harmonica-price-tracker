@@ -84,6 +84,7 @@ jobs:
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          CAPSOLVER_API_KEY: ${{ secrets.CAPSOLVER_API_KEY }}
           EXPERIMENTAL_MODE: "true"
           USE_CRAWL4AI: ${{ github.event.inputs.use_crawl4ai || 'false' }}
           SHEET_TAB_SUFFIX: "_experimental"
