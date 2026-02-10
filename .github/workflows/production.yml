@@ -104,7 +104,9 @@ jobs:
           # Те са криптирани и не се показват в логовете
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
           # Флаг, който кодът може да използва за различно поведение
           PRODUCTION_MODE: "true"
@@ -122,6 +124,8 @@ jobs:
         with:
           name: production-logs-${{ github.run_number }}
           path: |
+            scraper.log
             *.log
             logs/
+          if-no-files-found: warn
           retention-days: 7  # Запазва логовете за 7 дни
