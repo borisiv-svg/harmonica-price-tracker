@@ -1,19 +1,24 @@
 """
-EXP-003: Crawl4AI Experimental Scraper v7.0
+EXP-003: Crawl4AI Experimental Scraper v8.0
 ============================================
+Промени спрямо v7.0:
+- CapSolver интеграция за сайтове с anti-bot защита (Cloudflare Turnstile/Challenge)
+- DM България добавен (с CapSolver bypass за 403 защитата)
+- Magic mode + CapSolver fallback стратегия за защитени сайтове
+
 Промени спрямо v6.3:
 - logging модул вместо print()
 - Паралелно краулване с asyncio.gather
 - BeautifulSoup за Lilly Drogerie парсване (с regex fallback)
 - Подобрено съпоставяне с нормализация и тежести
 - Retry декоратор за мрежови грешки
-- DM България: пропуснат (403 anti-bot защита, изисква специално решение)
 
 Структура на данните:
 - Кашон: [Име продукт](URL) с цени наблизо
 - eBag: [![Име](img)](url) + ### [Име ... X,XX € ... X,XX лв.]
 - Balev: Редове с грамаж + цени EUR/BGN
 - Lilly: [![ALT](img)](url) [NAME](url) X,XX € / X,XX лв. Изчерпан
+- DM: CapSolver → HTML парсване с BS4
 """
 
 import asyncio
@@ -38,11 +43,18 @@ logging.basicConfig(
 logger = logging.getLogger('experimental')
 
 try:
-    from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+    from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
     CRAWL4AI_AVAILABLE = True
 except ImportError:
     CRAWL4AI_AVAILABLE = False
     logger.error("Crawl4AI not installed")
+
+try:
+    import capsolver
+    CAPSOLVER_AVAILABLE = True
+except ImportError:
+    CAPSOLVER_AVAILABLE = False
+    logger.warning("capsolver not installed — anti-bot bypass disabled")
 
 try:
     import gspread
@@ -94,6 +106,13 @@ STORES = {
         "url": "https://lillydrogerie.bg/brands/harmonica",
         "scroll_times": 0,  # SSR — продуктите са в статичния HTML, без нужда от scroll
         "is_reference": False,
+    },
+    "dm": {
+        "name": "DM Bulgaria",
+        "url": "https://www.dm.bg/search?query=harmonica&searchType=product",
+        "scroll_times": 5,
+        "is_reference": False,
+        "needs_captcha_solver": True,
     },
 }
 
@@ -467,6 +486,339 @@ def _extract_lilly_regex(markdown_text):
 
 
 # =============================================================================
+# DM BULGARIA EXTRACTION — CapSolver за anti-bot bypass
+# =============================================================================
+
+def extract_dm_products(markdown_text, html_text=None):
+    """
+    Извлича Harmonica продукти от DM Bulgaria.
+
+    DM.bg показва продукти в search резултати с имена и цени.
+    Предпочита BS4 + HTML ако е наличен, иначе regex + markdown.
+    """
+    if BS4_AVAILABLE and html_text:
+        return _extract_dm_bs4(html_text)
+    return _extract_dm_regex(markdown_text)
+
+
+def _extract_dm_bs4(html_text):
+    """Извлича DM продукти с BeautifulSoup."""
+    products = []
+    seen = set()
+    soup = BeautifulSoup(html_text, 'html.parser')
+
+    # DM.bg типично използва product cards/tiles в search results
+    product_items = soup.select(
+        '[data-testid="product-tile"], .product-tile, .product-card, '
+        '.search-result-item, .product-item, article.product'
+    )
+
+    # Fallback: търсим всички елементи с текст "Harmonica"
+    if not product_items:
+        for el in soup.find_all(['div', 'li', 'article', 'section']):
+            text = el.get_text(strip=True)
+            if ('harmonica' in text.lower() or 'хармоника' in text.lower()):
+                # Избягваме parent контейнери (> 2000 chars = вероятно wrapper)
+                if len(text) < 2000 and el not in product_items:
+                    product_items.append(el)
+
+    for item in product_items:
+        text = item.get_text(' ', strip=True)
+        if not ('harmonica' in text.lower() or 'хармоника' in text.lower()):
+            continue
+
+        # Име на продукт — от заглавен link или heading
+        product_name = None
+        for tag in item.find_all(['a', 'h2', 'h3', 'h4', 'span', 'p']):
+            tag_text = tag.get_text(strip=True)
+            if (tag_text and len(tag_text) > 10
+                    and ('harmonica' in tag_text.lower() or 'хармоника' in tag_text.lower())):
+                product_name = tag_text
+                break
+
+        if not product_name:
+            continue
+
+        name_key = product_name.lower()[:40]
+        if name_key in seen:
+            continue
+
+        if not is_food_product(product_name):
+            continue
+
+        # Цени — EUR и BGN
+        price_eur = extract_eur_price(text)
+        price_bgn = extract_bgn_price(text)
+
+        # DM.bg може да показва цена само в лева
+        if not price_bgn and not price_eur:
+            # Търсим цена без валутен суфикс (напр. "3.99")
+            price_match = re.search(r'(\d+)[,.](\d{2})', text)
+            if price_match:
+                try:
+                    price = float(f"{price_match.group(1)}.{price_match.group(2)}")
+                    if 0.50 <= price <= 50:
+                        price_bgn = round(price, 2)
+                except ValueError:
+                    pass
+
+        if product_name and (price_eur or price_bgn):
+            seen.add(name_key)
+            products.append({
+                'name': product_name,
+                'eur': price_eur,
+                'bgn': price_bgn,
+            })
+
+    logger.info(f"DM BS4: {len(products)} продукта извлечени")
+    return products
+
+
+def _extract_dm_regex(markdown_text):
+    """Извлича DM продукти с regex (fallback ако BS4 не е наличен)."""
+    products = []
+    seen = set()
+
+    # Pattern 1: [Product Name](url) с цени наблизо
+    link_pattern = r'\[([^\]]*(?:harmonica|хармоника)[^\]]*)\]\([^\)]+\)'
+    for match in re.finditer(link_pattern, markdown_text, re.IGNORECASE):
+        name = match.group(1).strip()
+        if name.startswith('!') or len(name) < 10:
+            continue
+
+        name_key = name.lower()[:40]
+        if name_key in seen:
+            continue
+        if not is_food_product(name):
+            continue
+
+        idx = match.end()
+        context = markdown_text[max(0, idx - 100):idx + 400]
+
+        eur = extract_eur_price(context)
+        bgn = extract_bgn_price(context)
+
+        if eur or bgn:
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    # Pattern 2: Просто текстови блокове с Harmonica + цени
+    blocks = re.split(r'\n{2,}', markdown_text)
+    for block in blocks:
+        if not ('harmonica' in block.lower() or 'хармоника' in block.lower()):
+            continue
+
+        # Извличаме потенциално име (първия ред с Harmonica)
+        for line in block.split('\n'):
+            if 'harmonica' in line.lower() or 'хармоника' in line.lower():
+                name = re.sub(r'\[([^\]]*)\]\([^\)]*\)', r'\1', line)
+                name = re.sub(r'[#*_>|]', '', name).strip()
+                if len(name) > 10:
+                    name_key = name.lower()[:40]
+                    if name_key not in seen and is_food_product(name):
+                        eur = extract_eur_price(block)
+                        bgn = extract_bgn_price(block)
+                        if eur or bgn:
+                            seen.add(name_key)
+                            products.append({"name": name, "eur": eur, "bgn": bgn})
+                    break
+
+    logger.info(f"DM regex: {len(products)} продукта извлечени")
+    return products
+
+
+# =============================================================================
+# CAPSOLVER — решаване на Cloudflare Turnstile/Challenge
+# =============================================================================
+
+def detect_cloudflare_challenge(html_text):
+    """Проверява дали страницата съдържа Cloudflare challenge."""
+    if not html_text:
+        return False, None
+
+    indicators = [
+        'cf-turnstile', 'challenges.cloudflare.com',
+        'cf-challenge-running', 'cf_chl_opt',
+        'Just a moment', 'Checking your browser',
+    ]
+    is_challenge = any(ind in html_text for ind in indicators)
+
+    # Извличане на sitekey ако е Turnstile
+    sitekey = None
+    sitekey_match = re.search(r'data-sitekey=["\']([^"\']+)["\']', html_text)
+    if sitekey_match:
+        sitekey = sitekey_match.group(1)
+    else:
+        # Алтернативен pattern от JS
+        sitekey_match = re.search(r'sitekey\s*[=:]\s*["\']([0-9x\-]+)["\']', html_text)
+        if sitekey_match:
+            sitekey = sitekey_match.group(1)
+
+    return is_challenge, sitekey
+
+
+async def solve_turnstile(website_url, website_key):
+    """Решава Cloudflare Turnstile чрез CapSolver API."""
+    api_key = os.environ.get('CAPSOLVER_API_KEY')
+    if not api_key:
+        logger.error("CAPSOLVER_API_KEY не е зададен")
+        return None
+
+    capsolver.api_key = api_key
+
+    try:
+        logger.info(f"CapSolver: решаване на Turnstile за {website_url}")
+        solution = capsolver.solve({
+            "type": "AntiTurnstileTaskProxyLess",
+            "websiteURL": website_url,
+            "websiteKey": website_key,
+        })
+        token = solution.get("token")
+        if token:
+            logger.info(f"CapSolver: Turnstile решен успешно (token: {token[:20]}...)")
+        return token
+    except Exception as e:
+        logger.error(f"CapSolver грешка: {e}")
+        return None
+
+
+@retry_async(max_retries=1, backoff_base=5)
+async def crawl_with_captcha_solver(crawler, store_key, store_config):
+    """
+    Краулва сайт с anti-bot защита. Стратегия:
+    1. Опит с magic mode (симулира човешко поведение)
+    2. Ако има Cloudflare challenge → CapSolver API
+    3. Инжектиране на token + повторно зареждане
+    """
+    store_name = store_config["name"]
+    url = store_config["url"]
+
+    logger.info(f"CRAWLING (anti-bot): {store_name}")
+    start = time.time()
+
+    # Стъпка 1: Опит с magic mode
+    magic_config = CrawlerRunConfig(
+        magic=True,
+        page_timeout=60000,
+        remove_overlay_elements=True,
+        cache_mode=CacheMode.BYPASS,
+    )
+
+    result = await crawler.arun(url=url, config=magic_config)
+
+    # Проверка дали magic mode е достатъчен
+    if result.success and result.markdown and len(result.markdown) > 500:
+        # Проверяваме дали съдържанието е реално (не Cloudflare challenge page)
+        html = getattr(result, 'html', '') or ''
+        is_challenge, _ = detect_cloudflare_challenge(html)
+        if not is_challenge:
+            elapsed = time.time() - start
+            logger.info(f"{store_name}: OK (magic mode) {elapsed:.1f}s, {len(result.markdown)} chars")
+            return {
+                "success": True,
+                "store_key": store_key,
+                "elapsed": elapsed,
+                "markdown": result.markdown,
+                "html": html,
+                "method": "magic",
+            }
+
+    # Стъпка 2: Cloudflare challenge детектиран — CapSolver
+    html = getattr(result, 'html', '') or ''
+    is_challenge, sitekey = detect_cloudflare_challenge(html)
+
+    if not is_challenge:
+        # Не е Cloudflare — може би друг тип блокировка
+        elapsed = time.time() - start
+        logger.warning(f"{store_name}: Блокиран (не е Cloudflare) {elapsed:.1f}s")
+        logger.warning(f"  HTML preview: {html[:200]}")
+        return {"success": False, "error": f"Blocked by non-Cloudflare protection"}
+
+    if not CAPSOLVER_AVAILABLE:
+        return {"success": False, "error": "CapSolver not installed"}
+
+    if not sitekey:
+        logger.warning(f"{store_name}: Cloudflare challenge без sitekey — опит с AntiCloudflareTask")
+        # За Cloudflare Challenge (5s check) без Turnstile widget
+        # Пробваме по-агресивен подход: повторно зареждане след кратко чакане
+        wait_config = CrawlerRunConfig(
+            magic=True,
+            page_timeout=90000,
+            remove_overlay_elements=True,
+            cache_mode=CacheMode.BYPASS,
+            wait_for="js:() => !document.querySelector('#cf-challenge-running')",
+        )
+        result = await crawler.arun(url=url, config=wait_config)
+        html = getattr(result, 'html', '') or ''
+        is_still_challenge, sitekey = detect_cloudflare_challenge(html)
+
+        if not is_still_challenge and result.success and len(result.markdown or '') > 500:
+            elapsed = time.time() - start
+            logger.info(f"{store_name}: OK (wait bypass) {elapsed:.1f}s")
+            return {
+                "success": True,
+                "store_key": store_key,
+                "elapsed": elapsed,
+                "markdown": result.markdown,
+                "html": html,
+                "method": "wait_bypass",
+            }
+
+        if not sitekey:
+            return {"success": False, "error": "Cloudflare challenge: sitekey not found"}
+
+    # Стъпка 3: CapSolver Turnstile
+    token = await solve_turnstile(url, sitekey)
+    if not token:
+        return {"success": False, "error": "CapSolver failed to solve Turnstile"}
+
+    # Стъпка 4: Инжектиране на token
+    inject_js = f"""
+    (function() {{
+        var input = document.querySelector('input[name="cf-turnstile-response"]');
+        if (input) {{
+            input.value = '{token}';
+        }}
+        var hidden = document.querySelector('[name="cf-turnstile-response"]');
+        if (hidden) {{
+            hidden.value = '{token}';
+        }}
+        // Опит да submit-нем формата
+        var form = document.querySelector('form');
+        if (form) form.submit();
+        // Или кликнем бутон
+        var btn = document.querySelector('button[type="submit"], input[type="submit"]');
+        if (btn) btn.click();
+    }})();
+    """
+
+    inject_config = CrawlerRunConfig(
+        cache_mode=CacheMode.BYPASS,
+        js_code=inject_js,
+        js_only=True,
+        page_timeout=30000,
+        wait_for="js:() => document.querySelectorAll('[class*=product]').length > 0",
+    )
+
+    result = await crawler.arun(url=url, config=inject_config)
+    elapsed = time.time() - start
+
+    if result.success and result.markdown and len(result.markdown) > 300:
+        logger.info(f"{store_name}: OK (CapSolver) {elapsed:.1f}s, {len(result.markdown)} chars")
+        return {
+            "success": True,
+            "store_key": store_key,
+            "elapsed": elapsed,
+            "markdown": result.markdown,
+            "html": getattr(result, 'html', None),
+            "method": "capsolver",
+        }
+
+    logger.error(f"{store_name}: FAILED след CapSolver inject {elapsed:.1f}s")
+    return {"success": False, "error": "CapSolver token injected but page didn't load"}
+
+
+# =============================================================================
 # MATCHING — подобрено с нормализация и тежести
 # =============================================================================
 
@@ -617,13 +969,19 @@ async def crawl_store(crawler, store_key, store_config):
 
 async def crawl_all():
     """Сканира всички магазини паралелно с asyncio.gather."""
-    browser_config = BrowserConfig(headless=True, viewport_width=1920, viewport_height=1080)
+    browser_config = BrowserConfig(
+        headless=True,
+        viewport_width=1920,
+        viewport_height=1080,
+    )
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
-        tasks = {
-            key: crawl_store(crawler, key, cfg)
-            for key, cfg in STORES.items()
-        }
+        tasks = {}
+        for key, cfg in STORES.items():
+            if cfg.get("needs_captcha_solver"):
+                tasks[key] = crawl_with_captcha_solver(crawler, key, cfg)
+            else:
+                tasks[key] = crawl_store(crawler, key, cfg)
 
         task_results = await asyncio.gather(*tasks.values(), return_exceptions=True)
 
@@ -912,10 +1270,10 @@ def write_to_sheets(final_products, stats):
 
 async def main():
     logger.info("=" * 60)
-    logger.info("EXP-003: CRAWL4AI v7.0 + Подобрено съпоставяне")
+    logger.info("EXP-003: CRAWL4AI v8.0 + CapSolver + DM Bulgaria")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"Магазини: {len(STORES)}, BS4: {BS4_AVAILABLE}")
+    logger.info(f"Магазини: {len(STORES)}, BS4: {BS4_AVAILABLE}, CapSolver: {CAPSOLVER_AVAILABLE}")
 
     if not CRAWL4AI_AVAILABLE:
         logger.error("Crawl4AI not available!")
@@ -960,6 +1318,19 @@ async def main():
         if in_stock < len(lilly_products):
             logger.info(f"  Налични: {in_stock}, Изчерпани: {len(lilly_products) - in_stock}")
 
+    # DM Bulgaria
+    dm_products = []
+    if crawl_results.get("dm", {}).get("success"):
+        dm_data = crawl_results["dm"]
+        dm_products = extract_dm_products(
+            dm_data["markdown"],
+            html_text=dm_data.get("html"),
+        )
+        method = dm_data.get("method", "unknown")
+        logger.info(f"DM: {len(dm_products)} Harmonica products (method: {method})")
+    elif crawl_results.get("dm", {}).get("error"):
+        logger.warning(f"DM: {crawl_results['dm']['error']}")
+
     # 3. Match products
     logger.info("=" * 40 + " MATCHING " + "=" * 40)
 
@@ -971,6 +1342,7 @@ async def main():
             "ebag": None,
             "balev": None,
             "lilly": None,
+            "dm": None,
         }
         final_products.append(product)
 
@@ -996,6 +1368,12 @@ async def main():
                 "in_stock": m.get("in_stock", True),
             }
 
+    dm_matches = match_products(kashon_products, dm_products)
+    for product in final_products:
+        if product["name"] in dm_matches:
+            m = dm_matches[product["name"]]
+            product["dm"] = {"eur": m["eur"], "bgn": m["bgn"]}
+
     # 4. Statistics
     kashon_count = len([p for p in final_products if p["kashon"]])
     ebag_count = len([p for p in final_products if p["ebag"]])
@@ -1003,6 +1381,7 @@ async def main():
     lilly_count = len([p for p in final_products if p["lilly"]])
     lilly_oos_count = len([p for p in final_products
                            if p["lilly"] and not p["lilly"].get("in_stock", True)])
+    dm_count = len([p for p in final_products if p["dm"]])
 
     logger.info("=" * 40 + " STATISTICS " + "=" * 40)
     logger.info(f"Референтни (Кашон): {kashon_count}")
@@ -1011,12 +1390,13 @@ async def main():
         logger.info(f"Balev: {balev_count}/{kashon_count} ({balev_count/kashon_count*100:.0f}%)")
         logger.info(f"Lilly: {lilly_count}/{kashon_count} ({lilly_count/kashon_count*100:.0f}%)"
                      f" — {lilly_oos_count} изчерпани")
+        logger.info(f"DM: {dm_count}/{kashon_count} ({dm_count/kashon_count*100:.0f}%)")
 
     # Примерни продукти
-    matched = [p for p in final_products if p["ebag"] or p["balev"] or p["lilly"]][:5]
+    matched = [p for p in final_products if p["ebag"] or p["balev"] or p["lilly"] or p["dm"]][:5]
     for p in matched:
         parts = [f"{p['name'][:50]}:"]
-        for store in ["kashon", "ebag", "balev", "lilly"]:
+        for store in ["kashon", "ebag", "balev", "lilly", "dm"]:
             if p.get(store):
                 bgn = p[store].get('bgn')
                 parts.append(f"  {store}={'%.2f' % bgn if bgn else 'N/A'}лв")
@@ -1031,11 +1411,12 @@ async def main():
         "balev_matches": balev_count,
         "lilly_matches": lilly_count,
         "lilly_out_of_stock": lilly_oos_count,
+        "dm_matches": dm_count,
     })
 
     # 6. Save JSON
     output = {
-        "experiment": "EXP-003-v7.0",
+        "experiment": "EXP-003-v8.0",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stats": {
@@ -1047,6 +1428,8 @@ async def main():
             "lilly_products": len(lilly_products),
             "lilly_matches": lilly_count,
             "lilly_out_of_stock": lilly_oos_count,
+            "dm_products": len(dm_products),
+            "dm_matches": dm_count,
         },
         "products": final_products,
     }
