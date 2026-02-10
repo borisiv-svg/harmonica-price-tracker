@@ -2,7 +2,7 @@ name: Weekly Harmonica Price Tracker
 
 on:
   schedule:
-    - cron: '0 6 * * 1'  # Всеки понеделник в 08:00 българско време (06:00 UTC)
+    - cron: '0 5 * * 1'  # Всеки понеделник в 07:00 българско зимно време (05:00 UTC)
   workflow_dispatch:  # Ръчно стартиране
 
 jobs:
