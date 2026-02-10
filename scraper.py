@@ -1839,7 +1839,6 @@ def collect_prices():
     for store_key, currency in store_currencies.items():
         store_name = STORES[store_key]['name_in_sheet']
         logger.info(f"    • {store_name}: {currency}")
-    logger.info()
     
     # Обработка на резултатите - нормализация на ниво продукт
     # v9.0: Новата логика - средната цена се изчислява от реалните пазарни цени
