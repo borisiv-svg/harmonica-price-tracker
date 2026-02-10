@@ -2,21 +2,21 @@
 # PRODUCTION WORKFLOW - Harmonica Price Tracker
 # =============================================================================
 # Този workflow изпълнява стабилната production версия на scraper-а.
-# Стартира автоматично всеки ден в 06:00 UTC (08:00 българско време).
+# Стартира автоматично всеки понеделник в 05:00 UTC (07:00 българско зимно време).
 # ВАЖНО: Използва САМО код от main branch-а!
 # =============================================================================
 
 # Името на workflow-а, което се показва в GitHub Actions таба
-name: 🏭 Production Daily Scraper
+name: 🏭 Production Weekly Scraper
 
 # Секция "on" дефинира КОГА да се изпълни workflow-ът
 on:
   # Schedule (график) - изпълнява се автоматично по cron schedule
   schedule:
     # Cron синтаксис: минута час ден месец ден-от-седмицата
-    # '0 6 * * *' означава: в 0 минути, 6 часа, всеки ден, всеки месец, всеки ден от седмицата
-    # GitHub Actions използва UTC време, така че 06:00 UTC = 08:00 българско време (зимно)
-    - cron: '0 6 * * *'
+    # '0 5 * * 1' означава: в 0 минути, 5 часа, всеки понеделник
+    # GitHub Actions използва UTC време, така че 05:00 UTC = 07:00 българско зимно време
+    - cron: '0 5 * * 1'
   
   # workflow_dispatch позволява ръчно стартиране от GitHub UI
   # Полезно за тестване или ако трябва да пуснеш извънредно сканиране
@@ -104,7 +104,9 @@ jobs:
           # Те са криптирани и не се показват в логовете
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
           # Флаг, който кодът може да използва за различно поведение
           PRODUCTION_MODE: "true"
@@ -122,6 +124,8 @@ jobs:
         with:
           name: production-logs-${{ github.run_number }}
           path: |
+            scraper.log
             *.log
             logs/
+          if-no-files-found: warn
           retention-days: 7  # Запазва логовете за 7 дни

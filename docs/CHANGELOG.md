@@ -5,6 +5,44 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v9.5.0 - 2026-02-10
+
+### Добавено
+- **Logging модул** в scraper.py и scraper_experimental.py — заместващ print() с подходящи logging нива (INFO, WARNING, ERROR, DEBUG). Логове се записват във файл + конзола.
+- **Паралелно краулване** с `asyncio.gather` в experimental scraper — всички магазини се сканират едновременно вместо последователно
+- **BeautifulSoup за Lilly Drogerie** — по-устойчиво HTML парсване с regex fallback ако BS4 не е наличен
+- **Retry декоратор** за мрежови грешки в crawl функциите — автоматичен retry с exponential backoff
+- **Подобрено съпоставяне на продукти** — нормализация на тегловни единици (kg→g, l→ml), процентен бонус (3.6%), наказание за несъвпадение на тегло, предотвратяване на дублиращи се matches
+- `beautifulsoup4` добавен в requirements.txt
+
+### Променено
+- **Седмичен график:** Всички workflow-и (production, experimental, weekly) — понеделник 05:00 UTC (07:00 българско зимно време)
+- `weekly-scrape.yml` вече е само за ръчно стартиране (cron премахнат)
+- Production workflow преименуван от "Daily" на "Weekly"
+- Experimental scraper обновен от v6.3 на v7.0
+
+### Премахнато
+- **Zoya.bg** премахнат от планираните магазини — вече не продава продукти Harmonica
+- **DM България** — отложен поради 403 anti-bot защита
+
+### Поправено
+- Почистен дублиран контент в EXPERIMENTS.md
+
+---
+## v9.4.0 - 2026-02-10
+
+### Променено
+- **Седмичен график:** Всички workflow-и (production, experimental, weekly) вече се изпълняват веднъж седмично — понеделник 05:00 UTC (07:00 българско зимно време)
+- Production workflow преименуван от "Daily" на "Weekly"
+- Актуализирани коментари в cron schedule-ите
+
+### Премахнато
+- **Zoya.bg** премахнат от планираните магазини в EXP-003 — вече не продава продукти Harmonica
+
+### Поправено
+- Почистен дублиран контент в EXPERIMENTS.md
+
+---
 ## v9.2.0 - 2026-02-05
 
 ### Добавено
@@ -29,9 +67,8 @@
 ## [Unreleased]
 
 ### В разработка (experimental branch)
-- 🔬 Digital Lab инфраструктура — отделни production и experimental workflows
 - 🔬 Crawl4AI интеграция — тестване като алтернатива на Playwright
-- 🔬 CapSolver поддръжка — автоматично решаване на CAPTCHA (опционално)
+- 🔬 Нови магазини — Lilly Drogerie, DM България, ХИТ Хипермаркет
 
 ---
 
