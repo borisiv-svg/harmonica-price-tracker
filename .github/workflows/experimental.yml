@@ -23,7 +23,8 @@ on:
 jobs:
   experimental-scrape:
     runs-on: ubuntu-latest
-    if: github.ref != 'refs/heads/main'
+    # Позволяваме scheduled и ръчни стартирания (преди беше блокирано за main branch)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     
     steps:
       - name: 📥 Checkout experimental code
@@ -89,13 +90,16 @@ jobs:
           ALERT_EMAIL: "boris.iv@gmail.com"
         run: |
           echo "Starting experimental scraper..."
-          
-          if [ -f "scraper_experimental.py" ]; then
+
+          if [ -f "experimental/scraper_experimental.py" ]; then
+            python experimental/scraper_experimental.py
+          elif [ -f "scraper_experimental.py" ]; then
             python scraper_experimental.py
           else
-            python scraper.py
+            echo "ERROR: scraper_experimental.py не е намерен!"
+            exit 1
           fi
-          
+
           echo "Experimental scraper completed!"
       
       - name: 📋 Upload experiment artifacts
@@ -104,6 +108,8 @@ jobs:
         with:
           name: experimental-results-${{ github.run_number }}
           path: |
+            scraper_experimental.log
             *.log
             logs/
+          if-no-files-found: warn
           retention-days: 14
