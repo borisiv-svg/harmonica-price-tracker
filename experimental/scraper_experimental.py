@@ -1,11 +1,12 @@
 """
-EXP-005: Crawl4AI Experimental Scraper v10.0
+EXP-006: Crawl4AI Experimental Scraper v11.0
 =============================================
-Промени спрямо v9.0:
-- Lilly Drogerie: fix за "Blocked (не е Cloudflare)" false-positive —
-  ако HTML > 1000 символа но markdown < 500, страницата е заредена и
-  HTML-ът се предава на BS4 за парсване (вместо да се маркира като грешка)
-- T-Market: добавен magic mode (needs_captcha_solver=True) за JavaScript rendering
+Промени спрямо v10.0:
+- Lilly BS4: добавена кирилска проверка за "ХАРМОНИКА" (беше само "HARMONICA")
+- Lilly BS4: fallback вече приема относителни URL-и (/path) — не само пълни
+- Lilly BS4: разширени CSS селектори (data-product-id, .products-grid li, etc.)
+- Lilly BS4: debug лог за брой links/HARMONICA links в HTML-а
+- T-Market: Cloudflare-blocked (GitHub Actions IP) — очаквано, без промяна
 
 Промени спрямо v8.0:
 - T-Market добавен (tmarketonline.bg)
@@ -404,37 +405,57 @@ def extract_lilly_products(markdown_text, html_text=None):
     return _extract_lilly_regex(markdown_text)
 
 
+def _is_harmonica_text(text):
+    """Проверява дали текстът съдържа HARMONICA (латиница или кирилица)."""
+    t = text.upper()
+    return 'HARMONICA' in t or 'ХАРМОНИКА' in t
+
+
 def _extract_lilly_bs4(html_text):
     """Извлича Lilly продукти с BeautifulSoup — по-устойчиво от regex."""
     products = []
     soup = BeautifulSoup(html_text, 'html.parser')
 
-    # Търсим продуктови карти — Magento 2 типично използва .product-item
-    product_items = soup.select('.product-item, .product-item-info, li.item.product')
+    # Debug: брой елементи за диагностика
+    all_links = soup.find_all('a', href=True)
+    harmonica_links = [l for l in all_links if _is_harmonica_text(l.get_text(strip=True))]
+    logger.info(
+        f"Lilly BS4 debug: {len(all_links)} links, "
+        f"{len(harmonica_links)} HARMONICA/ХАРМОНИКА links"
+    )
+
+    # Магазино 2 CSS селектори — разширени
+    product_items = soup.select(
+        '.product-item, .product-item-info, li.item.product, '
+        '.product-card, [data-product-id], .products-grid li, '
+        '.product-items li, .products li'
+    )
 
     if not product_items:
-        # Fallback: търсим линкове с HARMONICA в текста
+        # Fallback: намираме всеки link с HARMONICA/ХАРМОНИКА в текста
         product_items = []
-        for link in soup.find_all('a', href=True):
-            text = link.get_text(strip=True)
-            if 'HARMONICA' in text.upper() and 'lillydrogerie.bg' in link.get('href', ''):
-                # Обвиваме в parent контейнер ако е наличен
-                parent = link.find_parent(['li', 'div', 'article'])
-                if parent and parent not in product_items:
-                    product_items.append(parent)
+        for link in harmonica_links:
+            href = link.get('href', '')
+            # Приемаме относителни пътища (/...) и пълни URL-и с домейна
+            if '/media/' in href or '/static/' in href:
+                continue
+            parent = link.find_parent(['li', 'div', 'article'])
+            if parent and parent not in product_items:
+                product_items.append(parent)
 
     for item in product_items:
         text = item.get_text(' ', strip=True)
-        if 'HARMONICA' not in text.upper():
+        if not _is_harmonica_text(text):
             continue
 
-        # Име — търсим в заглавен линк (не image)
+        # Ime — търсим в заглавен линк (не image/media)
         name_link = None
         for link in item.find_all('a', href=True):
             href = link.get('href', '')
             link_text = link.get_text(strip=True)
-            if (link_text and 'HARMONICA' in link_text.upper()
+            if (link_text and _is_harmonica_text(link_text)
                     and '/media/' not in href
+                    and '/static/' not in href
                     and len(link_text) > 5):
                 name_link = link
                 break
@@ -1274,7 +1295,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер (EXP-005)'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер (EXP-006)'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(store_columns) + 1}']
@@ -1476,7 +1497,7 @@ def write_to_sheets(final_products, stats):
 
 async def main():
     logger.info("=" * 60)
-    logger.info("EXP-005: CRAWL4AI v10.0 + Lilly HTML fix + T-Market magic mode")
+    logger.info("EXP-006: CRAWL4AI v11.0 + Lilly BS4 Cyrillic fix")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)}, BS4: {BS4_AVAILABLE}, CapSolver: {CAPSOLVER_AVAILABLE}")
@@ -1645,7 +1666,7 @@ async def main():
 
     # 6. Save JSON
     output = {
-        "experiment": "EXP-005-v10.0",
+        "experiment": "EXP-006-v11.0",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stats": {
