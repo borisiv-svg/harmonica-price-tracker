@@ -1,11 +1,12 @@
 """
-EXP-007: Crawl4AI Experimental Scraper v12.0
+EXP-008: Crawl4AI Experimental Scraper v13.0
 =============================================
-Промени спрямо v11.0:
-- Lilly: страницата е JS SPA (0 <a href> в initial HTML) — добавен wait_for в STORES
-  "js:() => document.querySelectorAll('a[href]').length > 5"
-- crawl_with_captcha_solver: вече предава store_config["wait_for"] на magic_config
-- Lilly BS4 debug: добавен body preview (200 chars) + all <a> count vs href count
+Промени спрямо v12.0:
+- Lilly: "no body" диагностирано — result.html съдържа само <head> (34KB CSS/scripts)
+  Сега пробваме result.cleaned_html (рендериран съдържимо) вместо result.html
+  best_html = cleaned_html (>500) else html — подаваме по-добрия вариант на BS4
+- crawl_with_captcha_solver: log на html[:200] + cleaned_html size за диагностика
+- _extract_lilly_bs4: log на html_text[:300] за да видим точно какво парсваме
 - T-Market: Cloudflare-blocked (GitHub Actions IP) — очаквано, без промяна
 
 Промени спрямо v8.0:
@@ -416,6 +417,8 @@ def _is_harmonica_text(text):
 def _extract_lilly_bs4(html_text):
     """Извлича Lilly продукти с BeautifulSoup — по-устойчиво от regex."""
     products = []
+    # Диагностика: логваме first chars за да знаем какво точно парсваме
+    logger.info(f"Lilly BS4 input: {len(html_text)} chars, starts: {html_text[:300]!r:.300}")
     soup = BeautifulSoup(html_text, 'html.parser')
 
     # Debug: брой елементи за диагностика
@@ -946,18 +949,27 @@ async def crawl_with_captcha_solver(crawler, store_key, store_config):
     if not is_challenge:
         # Не е Cloudflare challenge — проверяваме дали HTML-ът е достатъчен за BS4
         # Случва се страницата да е заредена но markdown да е кратък (JS-heavy site)
-        if html and len(html) > 1000:
+        cleaned_html = getattr(result, 'cleaned_html', '') or ''
+        # Логваме какво точно има в html (за диагностика на "no body" проблема)
+        logger.info(
+            f"{store_name}: html starts: {html[:200]!r:.200}, "
+            f"cleaned_html size: {len(cleaned_html)}"
+        )
+        # Използваме cleaned_html ако е наличен (рендерирано съдържание),
+        # иначе html (raw source с евентуален само <head>)
+        best_html = cleaned_html if len(cleaned_html) > 500 else html
+        if best_html and len(best_html) > 1000:
             elapsed = time.time() - start
             logger.info(
                 f"{store_name}: OK (magic, short markdown) {elapsed:.1f}s, "
-                f"html={len(html)} chars"
+                f"html={len(html)}, cleaned={len(cleaned_html)} chars"
             )
             return {
                 "success": True,
                 "store_key": store_key,
                 "elapsed": elapsed,
                 "markdown": result.markdown or "",
-                "html": html,
+                "html": best_html,
                 "method": "magic_html",
             }
         elapsed = time.time() - start
@@ -1305,7 +1317,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер (EXP-007)'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер (EXP-008)'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(store_columns) + 1}']
@@ -1507,7 +1519,7 @@ def write_to_sheets(final_products, stats):
 
 async def main():
     logger.info("=" * 60)
-    logger.info("EXP-007: CRAWL4AI v12.0 + Lilly wait_for SPA fix")
+    logger.info("EXP-008: CRAWL4AI v13.0 + Lilly cleaned_html fallback")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)}, BS4: {BS4_AVAILABLE}, CapSolver: {CAPSOLVER_AVAILABLE}")
@@ -1676,7 +1688,7 @@ async def main():
 
     # 6. Save JSON
     output = {
-        "experiment": "EXP-007-v12.0",
+        "experiment": "EXP-008-v13.0",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stats": {
