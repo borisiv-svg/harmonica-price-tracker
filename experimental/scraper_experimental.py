@@ -112,9 +112,10 @@ STORES = {
     "lilly": {
         "name": "Lilly Drogerie",
         "url": "https://lillydrogerie.bg/brands/harmonica",
-        "scroll_times": 2,
-        "wait_for": "css:.product-item-info,.product-items,ol.products",
+        "scroll_times": 4,
+        "wait_for": "css:.product-item-info,.product-items,ol.products,.products-grid",
         "is_reference": False,
+        "brand_page": True,
     },
     "dm": {
         "name": "DM Bulgaria",
@@ -127,20 +128,23 @@ STORES = {
     "vmv": {
         "name": "VMV Supermarket",
         "url": "https://vmv.bg/brands/harmonica",
-        "scroll_times": 5,
+        "scroll_times": 8,
         "is_reference": False,
+        "brand_page": True,
     },
     "optima": {
         "name": "Optima",
         "url": "https://optima.bg/?s=harmonica",
-        "scroll_times": 3,
+        "scroll_times": 5,
         "is_reference": False,
     },
     "tmarket": {
         "name": "T-Market",
         "url": "https://tmarketonline.bg/vendor/harmonica-1881705916",
-        "scroll_times": 5,
+        "scroll_times": 8,
+        "wait_for": "css:.product-card,.product-item,.products,[class*=product]",
         "is_reference": False,
+        "brand_page": True,
     },
 }
 
@@ -394,29 +398,120 @@ def extract_balev_products(markdown):
 
 
 # =============================================================================
+# GENERIC EXTRACTION — универсален fallback за нови магазини
+# =============================================================================
+
+def _extract_generic_products(markdown, brand_page=False):
+    """
+    Универсален fallback extractor. Работи с всякакъв markdown.
+
+    Стратегия:
+    1. Разделя markdown на блокове (двоен нов ред)
+    2. Търси блокове с BGN цена (X,XX лв)
+    3. Извлича най-подходящия текст като име на продукт
+    4. Ако brand_page=True, не проверява за "harmonica" в името
+    """
+    products = []
+    seen = set()
+
+    # Разделяме на блокове
+    blocks = re.split(r'\n{2,}', markdown)
+
+    for block in blocks:
+        # Проверка за harmonica (освен ако е brand page)
+        if not brand_page and not is_harmonica_product(block):
+            continue
+
+        # Търсим цена
+        bgn = extract_bgn_price(block)
+        eur = extract_eur_price(block)
+        if not bgn and not eur:
+            # Опит: цена без валутен суфикс (напр. "2.99")
+            price_match = re.search(r'(\d+)[,.](\d{2})\b', block)
+            if price_match:
+                try:
+                    price = float(f"{price_match.group(1)}.{price_match.group(2)}")
+                    if 0.50 <= price <= 100:
+                        bgn = round(price, 2)
+                except ValueError:
+                    pass
+        if not bgn and not eur:
+            continue
+
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+
+        # Извличаме продуктово име
+        name = None
+
+        # Опит 1: Link текст
+        link_match = re.search(r'(?<!!)\[([^\]]{5,100})\]\([^\)]+\)', block)
+        if link_match:
+            candidate = link_match.group(1).strip()
+            if len(candidate) > 5 and is_food_product(candidate):
+                name = candidate
+
+        # Опит 2: Heading
+        if not name:
+            heading_match = re.search(r'#+\s*(.{5,80})', block)
+            if heading_match:
+                candidate = heading_match.group(1).strip()
+                if is_food_product(candidate):
+                    name = candidate
+
+        # Опит 3: Най-дълъг текстов ред (вероятно продуктово име)
+        if not name:
+            for line in block.split('\n'):
+                line = line.strip()
+                line = re.sub(r'\[([^\]]*)\]\([^\)]*\)', r'\1', line)
+                line = re.sub(r'[#*_>|!]', '', line).strip()
+                line = re.sub(r'\s+', ' ', line)
+                if (len(line) > 10 and
+                        len(re.findall(r'[а-яА-Яa-zA-Z]', line)) >= 3 and
+                        is_food_product(line)):
+                    name = line
+                    break
+
+        if not name:
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        seen.add(name_key)
+        products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    return products
+
+
+# =============================================================================
 # VMV SUPERMARKET EXTRACTION
 # =============================================================================
 
-def extract_vmv_products(markdown, html_text=None):
+def extract_vmv_products(markdown, html_text=None, brand_page=True):
     """
     Извлича Harmonica продукти от VMV Supermarket.
 
-    VMV.bg е онлайн супермаркет. URL формат за продукти:
-    vmv.bg/{product-slug}-{id}/p или vmv.bg/products/{slug}-{id}
+    VMV.bg е онлайн супермаркет. Brand page: vmv.bg/brands/harmonica
+    На brand page всички продукти са Harmonica → skip harmonica name check.
     Цени в BGN (лева).
     """
     products = []
     seen = set()
 
-    # Pattern 1: Links с Harmonica в текста
-    link_pattern = r'\[([^\]]{5,100})\]\((?:https?://(?:www\.)?vmv\.bg)?/([^\)]+)\)'
+    # Pattern 1: Links — на brand page всички продукти са Harmonica
+    link_pattern = r'\[([^\]]{5,100})\]\(((?:https?://[^\)]+|/[^\)]+))\)'
     for match in re.finditer(link_pattern, markdown):
         name = match.group(1).strip()
-        url_path = match.group(2)
+        url = match.group(2)
 
         if name.startswith('!') or 'logo' in name.lower() or 'banner' in name.lower():
             continue
-        if not is_harmonica_product(name):
+        if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
+            continue
+        # На brand page не проверяваме за harmonica в името
+        if not brand_page and not is_harmonica_product(name):
             continue
 
         name_key = name.lower()[:30]
@@ -431,7 +526,6 @@ def extract_vmv_products(markdown, html_text=None):
         bgn = extract_bgn_price(context)
         eur = extract_eur_price(context)
 
-        # VMV цени обикновено са в BGN, ако няма EUR — изчисляваме
         if bgn and not eur:
             eur = round(bgn / EUR_BGN_RATE, 2)
 
@@ -439,31 +533,14 @@ def extract_vmv_products(markdown, html_text=None):
             seen.add(name_key)
             products.append({"name": name, "eur": eur, "bgn": bgn})
 
-    # Pattern 2: Текстови блокове с Harmonica + цена (без link)
+    # Pattern 2: Текстови блокове с цена (без link)
     if not products:
-        blocks = re.split(r'\n{2,}', markdown)
-        for block in blocks:
-            if not is_harmonica_product(block):
-                continue
-            # Извличаме име — ред с Harmonica
-            for line in block.split('\n'):
-                if is_harmonica_product(line):
-                    name = re.sub(r'\[([^\]]*)\]\([^\)]*\)', r'\1', line)
-                    name = re.sub(r'[#*_>|!]', '', name).strip()
-                    name = re.sub(r'\s+', ' ', name)
-                    if len(name) > 10 and is_food_product(name):
-                        name_key = name.lower()[:30]
-                        if name_key not in seen:
-                            bgn = extract_bgn_price(block)
-                            eur = extract_eur_price(block)
-                            if bgn and not eur:
-                                eur = round(bgn / EUR_BGN_RATE, 2)
-                            if bgn or eur:
-                                seen.add(name_key)
-                                products.append({"name": name, "eur": eur, "bgn": bgn})
-                        break
+        products = _extract_generic_products(markdown, brand_page=brand_page)
 
-    logger.info(f"VMV: {len(products)} продукта извлечени")
+    if not products:
+        logger.warning(f"VMV: 0 продукта, markdown preview: {markdown[:500]}")
+    else:
+        logger.info(f"VMV: {len(products)} продукта извлечени")
     return products
 
 
@@ -471,25 +548,25 @@ def extract_vmv_products(markdown, html_text=None):
 # OPTIMA EXTRACTION
 # =============================================================================
 
-def extract_optima_products(markdown, html_text=None):
+def extract_optima_products(markdown, html_text=None, brand_page=False):
     """
     Извлича Harmonica продукти от Optima.bg.
 
     Optima.bg е онлайн супермаркет в София. URL формат:
     optima.bg/магазин/{category}/{id}/{product-slug}
-    Цени в BGN.
+    Цени в BGN. Search page: ?s=harmonica
     """
     products = []
     seen = set()
 
-    # Pattern 1: Links с Harmonica
-    link_pattern = r'\[([^\]]{5,120})\]\((?:https?://(?:www\.)?optima\.bg)?/([^\)]+)\)'
+    # Pattern 1: Links с Harmonica (search page — проверяваме за harmonica)
+    link_pattern = r'\[([^\]]{5,120})\]\(((?:https?://[^\)]+|/[^\)]+))\)'
     for match in re.finditer(link_pattern, markdown):
         name = match.group(1).strip()
 
         if name.startswith('!') or 'logo' in name.lower():
             continue
-        if not is_harmonica_product(name):
+        if not brand_page and not is_harmonica_product(name):
             continue
 
         name_key = name.lower()[:30]
@@ -511,30 +588,15 @@ def extract_optima_products(markdown, html_text=None):
             seen.add(name_key)
             products.append({"name": name, "eur": eur, "bgn": bgn})
 
-    # Pattern 2: Текстови блокове
+    # Pattern 2: Текстови блокове с harmonica + цена
     if not products:
-        blocks = re.split(r'\n{2,}', markdown)
-        for block in blocks:
-            if not is_harmonica_product(block):
-                continue
-            for line in block.split('\n'):
-                if is_harmonica_product(line):
-                    name = re.sub(r'\[([^\]]*)\]\([^\)]*\)', r'\1', line)
-                    name = re.sub(r'[#*_>|!]', '', name).strip()
-                    name = re.sub(r'\s+', ' ', name)
-                    if len(name) > 10 and is_food_product(name):
-                        name_key = name.lower()[:30]
-                        if name_key not in seen:
-                            bgn = extract_bgn_price(block)
-                            eur = extract_eur_price(block)
-                            if bgn and not eur:
-                                eur = round(bgn / EUR_BGN_RATE, 2)
-                            if bgn or eur:
-                                seen.add(name_key)
-                                products.append({"name": name, "eur": eur, "bgn": bgn})
-                        break
+        products = _extract_generic_products(markdown, brand_page=brand_page)
 
-    logger.info(f"Optima: {len(products)} продукта извлечени")
+    if not products:
+        logger.warning(f"Optima: 0 продукта, markdown len={len(markdown)}, "
+                       f"preview: {markdown[:500]}")
+    else:
+        logger.info(f"Optima: {len(products)} продукта извлечени")
     return products
 
 
@@ -542,31 +604,33 @@ def extract_optima_products(markdown, html_text=None):
 # T-MARKET EXTRACTION
 # =============================================================================
 
-def extract_tmarket_products(markdown, html_text=None):
+def extract_tmarket_products(markdown, html_text=None, brand_page=True):
     """
     Извлича Harmonica продукти от T-Market Online.
 
     T-Market vendor page: tmarketonline.bg/vendor/harmonica-1881705916
-    Продуктови URL: tmarketonline.bg/product/{slug}
+    На vendor page всички продукти са Harmonica → skip harmonica name check.
     Цени в BGN.
     """
     products = []
     seen = set()
 
-    # Pattern 1: Product links — [Product Name](tmarketonline.bg/product/...)
-    link_pattern = r'\[([^\]]{5,120})\]\((?:https?://(?:www\.)?tmarketonline\.bg)?/product/([^\)]+)\)'
+    # Pattern 1: Всички links с продуктови имена
+    link_pattern = r'\[([^\]]{5,120})\]\(((?:https?://[^\)]+|/[^\)]+))\)'
     for match in re.finditer(link_pattern, markdown):
         name = match.group(1).strip()
 
         if name.startswith('!') or 'logo' in name.lower():
             continue
-        if not is_harmonica_product(name):
+        if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
+            continue
+        if not brand_page and not is_harmonica_product(name):
+            continue
+        if not is_food_product(name):
             continue
 
         name_key = name.lower()[:30]
         if name_key in seen:
-            continue
-        if not is_food_product(name):
             continue
 
         idx = match.end()
@@ -582,42 +646,21 @@ def extract_tmarket_products(markdown, html_text=None):
             seen.add(name_key)
             products.append({"name": name, "eur": eur, "bgn": bgn})
 
-    # Pattern 2: Generic Harmonica links
+    # Pattern 2: Generic text blocks + BS4 fallback
     if not products:
-        link_pattern2 = r'\[([^\]]*(?:HARMONICA|harmonica|Harmonica)[^\]]*)\]\([^\)]+\)'
-        for match in re.finditer(link_pattern2, markdown):
-            name = match.group(1).strip()
-            if name.startswith('!') or len(name) < 10:
-                continue
-            name_key = name.lower()[:30]
-            if name_key in seen:
-                continue
-            if not is_food_product(name):
-                continue
+        products = _extract_generic_products(markdown, brand_page=brand_page)
 
-            idx = match.end()
-            context = markdown[max(0, idx - 150):idx + 400]
-            bgn = extract_bgn_price(context)
-            eur = extract_eur_price(context)
-            if bgn and not eur:
-                eur = round(bgn / EUR_BGN_RATE, 2)
-            if bgn or eur:
-                seen.add(name_key)
-                products.append({"name": name, "eur": eur, "bgn": bgn})
-
-    # Pattern 3: BS4 fallback
     if BS4_AVAILABLE and html_text and not products:
         soup = BeautifulSoup(html_text, 'html.parser')
         for item in soup.select('.product-card, .product-item, .product, [class*=product]'):
             text = item.get_text(' ', strip=True)
-            if not is_harmonica_product(text):
+            if not brand_page and not is_harmonica_product(text):
                 continue
-            # Извличаме име от заглавие или link
             name_el = item.select_one('h2, h3, h4, a.product-name, [class*=title], [class*=name]')
             if not name_el:
                 for link in item.find_all('a', href=True):
                     link_text = link.get_text(strip=True)
-                    if is_harmonica_product(link_text) and len(link_text) > 10:
+                    if len(link_text) > 10:
                         name_el = link
                         break
             if not name_el:
@@ -634,7 +677,11 @@ def extract_tmarket_products(markdown, html_text=None):
                 seen.add(name_key)
                 products.append({"name": product_name, "eur": eur, "bgn": bgn})
 
-    logger.info(f"T-Market: {len(products)} продукта извлечени")
+    if not products:
+        logger.warning(f"T-Market: 0 продукта, markdown len={len(markdown)}, "
+                       f"preview: {markdown[:500]}")
+    else:
+        logger.info(f"T-Market: {len(products)} продукта извлечени")
     return products
 
 
@@ -651,9 +698,16 @@ def extract_lilly_products(markdown_text, html_text=None):
 
     Връща list of dicts с допълнително поле 'in_stock' (bool).
     """
+    products = []
     if BS4_AVAILABLE and html_text:
-        return _extract_lilly_bs4(html_text)
-    return _extract_lilly_regex(markdown_text)
+        products = _extract_lilly_bs4(html_text)
+    if not products:
+        products = _extract_lilly_regex(markdown_text)
+    if not products:
+        logger.warning(f"Lilly: 0 продукта, markdown len={len(markdown_text)}, "
+                       f"html len={len(html_text) if html_text else 0}, "
+                       f"preview: {markdown_text[:500]}")
+    return products
 
 
 def _extract_lilly_bs4(html_text):
@@ -1905,8 +1959,8 @@ async def main():
         vmv_products = extract_vmv_products(
             vmv_data["markdown"],
             html_text=vmv_data.get("html"),
+            brand_page=STORES["vmv"].get("brand_page", False),
         )
-        logger.info(f"VMV: {len(vmv_products)} Harmonica products")
     elif crawl_results.get("vmv", {}).get("error"):
         logger.warning(f"VMV: {crawl_results['vmv']['error']}")
 
@@ -1917,8 +1971,8 @@ async def main():
         optima_products = extract_optima_products(
             optima_data["markdown"],
             html_text=optima_data.get("html"),
+            brand_page=STORES["optima"].get("brand_page", False),
         )
-        logger.info(f"Optima: {len(optima_products)} Harmonica products")
     elif crawl_results.get("optima", {}).get("error"):
         logger.warning(f"Optima: {crawl_results['optima']['error']}")
 
@@ -1929,8 +1983,8 @@ async def main():
         tmarket_products = extract_tmarket_products(
             tmarket_data["markdown"],
             html_text=tmarket_data.get("html"),
+            brand_page=STORES["tmarket"].get("brand_page", False),
         )
-        logger.info(f"T-Market: {len(tmarket_products)} Harmonica products")
     elif crawl_results.get("tmarket", {}).get("error"):
         logger.warning(f"T-Market: {crawl_results['tmarket']['error']}")
 
