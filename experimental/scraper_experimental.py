@@ -1,11 +1,11 @@
 """
-EXP-006: Crawl4AI Experimental Scraper v11.0
+EXP-007: Crawl4AI Experimental Scraper v12.0
 =============================================
-Промени спрямо v10.0:
-- Lilly BS4: добавена кирилска проверка за "ХАРМОНИКА" (беше само "HARMONICA")
-- Lilly BS4: fallback вече приема относителни URL-и (/path) — не само пълни
-- Lilly BS4: разширени CSS селектори (data-product-id, .products-grid li, etc.)
-- Lilly BS4: debug лог за брой links/HARMONICA links в HTML-а
+Промени спрямо v11.0:
+- Lilly: страницата е JS SPA (0 <a href> в initial HTML) — добавен wait_for в STORES
+  "js:() => document.querySelectorAll('a[href]').length > 5"
+- crawl_with_captcha_solver: вече предава store_config["wait_for"] на magic_config
+- Lilly BS4 debug: добавен body preview (200 chars) + all <a> count vs href count
 - T-Market: Cloudflare-blocked (GitHub Actions IP) — очаквано, без промяна
 
 Промени спрямо v8.0:
@@ -120,6 +120,8 @@ STORES = {
         "scroll_times": 3,
         "is_reference": False,
         "needs_captcha_solver": True,  # magic mode: по-добро JS rendering + anti-bot
+        # Изчакване: страницата е JS SPA — изчакваме поне 5 link-а да се рендерират
+        "wait_for": "js:() => document.querySelectorAll('a[href]').length > 5",
     },
     "dm": {
         "name": "DM Bulgaria",
@@ -417,12 +419,16 @@ def _extract_lilly_bs4(html_text):
     soup = BeautifulSoup(html_text, 'html.parser')
 
     # Debug: брой елементи за диагностика
-    all_links = soup.find_all('a', href=True)
+    all_a_tags = soup.find_all('a')           # всички <a> (с или без href)
+    all_links = soup.find_all('a', href=True) # само с непразен href
     harmonica_links = [l for l in all_links if _is_harmonica_text(l.get_text(strip=True))]
+    body = soup.find('body')
+    body_preview = body.get_text(' ', strip=True)[:200] if body else '(no body)'
     logger.info(
-        f"Lilly BS4 debug: {len(all_links)} links, "
-        f"{len(harmonica_links)} HARMONICA/ХАРМОНИКА links"
+        f"Lilly BS4 debug: all <a>={len(all_a_tags)}, with href={len(all_links)}, "
+        f"HARMONICA links={len(harmonica_links)}"
     )
+    logger.info(f"Lilly body preview: {body_preview}")
 
     # Магазино 2 CSS селектори — разширени
     product_items = soup.select(
@@ -890,12 +896,16 @@ async def crawl_with_captcha_solver(crawler, store_key, store_config):
         await scrollPage();
         """
 
+    # wait_for от store_config позволява изчакване на JS рендериране (SPA сайтове)
+    store_wait_for = store_config.get("wait_for")
+
     magic_config = CrawlerRunConfig(
         magic=True,
         page_timeout=60000,
         remove_overlay_elements=True,
         cache_mode=CacheMode.BYPASS,
         js_code=scroll_js,
+        wait_for=store_wait_for,
     )
 
     result = await crawler.arun(url=url, config=magic_config)
@@ -1295,7 +1305,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер (EXP-006)'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер (EXP-007)'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(store_columns) + 1}']
@@ -1497,7 +1507,7 @@ def write_to_sheets(final_products, stats):
 
 async def main():
     logger.info("=" * 60)
-    logger.info("EXP-006: CRAWL4AI v11.0 + Lilly BS4 Cyrillic fix")
+    logger.info("EXP-007: CRAWL4AI v12.0 + Lilly wait_for SPA fix")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)}, BS4: {BS4_AVAILABLE}, CapSolver: {CAPSOLVER_AVAILABLE}")
@@ -1666,7 +1676,7 @@ async def main():
 
     # 6. Save JSON
     output = {
-        "experiment": "EXP-006-v11.0",
+        "experiment": "EXP-007-v12.0",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stats": {
