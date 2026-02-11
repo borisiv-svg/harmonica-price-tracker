@@ -51,8 +51,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           
-          # Инсталиране на Crawl4AI за експериментите
-          pip install crawl4ai
+          # Инсталиране на Crawl4AI и curl_cffi за експериментите
+          pip install crawl4ai curl_cffi
           
           # Поправка за Ubuntu 24.04
           sudo apt-get update
@@ -85,6 +85,7 @@ jobs:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           CAPSOLVER_API_KEY: ${{ secrets.CAPSOLVER_API_KEY }}
+          PROXY_URL: ${{ secrets.PROXY_URL }}
           EXPERIMENTAL_MODE: "true"
           USE_CRAWL4AI: ${{ github.event.inputs.use_crawl4ai || 'false' }}
           SHEET_TAB_SUFFIX: "_experimental"

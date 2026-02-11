@@ -1,6 +1,13 @@
 """
-EXP-003: Crawl4AI Experimental Scraper v8.0
+EXP-003: Crawl4AI Experimental Scraper v9.0
 ============================================
+Промени спрямо v8.0:
+- VMV Supermarket, Optima, T-Market добавени (Crawl4AI)
+- DM Algolia API (curl_cffi) с CapSolver fallback
+- curl_cffi за TLS impersonation (Cloudflare bypass)
+- Proxy support (PROXY_URL env var)
+- Общо 8 магазина (Кашон + 7 external)
+
 Промени спрямо v7.0:
 - CapSolver интеграция за сайтове с anti-bot защита (Cloudflare Turnstile/Challenge)
 - DM България добавен (с CapSolver bypass за 403 защитата)
@@ -12,13 +19,6 @@ EXP-003: Crawl4AI Experimental Scraper v8.0
 - BeautifulSoup за Lilly Drogerie парсване (с regex fallback)
 - Подобрено съпоставяне с нормализация и тежести
 - Retry декоратор за мрежови грешки
-
-Структура на данните:
-- Кашон: [Име продукт](URL) с цени наблизо
-- eBag: [![Име](img)](url) + ### [Име ... X,XX € ... X,XX лв.]
-- Balev: Редове с грамаж + цени EUR/BGN
-- Lilly: [![ALT](img)](url) [NAME](url) X,XX € / X,XX лв. Изчерпан
-- DM: CapSolver → HTML парсване с BS4
 """
 
 import asyncio
@@ -70,12 +70,20 @@ except ImportError:
     BS4_AVAILABLE = False
     logger.warning("beautifulsoup4 not installed — using regex fallback for Lilly")
 
+try:
+    from curl_cffi.requests import AsyncSession as CurlAsyncSession
+    CURL_CFFI_AVAILABLE = True
+except ImportError:
+    CURL_CFFI_AVAILABLE = False
+    logger.warning("curl_cffi not installed — TLS impersonation disabled")
+
 
 # =============================================================================
 # CONSTANTS
 # =============================================================================
 
 EUR_BGN_RATE = 1.9558  # Фиксиран курс
+PROXY_URL = os.environ.get("PROXY_URL")  # Optional: http://user:pass@host:port
 
 
 # =============================================================================
@@ -104,7 +112,7 @@ STORES = {
     "lilly": {
         "name": "Lilly Drogerie",
         "url": "https://lillydrogerie.bg/brands/harmonica",
-        "scroll_times": 2,  # JS rendering: изчакваме product grid да се зареди
+        "scroll_times": 2,
         "wait_for": "css:.product-item-info,.product-items,ol.products",
         "is_reference": False,
     },
@@ -114,6 +122,25 @@ STORES = {
         "scroll_times": 5,
         "is_reference": False,
         "needs_captcha_solver": True,
+        "algolia_enabled": True,
+    },
+    "vmv": {
+        "name": "VMV Supermarket",
+        "url": "https://vmv.bg/brands/harmonica",
+        "scroll_times": 5,
+        "is_reference": False,
+    },
+    "optima": {
+        "name": "Optima",
+        "url": "https://optima.bg/?s=harmonica",
+        "scroll_times": 3,
+        "is_reference": False,
+    },
+    "tmarket": {
+        "name": "T-Market",
+        "url": "https://tmarketonline.bg/vendor/harmonica-1881705916",
+        "scroll_times": 5,
+        "is_reference": False,
     },
 }
 
@@ -363,6 +390,251 @@ def extract_balev_products(markdown):
             seen.add(name_key)
             products.append({"name": name, "eur": eur, "bgn": bgn})
 
+    return products
+
+
+# =============================================================================
+# VMV SUPERMARKET EXTRACTION
+# =============================================================================
+
+def extract_vmv_products(markdown, html_text=None):
+    """
+    Извлича Harmonica продукти от VMV Supermarket.
+
+    VMV.bg е онлайн супермаркет. URL формат за продукти:
+    vmv.bg/{product-slug}-{id}/p или vmv.bg/products/{slug}-{id}
+    Цени в BGN (лева).
+    """
+    products = []
+    seen = set()
+
+    # Pattern 1: Links с Harmonica в текста
+    link_pattern = r'\[([^\]]{5,100})\]\((?:https?://(?:www\.)?vmv\.bg)?/([^\)]+)\)'
+    for match in re.finditer(link_pattern, markdown):
+        name = match.group(1).strip()
+        url_path = match.group(2)
+
+        if name.startswith('!') or 'logo' in name.lower() or 'banner' in name.lower():
+            continue
+        if not is_harmonica_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+        if not is_food_product(name):
+            continue
+
+        idx = match.end()
+        context = markdown[max(0, idx - 100):idx + 400]
+
+        bgn = extract_bgn_price(context)
+        eur = extract_eur_price(context)
+
+        # VMV цени обикновено са в BGN, ако няма EUR — изчисляваме
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+
+        if bgn or eur:
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    # Pattern 2: Текстови блокове с Harmonica + цена (без link)
+    if not products:
+        blocks = re.split(r'\n{2,}', markdown)
+        for block in blocks:
+            if not is_harmonica_product(block):
+                continue
+            # Извличаме име — ред с Harmonica
+            for line in block.split('\n'):
+                if is_harmonica_product(line):
+                    name = re.sub(r'\[([^\]]*)\]\([^\)]*\)', r'\1', line)
+                    name = re.sub(r'[#*_>|!]', '', name).strip()
+                    name = re.sub(r'\s+', ' ', name)
+                    if len(name) > 10 and is_food_product(name):
+                        name_key = name.lower()[:30]
+                        if name_key not in seen:
+                            bgn = extract_bgn_price(block)
+                            eur = extract_eur_price(block)
+                            if bgn and not eur:
+                                eur = round(bgn / EUR_BGN_RATE, 2)
+                            if bgn or eur:
+                                seen.add(name_key)
+                                products.append({"name": name, "eur": eur, "bgn": bgn})
+                        break
+
+    logger.info(f"VMV: {len(products)} продукта извлечени")
+    return products
+
+
+# =============================================================================
+# OPTIMA EXTRACTION
+# =============================================================================
+
+def extract_optima_products(markdown, html_text=None):
+    """
+    Извлича Harmonica продукти от Optima.bg.
+
+    Optima.bg е онлайн супермаркет в София. URL формат:
+    optima.bg/магазин/{category}/{id}/{product-slug}
+    Цени в BGN.
+    """
+    products = []
+    seen = set()
+
+    # Pattern 1: Links с Harmonica
+    link_pattern = r'\[([^\]]{5,120})\]\((?:https?://(?:www\.)?optima\.bg)?/([^\)]+)\)'
+    for match in re.finditer(link_pattern, markdown):
+        name = match.group(1).strip()
+
+        if name.startswith('!') or 'logo' in name.lower():
+            continue
+        if not is_harmonica_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+        if not is_food_product(name):
+            continue
+
+        idx = match.end()
+        context = markdown[max(0, idx - 100):idx + 400]
+
+        bgn = extract_bgn_price(context)
+        eur = extract_eur_price(context)
+
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+
+        if bgn or eur:
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    # Pattern 2: Текстови блокове
+    if not products:
+        blocks = re.split(r'\n{2,}', markdown)
+        for block in blocks:
+            if not is_harmonica_product(block):
+                continue
+            for line in block.split('\n'):
+                if is_harmonica_product(line):
+                    name = re.sub(r'\[([^\]]*)\]\([^\)]*\)', r'\1', line)
+                    name = re.sub(r'[#*_>|!]', '', name).strip()
+                    name = re.sub(r'\s+', ' ', name)
+                    if len(name) > 10 and is_food_product(name):
+                        name_key = name.lower()[:30]
+                        if name_key not in seen:
+                            bgn = extract_bgn_price(block)
+                            eur = extract_eur_price(block)
+                            if bgn and not eur:
+                                eur = round(bgn / EUR_BGN_RATE, 2)
+                            if bgn or eur:
+                                seen.add(name_key)
+                                products.append({"name": name, "eur": eur, "bgn": bgn})
+                        break
+
+    logger.info(f"Optima: {len(products)} продукта извлечени")
+    return products
+
+
+# =============================================================================
+# T-MARKET EXTRACTION
+# =============================================================================
+
+def extract_tmarket_products(markdown, html_text=None):
+    """
+    Извлича Harmonica продукти от T-Market Online.
+
+    T-Market vendor page: tmarketonline.bg/vendor/harmonica-1881705916
+    Продуктови URL: tmarketonline.bg/product/{slug}
+    Цени в BGN.
+    """
+    products = []
+    seen = set()
+
+    # Pattern 1: Product links — [Product Name](tmarketonline.bg/product/...)
+    link_pattern = r'\[([^\]]{5,120})\]\((?:https?://(?:www\.)?tmarketonline\.bg)?/product/([^\)]+)\)'
+    for match in re.finditer(link_pattern, markdown):
+        name = match.group(1).strip()
+
+        if name.startswith('!') or 'logo' in name.lower():
+            continue
+        if not is_harmonica_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+        if not is_food_product(name):
+            continue
+
+        idx = match.end()
+        context = markdown[max(0, idx - 150):idx + 400]
+
+        bgn = extract_bgn_price(context)
+        eur = extract_eur_price(context)
+
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+
+        if bgn or eur:
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    # Pattern 2: Generic Harmonica links
+    if not products:
+        link_pattern2 = r'\[([^\]]*(?:HARMONICA|harmonica|Harmonica)[^\]]*)\]\([^\)]+\)'
+        for match in re.finditer(link_pattern2, markdown):
+            name = match.group(1).strip()
+            if name.startswith('!') or len(name) < 10:
+                continue
+            name_key = name.lower()[:30]
+            if name_key in seen:
+                continue
+            if not is_food_product(name):
+                continue
+
+            idx = match.end()
+            context = markdown[max(0, idx - 150):idx + 400]
+            bgn = extract_bgn_price(context)
+            eur = extract_eur_price(context)
+            if bgn and not eur:
+                eur = round(bgn / EUR_BGN_RATE, 2)
+            if bgn or eur:
+                seen.add(name_key)
+                products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    # Pattern 3: BS4 fallback
+    if BS4_AVAILABLE and html_text and not products:
+        soup = BeautifulSoup(html_text, 'html.parser')
+        for item in soup.select('.product-card, .product-item, .product, [class*=product]'):
+            text = item.get_text(' ', strip=True)
+            if not is_harmonica_product(text):
+                continue
+            # Извличаме име от заглавие или link
+            name_el = item.select_one('h2, h3, h4, a.product-name, [class*=title], [class*=name]')
+            if not name_el:
+                for link in item.find_all('a', href=True):
+                    link_text = link.get_text(strip=True)
+                    if is_harmonica_product(link_text) and len(link_text) > 10:
+                        name_el = link
+                        break
+            if not name_el:
+                continue
+            product_name = name_el.get_text(strip=True)
+            name_key = product_name.lower()[:30]
+            if name_key in seen or not is_food_product(product_name):
+                continue
+            bgn = extract_bgn_price(text)
+            eur = extract_eur_price(text)
+            if bgn and not eur:
+                eur = round(bgn / EUR_BGN_RATE, 2)
+            if bgn or eur:
+                seen.add(name_key)
+                products.append({"name": product_name, "eur": eur, "bgn": bgn})
+
+    logger.info(f"T-Market: {len(products)} продукта извлечени")
     return products
 
 
@@ -832,6 +1104,238 @@ async def crawl_with_captcha_solver(crawler, store_key, store_config):
 
 
 # =============================================================================
+# DM ALGOLIA API — direct query bypass (без Cloudflare)
+# =============================================================================
+
+async def extract_algolia_config(html_text):
+    """
+    Извлича Algolia конфигурация от HTML/JS на DM.bg.
+
+    Търси appId, apiKey и indexName в:
+    - window.__INITIAL_STATE__ / window.__NEXT_DATA__
+    - Inline <script> tags с algolia config
+    - data-* атрибути
+    """
+    if not html_text:
+        return None
+
+    config = {}
+
+    # Pattern 1: applicationId / appId
+    app_id_patterns = [
+        r'(?:applicationId|appId|algoliaAppId|ALGOLIA_APP_ID)["\s:=]+["\']([A-Z0-9]{10,})["\']',
+        r'X-Algolia-Application-Id["\s:=]+["\']([A-Z0-9]{10,})["\']',
+        r'"appId"\s*:\s*"([A-Z0-9]{10,})"',
+    ]
+    for pattern in app_id_patterns:
+        match = re.search(pattern, html_text, re.IGNORECASE)
+        if match:
+            config['app_id'] = match.group(1)
+            break
+
+    # Pattern 2: searchOnlyApiKey / apiKey
+    api_key_patterns = [
+        r'(?:searchOnlyApiKey|apiKey|algoliaApiKey|ALGOLIA_API_KEY|searchKey)["\s:=]+["\']([a-f0-9]{20,})["\']',
+        r'X-Algolia-API-Key["\s:=]+["\']([a-f0-9]{20,})["\']',
+        r'"apiKey"\s*:\s*"([a-f0-9]{20,})"',
+    ]
+    for pattern in api_key_patterns:
+        match = re.search(pattern, html_text, re.IGNORECASE)
+        if match:
+            config['api_key'] = match.group(1)
+            break
+
+    # Pattern 3: indexName
+    index_patterns = [
+        r'(?:indexName|algoliaIndex|ALGOLIA_INDEX)["\s:=]+["\']([a-zA-Z0-9_\-]+(?:product|search|bg)[a-zA-Z0-9_\-]*)["\']',
+        r'"indexName"\s*:\s*"([^"]+)"',
+    ]
+    for pattern in index_patterns:
+        match = re.search(pattern, html_text, re.IGNORECASE)
+        if match:
+            config['index_name'] = match.group(1)
+            break
+
+    if config.get('app_id') and config.get('api_key'):
+        logger.info(f"Algolia config extracted: appId={config['app_id']}, "
+                     f"index={config.get('index_name', 'N/A')}")
+        return config
+
+    return None
+
+
+async def fetch_dm_via_algolia(query="harmonica"):
+    """
+    Опит за директна Algolia API заявка за DM Bulgaria.
+
+    Стратегия:
+    1. curl_cffi fetch на dm.bg → извличане на Algolia ключове от JS
+    2. Директна Algolia API заявка с намерените ключове
+    3. Парсване на JSON отговора в продуктов формат
+
+    Връща dict с "success", "products", "method".
+    """
+    if not CURL_CFFI_AVAILABLE:
+        logger.warning("DM Algolia: curl_cffi не е наличен")
+        return {"success": False, "error": "curl_cffi not available"}
+
+    logger.info("DM Algolia: опит за директна API заявка...")
+    start = time.time()
+
+    try:
+        async with CurlAsyncSession(impersonate="chrome") as session:
+            proxy = PROXY_URL if PROXY_URL else None
+
+            # Стъпка 1: Fetch dm.bg за Algolia config
+            logger.info("DM Algolia: извличане на конфигурация от dm.bg...")
+            resp = await session.get(
+                "https://www.dm.bg/search?query=harmonica&searchType=product",
+                proxy=proxy,
+                timeout=30,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.8",
+                },
+            )
+
+            if resp.status_code != 200:
+                logger.warning(f"DM Algolia: HTTP {resp.status_code} при fetch на dm.bg")
+                return {"success": False, "error": f"HTTP {resp.status_code}"}
+
+            html = resp.text
+
+            # Стъпка 2: Извличане на Algolia config
+            config = await extract_algolia_config(html)
+
+            if not config:
+                # Пробваме да намерим JS bundle URLs
+                js_urls = re.findall(
+                    r'(?:src|href)=["\']([^"\']*(?:chunk|main|app|search|algolia)[^"\']*\.js)["\']',
+                    html
+                )
+                for js_url in js_urls[:5]:
+                    if not js_url.startswith('http'):
+                        js_url = f"https://www.dm.bg{js_url}"
+                    try:
+                        js_resp = await session.get(js_url, proxy=proxy, timeout=15)
+                        if js_resp.status_code == 200:
+                            config = await extract_algolia_config(js_resp.text)
+                            if config:
+                                logger.info(f"DM Algolia: config намерен в {js_url}")
+                                break
+                    except Exception:
+                        continue
+
+            if not config:
+                elapsed = time.time() - start
+                logger.warning(f"DM Algolia: не може да се извлече конфигурация ({elapsed:.1f}s)")
+                # Връщаме HTML за BS4 парсване като fallback
+                return {
+                    "success": True,
+                    "method": "curl_cffi_html",
+                    "html": html,
+                    "markdown": "",
+                    "products": [],
+                    "elapsed": elapsed,
+                }
+
+            # Стъпка 3: Algolia API заявка
+            app_id = config['app_id']
+            api_key = config['api_key']
+            index_name = config.get('index_name', 'prod_search_bg')
+
+            algolia_url = f"https://{app_id}-dsn.algolia.net/1/indexes/{index_name}/query"
+            algolia_resp = await session.post(
+                algolia_url,
+                proxy=proxy,
+                timeout=15,
+                headers={
+                    "X-Algolia-Application-Id": app_id,
+                    "X-Algolia-API-Key": api_key,
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "query": query,
+                    "hitsPerPage": 50,
+                    "attributesToRetrieve": [
+                        "name", "title", "price", "brand", "url",
+                        "gtin", "image", "slug", "description",
+                    ],
+                },
+            )
+
+            if algolia_resp.status_code != 200:
+                logger.warning(f"DM Algolia API: HTTP {algolia_resp.status_code}")
+                # Fallback: парсваме HTML от стъпка 1
+                return {
+                    "success": True,
+                    "method": "curl_cffi_html",
+                    "html": html,
+                    "markdown": "",
+                    "products": [],
+                    "elapsed": time.time() - start,
+                }
+
+            algolia_data = algolia_resp.json()
+            hits = algolia_data.get("hits", [])
+            elapsed = time.time() - start
+
+            # Стъпка 4: Парсване на Algolia резултати
+            products = []
+            for hit in hits:
+                product_name = hit.get("name") or hit.get("title") or ""
+                if not product_name:
+                    continue
+
+                price = hit.get("price")
+                price_bgn = None
+                price_eur = None
+
+                if isinstance(price, (int, float)):
+                    price_bgn = round(float(price), 2)
+                elif isinstance(price, dict):
+                    price_bgn = price.get("BGN") or price.get("bgn") or price.get("value")
+                    if price_bgn:
+                        price_bgn = round(float(price_bgn), 2)
+
+                if price_bgn and not price_eur:
+                    price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+
+                if product_name and price_bgn:
+                    products.append({
+                        "name": product_name,
+                        "eur": price_eur,
+                        "bgn": price_bgn,
+                    })
+
+            logger.info(f"DM Algolia: {len(products)} продукта от {len(hits)} hits ({elapsed:.1f}s)")
+            return {
+                "success": True,
+                "method": "algolia_api",
+                "products": products,
+                "elapsed": elapsed,
+                "html": html,
+            }
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.error(f"DM Algolia грешка: {e} ({elapsed:.1f}s)")
+        return {"success": False, "error": str(e)}
+
+
+def extract_dm_from_curl_html(html_text):
+    """
+    Парсва DM продукти от HTML, получен чрез curl_cffi.
+    Използва се когато Algolia API не е наличен, но curl_cffi bypass-ва Cloudflare.
+    """
+    if not html_text:
+        return []
+    if BS4_AVAILABLE:
+        return _extract_dm_bs4(html_text)
+    return []
+
+
+# =============================================================================
 # MATCHING — подобрено с нормализация и тежести
 # =============================================================================
 
@@ -984,15 +1488,31 @@ async def crawl_store(crawler, store_key, store_config):
 
 async def crawl_all():
     """Сканира всички магазини паралелно с asyncio.gather."""
-    browser_config = BrowserConfig(
-        headless=True,
-        viewport_width=1920,
-        viewport_height=1080,
-    )
+    browser_kwargs = {
+        "headless": True,
+        "viewport_width": 1920,
+        "viewport_height": 1080,
+    }
+    if PROXY_URL:
+        browser_kwargs["proxy"] = PROXY_URL
+        logger.info(f"Proxy: {PROXY_URL[:30]}...")
+
+    browser_config = BrowserConfig(**browser_kwargs)
+
+    results = {}
+
+    # DM Algolia: паралелно с Crawl4AI (отделен път)
+    dm_algolia_task = None
+    dm_config = STORES.get("dm", {})
+    if dm_config.get("algolia_enabled") and CURL_CFFI_AVAILABLE:
+        dm_algolia_task = asyncio.create_task(fetch_dm_via_algolia("harmonica"))
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
         tasks = {}
         for key, cfg in STORES.items():
+            # DM: пропускаме Crawl4AI ако Algolia е активен
+            if key == "dm" and dm_algolia_task is not None:
+                continue
             if cfg.get("needs_captcha_solver"):
                 tasks[key] = crawl_with_captcha_solver(crawler, key, cfg)
             else:
@@ -1000,13 +1520,29 @@ async def crawl_all():
 
         task_results = await asyncio.gather(*tasks.values(), return_exceptions=True)
 
-        results = {}
         for key, result in zip(tasks.keys(), task_results):
             if isinstance(result, Exception):
                 logger.error(f"{key}: Неочаквана грешка — {result}")
                 results[key] = {"success": False, "error": str(result)}
             else:
                 results[key] = result
+
+    # DM Algolia резултат
+    if dm_algolia_task is not None:
+        try:
+            dm_result = await dm_algolia_task
+            if dm_result.get("success"):
+                results["dm"] = dm_result
+                logger.info(f"DM: Algolia API успех (method: {dm_result.get('method')})")
+            else:
+                # Algolia не успя — fallback към CapSolver + Crawl4AI
+                logger.warning(f"DM Algolia failed: {dm_result.get('error')} — falling back to CapSolver")
+                async with AsyncWebCrawler(config=browser_config) as crawler:
+                    results["dm"] = await crawl_with_captcha_solver(crawler, "dm", dm_config)
+        except Exception as e:
+            logger.error(f"DM Algolia грешка: {e} — falling back to CapSolver")
+            async with AsyncWebCrawler(config=browser_config) as crawler:
+                results["dm"] = await crawl_with_captcha_solver(crawler, "dm", dm_config)
 
     return results
 
@@ -1289,10 +1825,13 @@ def write_to_sheets(final_products, stats):
 
 async def main():
     logger.info("=" * 60)
-    logger.info("EXP-003: CRAWL4AI v8.0 + CapSolver + DM Bulgaria")
+    logger.info("EXP-003: CRAWL4AI v9.0 — 8 магазина + Algolia API")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"Магазини: {len(STORES)}, BS4: {BS4_AVAILABLE}, CapSolver: {CAPSOLVER_AVAILABLE}")
+    logger.info(f"Магазини: {len(STORES)}, BS4: {BS4_AVAILABLE}, "
+                f"CapSolver: {CAPSOLVER_AVAILABLE}, curl_cffi: {CURL_CFFI_AVAILABLE}")
+    if PROXY_URL:
+        logger.info(f"Proxy: {PROXY_URL[:30]}...")
 
     if not CRAWL4AI_AVAILABLE:
         logger.error("Crawl4AI not available!")
@@ -1339,83 +1878,123 @@ async def main():
 
     # DM Bulgaria
     dm_products = []
-    if crawl_results.get("dm", {}).get("success"):
-        dm_data = crawl_results["dm"]
-        dm_products = extract_dm_products(
-            dm_data["markdown"],
-            html_text=dm_data.get("html"),
-        )
+    dm_data = crawl_results.get("dm", {})
+    if dm_data.get("success"):
         method = dm_data.get("method", "unknown")
+        # Algolia API — продуктите са вече извлечени
+        if dm_data.get("products"):
+            dm_products = dm_data["products"]
+        # curl_cffi HTML или Crawl4AI HTML — парсваме
+        elif dm_data.get("html"):
+            dm_products = extract_dm_from_curl_html(dm_data["html"])
+            if not dm_products:
+                dm_products = extract_dm_products(
+                    dm_data.get("markdown", ""),
+                    html_text=dm_data.get("html"),
+                )
+        elif dm_data.get("markdown"):
+            dm_products = extract_dm_products(dm_data["markdown"])
         logger.info(f"DM: {len(dm_products)} Harmonica products (method: {method})")
-    elif crawl_results.get("dm", {}).get("error"):
-        logger.warning(f"DM: {crawl_results['dm']['error']}")
+    elif dm_data.get("error"):
+        logger.warning(f"DM: {dm_data['error']}")
+
+    # VMV Supermarket
+    vmv_products = []
+    if crawl_results.get("vmv", {}).get("success"):
+        vmv_data = crawl_results["vmv"]
+        vmv_products = extract_vmv_products(
+            vmv_data["markdown"],
+            html_text=vmv_data.get("html"),
+        )
+        logger.info(f"VMV: {len(vmv_products)} Harmonica products")
+    elif crawl_results.get("vmv", {}).get("error"):
+        logger.warning(f"VMV: {crawl_results['vmv']['error']}")
+
+    # Optima
+    optima_products = []
+    if crawl_results.get("optima", {}).get("success"):
+        optima_data = crawl_results["optima"]
+        optima_products = extract_optima_products(
+            optima_data["markdown"],
+            html_text=optima_data.get("html"),
+        )
+        logger.info(f"Optima: {len(optima_products)} Harmonica products")
+    elif crawl_results.get("optima", {}).get("error"):
+        logger.warning(f"Optima: {crawl_results['optima']['error']}")
+
+    # T-Market
+    tmarket_products = []
+    if crawl_results.get("tmarket", {}).get("success"):
+        tmarket_data = crawl_results["tmarket"]
+        tmarket_products = extract_tmarket_products(
+            tmarket_data["markdown"],
+            html_text=tmarket_data.get("html"),
+        )
+        logger.info(f"T-Market: {len(tmarket_products)} Harmonica products")
+    elif crawl_results.get("tmarket", {}).get("error"):
+        logger.warning(f"T-Market: {crawl_results['tmarket']['error']}")
 
     # 3. Match products
     logger.info("=" * 40 + " MATCHING " + "=" * 40)
 
+    # Динамично генериране на store keys (без reference)
+    store_keys = [key for key, cfg in STORES.items() if not cfg.get("is_reference")]
+
     final_products = []
     for ref in kashon_products:
-        product = {
-            "name": ref["name"],
-            "kashon": {"eur": ref["eur"], "bgn": ref["bgn"]},
-            "ebag": None,
-            "balev": None,
-            "lilly": None,
-            "dm": None,
-        }
+        product = {"name": ref["name"], "kashon": {"eur": ref["eur"], "bgn": ref["bgn"]}}
+        for sk in store_keys:
+            product[sk] = None
         final_products.append(product)
 
-    ebag_matches = match_products(kashon_products, ebag_products)
-    for product in final_products:
-        if product["name"] in ebag_matches:
-            m = ebag_matches[product["name"]]
-            product["ebag"] = {"eur": m["eur"], "bgn": m["bgn"]}
+    # Всички магазини и техните продукти
+    all_store_products = {
+        "ebag": ebag_products,
+        "balev": balev_products,
+        "lilly": lilly_products,
+        "dm": dm_products,
+        "vmv": vmv_products,
+        "optima": optima_products,
+        "tmarket": tmarket_products,
+    }
 
-    balev_matches = match_products(kashon_products, balev_products)
-    for product in final_products:
-        if product["name"] in balev_matches:
-            m = balev_matches[product["name"]]
-            product["balev"] = {"eur": m["eur"], "bgn": m["bgn"]}
-
-    lilly_matches = match_products(kashon_products, lilly_products)
-    for product in final_products:
-        if product["name"] in lilly_matches:
-            m = lilly_matches[product["name"]]
-            product["lilly"] = {
-                "eur": m["eur"],
-                "bgn": m["bgn"],
-                "in_stock": m.get("in_stock", True),
-            }
-
-    dm_matches = match_products(kashon_products, dm_products)
-    for product in final_products:
-        if product["name"] in dm_matches:
-            m = dm_matches[product["name"]]
-            product["dm"] = {"eur": m["eur"], "bgn": m["bgn"]}
+    for store_key, store_prods in all_store_products.items():
+        if not store_prods:
+            continue
+        matches = match_products(kashon_products, store_prods)
+        for product in final_products:
+            if product["name"] in matches:
+                m = matches[product["name"]]
+                entry = {"eur": m["eur"], "bgn": m["bgn"]}
+                if "in_stock" in m:
+                    entry["in_stock"] = m["in_stock"]
+                product[store_key] = entry
 
     # 4. Statistics
-    kashon_count = len([p for p in final_products if p["kashon"]])
-    ebag_count = len([p for p in final_products if p["ebag"]])
-    balev_count = len([p for p in final_products if p["balev"]])
-    lilly_count = len([p for p in final_products if p["lilly"]])
-    lilly_oos_count = len([p for p in final_products
-                           if p["lilly"] and not p["lilly"].get("in_stock", True)])
-    dm_count = len([p for p in final_products if p["dm"]])
-
     logger.info("=" * 40 + " STATISTICS " + "=" * 40)
+    kashon_count = len([p for p in final_products if p.get("kashon")])
     logger.info(f"Референтни (Кашон): {kashon_count}")
-    if kashon_count:
-        logger.info(f"eBag: {ebag_count}/{kashon_count} ({ebag_count/kashon_count*100:.0f}%)")
-        logger.info(f"Balev: {balev_count}/{kashon_count} ({balev_count/kashon_count*100:.0f}%)")
-        logger.info(f"Lilly: {lilly_count}/{kashon_count} ({lilly_count/kashon_count*100:.0f}%)"
-                     f" — {lilly_oos_count} изчерпани")
-        logger.info(f"DM: {dm_count}/{kashon_count} ({dm_count/kashon_count*100:.0f}%)")
+
+    store_counts = {}
+    for sk in store_keys:
+        count = len([p for p in final_products if p.get(sk)])
+        store_counts[sk] = count
+        if kashon_count:
+            pct = count / kashon_count * 100
+            extra = ""
+            if sk == "lilly":
+                oos = len([p for p in final_products
+                           if p.get("lilly") and not p["lilly"].get("in_stock", True)])
+                extra = f" — {oos} изчерпани"
+                store_counts["lilly_oos"] = oos
+            logger.info(f"{STORES[sk]['name']}: {count}/{kashon_count} ({pct:.0f}%){extra}")
 
     # Примерни продукти
-    matched = [p for p in final_products if p["ebag"] or p["balev"] or p["lilly"] or p["dm"]][:5]
+    matched = [p for p in final_products
+               if any(p.get(sk) for sk in store_keys)][:5]
     for p in matched:
         parts = [f"{p['name'][:50]}:"]
-        for store in ["kashon", "ebag", "balev", "lilly", "dm"]:
+        for store in ["kashon"] + store_keys:
             if p.get(store):
                 bgn = p[store].get('bgn')
                 parts.append(f"  {store}={'%.2f' % bgn if bgn else 'N/A'}лв")
@@ -1424,32 +2003,25 @@ async def main():
     total_time = time.time() - total_start
 
     # 5. Write to Google Sheets
-    write_to_sheets(final_products, {
-        "kashon_products": kashon_count,
-        "ebag_matches": ebag_count,
-        "balev_matches": balev_count,
-        "lilly_matches": lilly_count,
-        "lilly_out_of_stock": lilly_oos_count,
-        "dm_matches": dm_count,
-    })
+    stats = {"kashon_products": kashon_count}
+    for sk in store_keys:
+        stats[f"{sk}_matches"] = store_counts.get(sk, 0)
+    stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
+    write_to_sheets(final_products, stats)
 
     # 6. Save JSON
+    json_stats = {"kashon_products": kashon_count}
+    for sk, prods in all_store_products.items():
+        json_stats[f"{sk}_products"] = len(prods)
+        json_stats[f"{sk}_matches"] = store_counts.get(sk, 0)
+    json_stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
+
     output = {
-        "experiment": "EXP-003-v8.0",
+        "experiment": "EXP-003-v9.0",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
-        "stats": {
-            "kashon_products": kashon_count,
-            "ebag_products": len(ebag_products),
-            "ebag_matches": ebag_count,
-            "balev_products": len(balev_products),
-            "balev_matches": balev_count,
-            "lilly_products": len(lilly_products),
-            "lilly_matches": lilly_count,
-            "lilly_out_of_stock": lilly_oos_count,
-            "dm_products": len(dm_products),
-            "dm_matches": dm_count,
-        },
+        "stores": len(STORES),
+        "stats": json_stats,
         "products": final_products,
     }
 
@@ -1461,7 +2033,8 @@ async def main():
     except Exception as e:
         logger.error(f"Грешка при запис на JSON: {e}")
 
-    logger.info(f"ГОТОВО за {total_time:.1f}s")
+    logger.info(f"ГОТОВО за {total_time:.1f}s — {len(STORES)} магазина, "
+                f"{kashon_count} референтни продукта")
 
 
 if __name__ == "__main__":
