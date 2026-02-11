@@ -1,13 +1,12 @@
 """
-EXP-009: Crawl4AI Experimental Scraper v14.0
+EXP-010: Crawl4AI Experimental Scraper v15.0
 =============================================
-Промени спрямо v13.0:
-- Lilly: нова стратегия — result.links (рендериран DOM) след BS4+regex fallback
-  result.links.internal може да съдържа продуктови линкове дори ако HTML е само <head>
-- _extract_lilly_from_links(): ново — извлича HARMONICA продукти от links dict
-- extract_lilly_products(): BS4 → regex → links (в ред на предпочитание)
-- crawl_with_captcha_solver: лог на internal_links count + harmonica links count
-- main(): предава lilly_data.links на extract_lilly_products
+Промени спрямо v14.0:
+- Lilly fallback: директна HTTP заявка с requests (SSR/Varnish FPC проверка)
+  Ако Magento 2 + Varnish кешира пълния HTML → requests ще върне >>50KB с продукти
+  Ако CSR-only → ще върне ~34KB shell (потвърждаване на диагнозата)
+- _fetch_lilly_requests(): синхронна GET заявка с Chrome User-Agent headers
+- main(): asyncio.to_thread() за requests fallback след 0 продукта от Crawl4AI
 
 Промени спрямо v8.0:
 - T-Market добавен (tmarketonline.bg)
@@ -62,6 +61,13 @@ try:
 except ImportError:
     CRAWL4AI_AVAILABLE = False
     logger.error("Crawl4AI not installed")
+
+try:
+    import requests as _requests_lib
+    REQUESTS_AVAILABLE = True
+except ImportError:
+    REQUESTS_AVAILABLE = False
+    logger.warning("requests not installed — Lilly HTTP fallback disabled")
 
 try:
     import capsolver
@@ -542,6 +548,27 @@ def _extract_lilly_regex(markdown_text):
 
     logger.info(f"Lilly regex: {len(products)} продукта извлечени")
     return products
+
+
+def _fetch_lilly_requests(url):
+    """
+    Синхронна HTTP заявка за Lilly — fallback за SSR съдържание.
+    Ако Magento 2 + Varnish FPC е активен, сървърът ще върне пълен HTML с продукти.
+    Ако е CSR-only, ще върне същия ~34KB shell.
+    """
+    headers = {
+        'User-Agent': (
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        ),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'bg-BG,bg;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Cache-Control': 'no-cache',
+    }
+    response = _requests_lib.get(url, headers=headers, timeout=30, allow_redirects=True)
+    return response.text
 
 
 def _extract_lilly_from_links(links):
@@ -1368,7 +1395,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер (EXP-009)'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер (EXP-010)'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(store_columns) + 1}']
@@ -1570,7 +1597,7 @@ def write_to_sheets(final_products, stats):
 
 async def main():
     logger.info("=" * 60)
-    logger.info("EXP-009: CRAWL4AI v14.0 + Lilly links-based extraction")
+    logger.info("EXP-010: CRAWL4AI v15.0 + Lilly requests SSR fallback")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)}, BS4: {BS4_AVAILABLE}, CapSolver: {CAPSOLVER_AVAILABLE}")
@@ -1618,6 +1645,21 @@ async def main():
         in_stock = sum(1 for p in lilly_products if p.get('in_stock', True))
         if in_stock < len(lilly_products):
             logger.info(f"  Налични: {in_stock}, Изчерпани: {len(lilly_products) - in_stock}")
+
+    # Lilly fallback: директна HTTP заявка ако Crawl4AI върна 0 продукта
+    if not lilly_products and REQUESTS_AVAILABLE:
+        logger.info("Lilly fallback: директна HTTP заявка (проверка за SSR съдържание)")
+        try:
+            lilly_url = STORES["lilly"]["url"]
+            lilly_html_req = await asyncio.to_thread(_fetch_lilly_requests, lilly_url)
+            logger.info(f"Lilly requests: {len(lilly_html_req)} chars")
+            if len(lilly_html_req) > 50000:
+                lilly_products = extract_lilly_products("", html_text=lilly_html_req)
+                logger.info(f"Lilly requests: {len(lilly_products)} продукта (SSR)")
+            else:
+                logger.info("Lilly requests: CSR-only (размерът е подобен на Crawl4AI — нема SSR)")
+        except Exception as e:
+            logger.warning(f"Lilly requests fallback неуспешен: {e}")
 
     # DM Bulgaria
     dm_products = []
@@ -1740,7 +1782,7 @@ async def main():
 
     # 6. Save JSON
     output = {
-        "experiment": "EXP-009-v14.0",
+        "experiment": "EXP-010-v15.0",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stats": {
