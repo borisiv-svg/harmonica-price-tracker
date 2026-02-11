@@ -104,7 +104,8 @@ STORES = {
     "lilly": {
         "name": "Lilly Drogerie",
         "url": "https://lillydrogerie.bg/brands/harmonica",
-        "scroll_times": 0,  # SSR — продуктите са в статичния HTML, без нужда от scroll
+        "scroll_times": 2,  # JS rendering: изчакваме product grid да се зареди
+        "wait_for": "css:.product-item-info,.product-items,ol.products",
         "is_reference": False,
     },
     "dm": {
@@ -706,6 +707,18 @@ async def crawl_with_captcha_solver(crawler, store_key, store_config):
 
     result = await crawler.arun(url=url, config=magic_config)
 
+    # Проверка за DNS / мрежови грешки преди всичко
+    if not result.success:
+        error_msg = str(getattr(result, 'error_message', '') or '')
+        elapsed = time.time() - start
+        if 'ERR_NAME_NOT_RESOLVED' in error_msg:
+            logger.warning(f"{store_name}: DNS грешка {elapsed:.1f}s — домейнът не е достъпен")
+            return {"success": False, "error": "DNS error: domain not resolved"}
+        if any(e in error_msg for e in ('ERR_CONNECTION_REFUSED', 'ERR_CONNECTION_TIMED_OUT',
+                                        'ERR_NETWORK_CHANGED', 'net::ERR_')):
+            logger.warning(f"{store_name}: Мрежова грешка {elapsed:.1f}s — {error_msg[:120]}")
+            return {"success": False, "error": f"Network error: {error_msg[:120]}"}
+
     # Проверка дали magic mode е достатъчен
     if result.success and result.markdown and len(result.markdown) > 500:
         # Проверяваме дали съдържанието е реално (не Cloudflare challenge page)
@@ -942,10 +955,12 @@ async def crawl_store(crawler, store_key, store_config):
         await scrollPage();
         """
 
+    wait_for = store_config.get("wait_for")
     config = CrawlerRunConfig(
         page_timeout=90000,
         remove_overlay_elements=True,
         js_code=scroll_js if scroll_js else None,
+        wait_for=wait_for,
     )
 
     start = time.time()
@@ -1042,7 +1057,11 @@ def write_to_sheets(final_products, stats):
         else:
             gc = gspread.service_account(filename='credentials.json')
 
-        spreadsheet = gc.open(SPREADSHEET_NAME)
+        spreadsheet_id = os.environ.get("SPREADSHEET_ID")
+        if spreadsheet_id:
+            spreadsheet = gc.open_by_key(spreadsheet_id)
+        else:
+            spreadsheet = gc.open(SPREADSHEET_NAME)
 
         try:
             sheet = spreadsheet.worksheet(tab_name)
