@@ -1,13 +1,13 @@
 """
-EXP-008: Crawl4AI Experimental Scraper v13.0
+EXP-009: Crawl4AI Experimental Scraper v14.0
 =============================================
-Промени спрямо v12.0:
-- Lilly: "no body" диагностирано — result.html съдържа само <head> (34KB CSS/scripts)
-  Сега пробваме result.cleaned_html (рендериран съдържимо) вместо result.html
-  best_html = cleaned_html (>500) else html — подаваме по-добрия вариант на BS4
-- crawl_with_captcha_solver: log на html[:200] + cleaned_html size за диагностика
-- _extract_lilly_bs4: log на html_text[:300] за да видим точно какво парсваме
-- T-Market: Cloudflare-blocked (GitHub Actions IP) — очаквано, без промяна
+Промени спрямо v13.0:
+- Lilly: нова стратегия — result.links (рендериран DOM) след BS4+regex fallback
+  result.links.internal може да съдържа продуктови линкове дори ако HTML е само <head>
+- _extract_lilly_from_links(): ново — извлича HARMONICA продукти от links dict
+- extract_lilly_products(): BS4 → regex → links (в ред на предпочитание)
+- crawl_with_captcha_solver: лог на internal_links count + harmonica links count
+- main(): предава lilly_data.links на extract_lilly_products
 
 Промени спрямо v8.0:
 - T-Market добавен (tmarketonline.bg)
@@ -394,18 +394,26 @@ def extract_balev_products(markdown):
 # LILLY DROGERIE EXTRACTION (EXP-003) — BeautifulSoup с regex fallback
 # =============================================================================
 
-def extract_lilly_products(markdown_text, html_text=None):
+def extract_lilly_products(markdown_text, html_text=None, links=None):
     """
     Извлича Harmonica продукти от Lilly Drogerie brand page.
 
-    Предпочита BeautifulSoup + HTML за по-стабилно парсване.
-    Ако BS4 не е наличен или HTML липсва, използва regex + markdown.
-
-    Връща list of dicts с допълнително поле 'in_stock' (bool).
+    Стратегия (в ред на предпочитание):
+    1. BeautifulSoup + HTML (ако HTML има <body> с продукти)
+    2. Regex + markdown (ако markdown не е празен)
+    3. result.links (ако страницата е JS SPA без server-side render)
     """
     if BS4_AVAILABLE and html_text:
-        return _extract_lilly_bs4(html_text)
-    return _extract_lilly_regex(markdown_text)
+        products = _extract_lilly_bs4(html_text)
+        if products:
+            return products
+    if markdown_text and len(markdown_text) > 50:
+        products = _extract_lilly_regex(markdown_text)
+        if products:
+            return products
+    if links:
+        return _extract_lilly_from_links(links)
+    return []
 
 
 def _is_harmonica_text(text):
@@ -533,6 +541,41 @@ def _extract_lilly_regex(markdown_text):
             })
 
     logger.info(f"Lilly regex: {len(products)} продукта извлечени")
+    return products
+
+
+def _extract_lilly_from_links(links):
+    """
+    Извлича Lilly продукти от result.links (рендериран DOM от Crawl4AI).
+    Използва се когато HTML/markdown не съдържат продуктово съдържание (CSR SPA).
+    Цени не са налични от listings — приема само имена и URL-и.
+    """
+    products = []
+    seen = set()
+    internal = links.get('internal', [])
+    for lnk in internal:
+        text = (lnk.get('text') or '').strip()
+        href = (lnk.get('href') or '')
+        if not _is_harmonica_text(text):
+            continue
+        if '/media/' in href or '/static/' in href:
+            continue
+        if len(text) < 5:
+            continue
+        key = text.lower()[:40]
+        if key in seen:
+            continue
+        if not is_food_product(text):
+            continue
+        seen.add(key)
+        products.append({
+            'name': text,
+            'eur': None,
+            'bgn': None,
+            'in_stock': True,
+            'url': href,
+        })
+    logger.info(f"Lilly links: {len(products)} продукта извлечени от {len(internal)} internal links")
     return products
 
 
@@ -950,10 +993,17 @@ async def crawl_with_captcha_solver(crawler, store_key, store_config):
         # Не е Cloudflare challenge — проверяваме дали HTML-ът е достатъчен за BS4
         # Случва се страницата да е заредена но markdown да е кратък (JS-heavy site)
         cleaned_html = getattr(result, 'cleaned_html', '') or ''
+        links = getattr(result, 'links', {}) or {}
+        internal_links = links.get('internal', [])
+        harmonica_in_links = [
+            lnk for lnk in internal_links
+            if _is_harmonica_text(lnk.get('text', ''))
+        ]
         # Логваме какво точно има в html (за диагностика на "no body" проблема)
         logger.info(
             f"{store_name}: html starts: {html[:200]!r:.200}, "
-            f"cleaned_html size: {len(cleaned_html)}"
+            f"cleaned_html size: {len(cleaned_html)}, "
+            f"internal links: {len(internal_links)}, harmonica: {len(harmonica_in_links)}"
         )
         # Използваме cleaned_html ако е наличен (рендерирано съдържание),
         # иначе html (raw source с евентуален само <head>)
@@ -970,6 +1020,7 @@ async def crawl_with_captcha_solver(crawler, store_key, store_config):
                 "elapsed": elapsed,
                 "markdown": result.markdown or "",
                 "html": best_html,
+                "links": links,
                 "method": "magic_html",
             }
         elapsed = time.time() - start
@@ -1317,7 +1368,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер (EXP-008)'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер (EXP-009)'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(store_columns) + 1}']
@@ -1519,7 +1570,7 @@ def write_to_sheets(final_products, stats):
 
 async def main():
     logger.info("=" * 60)
-    logger.info("EXP-008: CRAWL4AI v13.0 + Lilly cleaned_html fallback")
+    logger.info("EXP-009: CRAWL4AI v14.0 + Lilly links-based extraction")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)}, BS4: {BS4_AVAILABLE}, CapSolver: {CAPSOLVER_AVAILABLE}")
@@ -1561,6 +1612,7 @@ async def main():
         lilly_products = extract_lilly_products(
             lilly_data["markdown"],
             html_text=lilly_data.get("html"),
+            links=lilly_data.get("links"),
         )
         logger.info(f"Lilly: {len(lilly_products)} Harmonica products")
         in_stock = sum(1 for p in lilly_products if p.get('in_stock', True))
@@ -1688,7 +1740,7 @@ async def main():
 
     # 6. Save JSON
     output = {
-        "experiment": "EXP-008-v13.0",
+        "experiment": "EXP-009-v14.0",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stats": {
