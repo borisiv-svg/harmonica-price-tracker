@@ -1,6 +1,12 @@
 """
-EXP-004: Crawl4AI Experimental Scraper v9.0
-============================================
+EXP-005: Crawl4AI Experimental Scraper v10.0
+=============================================
+Промени спрямо v9.0:
+- Lilly Drogerie: fix за "Blocked (не е Cloudflare)" false-positive —
+  ако HTML > 1000 символа но markdown < 500, страницата е заредена и
+  HTML-ът се предава на BS4 за парсване (вместо да се маркира като грешка)
+- T-Market: добавен magic mode (needs_captcha_solver=True) за JavaScript rendering
+
 Промени спрямо v8.0:
 - T-Market добавен (tmarketonline.bg)
 - Lilly Drogerie: magic mode вместо wait_for (fix за 1 char issue)
@@ -126,6 +132,7 @@ STORES = {
         "url": "https://tmarketonline.bg/search?query=harmonica",
         "scroll_times": 5,
         "is_reference": False,
+        "needs_captcha_solver": True,  # magic mode за JavaScript rendering
     },
 }
 
@@ -906,7 +913,22 @@ async def crawl_with_captcha_solver(crawler, store_key, store_config):
     is_challenge, sitekey = detect_cloudflare_challenge(html)
 
     if not is_challenge:
-        # Не е Cloudflare — може би друг тип блокировка
+        # Не е Cloudflare challenge — проверяваме дали HTML-ът е достатъчен за BS4
+        # Случва се страницата да е заредена но markdown да е кратък (JS-heavy site)
+        if html and len(html) > 1000:
+            elapsed = time.time() - start
+            logger.info(
+                f"{store_name}: OK (magic, short markdown) {elapsed:.1f}s, "
+                f"html={len(html)} chars"
+            )
+            return {
+                "success": True,
+                "store_key": store_key,
+                "elapsed": elapsed,
+                "markdown": result.markdown or "",
+                "html": html,
+                "method": "magic_html",
+            }
         elapsed = time.time() - start
         logger.warning(f"{store_name}: Блокиран (не е Cloudflare) {elapsed:.1f}s")
         logger.warning(f"  HTML preview: {html[:200]}")
@@ -1252,7 +1274,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер (EXP-003)'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер (EXP-005)'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(store_columns) + 1}']
@@ -1454,7 +1476,7 @@ def write_to_sheets(final_products, stats):
 
 async def main():
     logger.info("=" * 60)
-    logger.info("EXP-004: CRAWL4AI v9.0 + T-Market + Lilly fix")
+    logger.info("EXP-005: CRAWL4AI v10.0 + Lilly HTML fix + T-Market magic mode")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)}, BS4: {BS4_AVAILABLE}, CapSolver: {CAPSOLVER_AVAILABLE}")
@@ -1623,7 +1645,7 @@ async def main():
 
     # 6. Save JSON
     output = {
-        "experiment": "EXP-004-v9.0",
+        "experiment": "EXP-005-v10.0",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stats": {
