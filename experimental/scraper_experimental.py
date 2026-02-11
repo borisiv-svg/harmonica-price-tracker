@@ -1,6 +1,12 @@
 """
-EXP-003: Crawl4AI Experimental Scraper v8.0
+EXP-004: Crawl4AI Experimental Scraper v9.0
 ============================================
+Промени спрямо v8.0:
+- T-Market добавен (tmarketonline.bg)
+- Lilly Drogerie: magic mode вместо wait_for (fix за 1 char issue)
+- is_food_product: строга филтрация — торбички, паламуд, книги вече се изключват
+- NON_FOOD_KEYWORDS разширен: торба, торбич, паламуд, книг
+
 Промени спрямо v7.0:
 - CapSolver интеграция за сайтове с anti-bot защита (Cloudflare Turnstile/Challenge)
 - DM България добавен (с CapSolver bypass за 403 защитата)
@@ -104,9 +110,9 @@ STORES = {
     "lilly": {
         "name": "Lilly Drogerie",
         "url": "https://lillydrogerie.bg/brands/harmonica",
-        "scroll_times": 2,  # JS rendering: изчакваме product grid да се зареди
-        "wait_for": "css:.product-item-info,.product-items,ol.products",
+        "scroll_times": 3,
         "is_reference": False,
+        "needs_captcha_solver": True,  # magic mode: по-добро JS rendering + anti-bot
     },
     "dm": {
         "name": "DM Bulgaria",
@@ -114,6 +120,12 @@ STORES = {
         "scroll_times": 5,
         "is_reference": False,
         "needs_captcha_solver": True,
+    },
+    "tmarket": {
+        "name": "T-Market",
+        "url": "https://tmarketonline.bg/search?query=harmonica",
+        "scroll_times": 5,
+        "is_reference": False,
     },
 }
 
@@ -136,11 +148,12 @@ FOOD_KEYWORDS = [
 NON_FOOD_KEYWORDS = [
     "потник", "тениска", "блуза", "дреха", "шапка", "чанта", "раница",
     "козметика", "крем", "шампоан", "сапун", "гел", "лосион",
+    "торба", "торбич", "паламуд", "книг",
 ]
 
 
 def is_food_product(name):
-    """Проверява дали е храна."""
+    """Проверява дали е храна. При съмнение — изключва (return False)."""
     name_lower = name.lower()
     for kw in NON_FOOD_KEYWORDS:
         if kw in name_lower:
@@ -150,7 +163,7 @@ def is_food_product(name):
             return True
     if re.search(r'\d+\s*(?:г|мл|ml|g|kg|л)\b', name_lower):
         return True
-    return True
+    return False
 
 
 def is_harmonica_product(name):
@@ -629,6 +642,144 @@ def _extract_dm_regex(markdown_text):
 
 
 # =============================================================================
+# T-MARKET EXTRACTION
+# =============================================================================
+
+def extract_tmarket_products(markdown_text, html_text=None):
+    """Извлича Harmonica продукти от T-Market search резултати."""
+    if BS4_AVAILABLE and html_text:
+        return _extract_tmarket_bs4(html_text)
+    return _extract_tmarket_regex(markdown_text)
+
+
+def _extract_tmarket_bs4(html_text):
+    """Извлича T-Market продукти с BeautifulSoup."""
+    products = []
+    seen = set()
+    soup = BeautifulSoup(html_text, 'html.parser')
+
+    # T-Market product cards — типични class имена за WooCommerce/Magento
+    product_items = soup.select(
+        '.product-item, .product-card, .product, '
+        'li.product, article.product, .catalog-product'
+    )
+
+    # Fallback: всички елементи с harmonica текст и ценова информация
+    if not product_items:
+        for el in soup.find_all(['div', 'li', 'article']):
+            text = el.get_text(strip=True)
+            if ('harmonica' in text.lower() or 'хармоника' in text.lower()):
+                if len(text) < 3000 and el not in product_items:
+                    product_items.append(el)
+
+    for item in product_items:
+        text = item.get_text(' ', strip=True)
+        if not ('harmonica' in text.lower() or 'хармоника' in text.lower()):
+            continue
+
+        # Намираме продуктово ime
+        product_name = None
+        for tag in item.find_all(['a', 'h2', 'h3', 'h4', 'span', 'p']):
+            tag_text = tag.get_text(strip=True)
+            if (tag_text and len(tag_text) > 8
+                    and ('harmonica' in tag_text.lower() or 'хармоника' in tag_text.lower())):
+                product_name = tag_text
+                break
+
+        if not product_name:
+            continue
+
+        name_key = product_name.lower()[:40]
+        if name_key in seen:
+            continue
+        if not is_food_product(product_name):
+            continue
+
+        price_bgn = extract_bgn_price(text)
+        price_eur = extract_eur_price(text)
+
+        # T-Market може да показва само лева
+        if not price_bgn and not price_eur:
+            m = re.search(r'(\d+)[,.](\d{2})', text)
+            if m:
+                try:
+                    p = float(f"{m.group(1)}.{m.group(2)}")
+                    if 0.50 <= p <= 100:
+                        price_bgn = round(p, 2)
+                except ValueError:
+                    pass
+
+        if product_name and (price_eur or price_bgn):
+            seen.add(name_key)
+            products.append({"name": product_name, "eur": price_eur, "bgn": price_bgn})
+
+    logger.info(f"T-Market BS4: {len(products)} продукта извлечени")
+    return products
+
+
+def _extract_tmarket_regex(markdown_text):
+    """Извлича T-Market продукти с regex."""
+    products = []
+    seen = set()
+
+    # Pattern: линкове с harmonica в текста
+    link_pattern = r'\[([^\]]*(?:harmonica|хармоника)[^\]]*)\]\([^\)]+\)'
+    for match in re.finditer(link_pattern, markdown_text, re.IGNORECASE):
+        name = match.group(1).strip()
+        if name.startswith('!') or len(name) < 8:
+            continue
+
+        name_key = name.lower()[:40]
+        if name_key in seen:
+            continue
+        if not is_food_product(name):
+            continue
+
+        idx = match.end()
+        context = markdown_text[max(0, idx - 100):idx + 400]
+
+        bgn = extract_bgn_price(context)
+        eur = extract_eur_price(context)
+
+        # Fallback за цена без валутен символ
+        if not bgn and not eur:
+            m = re.search(r'(\d+)[,.](\d{2})', context)
+            if m:
+                try:
+                    p = float(f"{m.group(1)}.{m.group(2)}")
+                    if 0.50 <= p <= 100:
+                        bgn = round(p, 2)
+                except ValueError:
+                    pass
+
+        if bgn or eur:
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    # Fallback: текстови блокове с harmonica + цена
+    if not products:
+        for block in re.split(r'\n{2,}', markdown_text):
+            if not ('harmonica' in block.lower() or 'хармоника' in block.lower()):
+                continue
+            for line in block.split('\n'):
+                if 'harmonica' in line.lower() or 'хармоника' in line.lower():
+                    name = re.sub(r'\[([^\]]*)\]\([^\)]*\)', r'\1', line)
+                    name = re.sub(r'[#*_>|]', '', name).strip()
+                    if len(name) > 8:
+                        name_key = name.lower()[:40]
+                        if name_key not in seen and is_food_product(name):
+                            bgn = extract_bgn_price(block)
+                            eur = extract_eur_price(block)
+                            if bgn or eur:
+                                seen.add(name_key)
+                                products.append({"name": name, "eur": eur, "bgn": bgn})
+                    break
+
+    logger.info(f"T-Market regex: {len(products)} продукта извлечени")
+    return products
+
+
+# =============================================================================
 # CAPSOLVER — решаване на Cloudflare Turnstile/Challenge
 # =============================================================================
 
@@ -698,11 +849,25 @@ async def crawl_with_captcha_solver(crawler, store_key, store_config):
     start = time.time()
 
     # Стъпка 1: Опит с magic mode
+    scroll_times = store_config.get("scroll_times", 0)
+    scroll_js = None
+    if scroll_times > 0:
+        scroll_js = f"""
+        async function scrollPage() {{
+            for (let i = 0; i < {scroll_times}; i++) {{
+                window.scrollTo(0, document.body.scrollHeight);
+                await new Promise(r => setTimeout(r, 1500));
+            }}
+        }}
+        await scrollPage();
+        """
+
     magic_config = CrawlerRunConfig(
         magic=True,
         page_timeout=60000,
         remove_overlay_elements=True,
         cache_mode=CacheMode.BYPASS,
+        js_code=scroll_js,
     )
 
     result = await crawler.arun(url=url, config=magic_config)
@@ -1289,7 +1454,7 @@ def write_to_sheets(final_products, stats):
 
 async def main():
     logger.info("=" * 60)
-    logger.info("EXP-003: CRAWL4AI v8.0 + CapSolver + DM Bulgaria")
+    logger.info("EXP-004: CRAWL4AI v9.0 + T-Market + Lilly fix")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)}, BS4: {BS4_AVAILABLE}, CapSolver: {CAPSOLVER_AVAILABLE}")
@@ -1350,6 +1515,18 @@ async def main():
     elif crawl_results.get("dm", {}).get("error"):
         logger.warning(f"DM: {crawl_results['dm']['error']}")
 
+    # T-Market
+    tmarket_products = []
+    if crawl_results.get("tmarket", {}).get("success"):
+        tmarket_data = crawl_results["tmarket"]
+        tmarket_products = extract_tmarket_products(
+            tmarket_data["markdown"],
+            html_text=tmarket_data.get("html"),
+        )
+        logger.info(f"T-Market: {len(tmarket_products)} Harmonica products")
+    elif crawl_results.get("tmarket", {}).get("error"):
+        logger.warning(f"T-Market: {crawl_results['tmarket']['error']}")
+
     # 3. Match products
     logger.info("=" * 40 + " MATCHING " + "=" * 40)
 
@@ -1362,6 +1539,7 @@ async def main():
             "balev": None,
             "lilly": None,
             "dm": None,
+            "tmarket": None,
         }
         final_products.append(product)
 
@@ -1393,6 +1571,12 @@ async def main():
             m = dm_matches[product["name"]]
             product["dm"] = {"eur": m["eur"], "bgn": m["bgn"]}
 
+    tmarket_matches = match_products(kashon_products, tmarket_products)
+    for product in final_products:
+        if product["name"] in tmarket_matches:
+            m = tmarket_matches[product["name"]]
+            product["tmarket"] = {"eur": m["eur"], "bgn": m["bgn"]}
+
     # 4. Statistics
     kashon_count = len([p for p in final_products if p["kashon"]])
     ebag_count = len([p for p in final_products if p["ebag"]])
@@ -1401,6 +1585,7 @@ async def main():
     lilly_oos_count = len([p for p in final_products
                            if p["lilly"] and not p["lilly"].get("in_stock", True)])
     dm_count = len([p for p in final_products if p["dm"]])
+    tmarket_count = len([p for p in final_products if p["tmarket"]])
 
     logger.info("=" * 40 + " STATISTICS " + "=" * 40)
     logger.info(f"Референтни (Кашон): {kashon_count}")
@@ -1410,12 +1595,14 @@ async def main():
         logger.info(f"Lilly: {lilly_count}/{kashon_count} ({lilly_count/kashon_count*100:.0f}%)"
                      f" — {lilly_oos_count} изчерпани")
         logger.info(f"DM: {dm_count}/{kashon_count} ({dm_count/kashon_count*100:.0f}%)")
+        logger.info(f"T-Market: {tmarket_count}/{kashon_count} ({tmarket_count/kashon_count*100:.0f}%)")
 
     # Примерни продукти
-    matched = [p for p in final_products if p["ebag"] or p["balev"] or p["lilly"] or p["dm"]][:5]
+    matched = [p for p in final_products
+               if p["ebag"] or p["balev"] or p["lilly"] or p["dm"] or p["tmarket"]][:5]
     for p in matched:
         parts = [f"{p['name'][:50]}:"]
-        for store in ["kashon", "ebag", "balev", "lilly", "dm"]:
+        for store in ["kashon", "ebag", "balev", "lilly", "dm", "tmarket"]:
             if p.get(store):
                 bgn = p[store].get('bgn')
                 parts.append(f"  {store}={'%.2f' % bgn if bgn else 'N/A'}лв")
@@ -1431,11 +1618,12 @@ async def main():
         "lilly_matches": lilly_count,
         "lilly_out_of_stock": lilly_oos_count,
         "dm_matches": dm_count,
+        "tmarket_matches": tmarket_count,
     })
 
     # 6. Save JSON
     output = {
-        "experiment": "EXP-003-v8.0",
+        "experiment": "EXP-004-v9.0",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stats": {
@@ -1449,6 +1637,8 @@ async def main():
             "lilly_out_of_stock": lilly_oos_count,
             "dm_products": len(dm_products),
             "dm_matches": dm_count,
+            "tmarket_products": len(tmarket_products),
+            "tmarket_matches": tmarket_count,
         },
         "products": final_products,
     }
