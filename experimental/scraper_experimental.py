@@ -76,7 +76,7 @@ except ImportError:
     logger.warning("curl_cffi not installed — TLS impersonation disabled")
 
 try:
-    from firecrawl import FirecrawlApp
+    from firecrawl import Firecrawl as FirecrawlApp
     FIRECRAWL_AVAILABLE = True
 except ImportError:
     FIRECRAWL_AVAILABLE = False
@@ -1827,13 +1827,20 @@ def _fetch_glovo_via_firecrawl(slug, store_name, query="harmonica"):
         app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
 
         # Scrape с JS rendering → markdown
-        result = app.scrape_url(store_url, params={
-            "formats": ["markdown"],
-            "waitFor": 5000,
-        })
+        result = app.scrape(store_url, formats=["markdown"], timeout=30000)
 
         elapsed = time.time() - start
-        markdown = result.get("markdown", "")
+
+        # Debug: какъв тип е result и какви ключове има
+        if isinstance(result, dict):
+            logger.info(f"Glovo {store_name}: Firecrawl keys={list(result.keys())[:10]}")
+            markdown = result.get("markdown", "")
+        elif hasattr(result, "markdown"):
+            markdown = result.markdown or ""
+            logger.info(f"Glovo {store_name}: Firecrawl object, markdown={len(markdown)} chars")
+        else:
+            markdown = str(result) if result else ""
+            logger.info(f"Glovo {store_name}: Firecrawl type={type(result).__name__}")
 
         if not markdown:
             logger.info(f"Glovo {store_name}: Firecrawl — празен markdown ({elapsed:.1f}s)")
