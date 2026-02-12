@@ -1,11 +1,11 @@
 """
-EXP-003: Crawl4AI Experimental Scraper v9.1.0
+EXP-003: Crawl4AI Experimental Scraper v9.2.0
 ===============================================
-Промени спрямо v9.0.5:
-- Optima премахнат (search е безнадеждно счупен)
-- Кашон URL обновен (field_producer/harmonica-144)
-- Таблица: Кашон=EUR+BGN, останалите=EUR, Средна EUR, Статус
-- Подготовка за Glovo интеграция
+Промени спрямо v9.2.0:
+- Glovo: Firecrawl actions (search box interaction) вместо URL patterns
+- Glovo URL: sofia/stores/ (канонична форма)
+- Кашон: премахнат #content anchor, scroll_delay=2000ms
+- crawl_all: Glovo работи и само с Firecrawl (без CURL_CFFI)
 
 Промени спрямо v9.0.4:
 - Lilly: Magento GraphQL + REST API чрез curl_cffi (Hyvä зарежда JS)
@@ -115,8 +115,9 @@ def _parse_proxy_url(proxy_url):
 STORES = {
     "kashon": {
         "name": "Кашон",
-        "url": "https://kashonharmonica.bg/bg/products/field_producer/harmonica-144#content",
+        "url": "https://kashonharmonica.bg/bg/products/field_producer/harmonica-144",
         "scroll_times": 15,
+        "scroll_delay": 2000,
         "is_master": True,
     },
     "ebag": {
@@ -1814,31 +1815,69 @@ async def fetch_tmarket_via_curl(url="https://tmarketonline.bg/vendor/harmonica-
 
 def _fetch_glovo_via_firecrawl(slug, store_name, query="harmonica"):
     """
-    Firecrawl: рендерира Glovo SPA с headless browser и извлича продукти.
+    Firecrawl: рендерира Glovo SPA с headless browser, използва actions за
+    да взаимодейства с търсачката в магазина и извлича продукти.
     Синхронна функция — ще се изпълнява в thread pool.
     """
     if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
         return None
 
     start = time.time()
+    store_url = f"https://glovoapp.com/bg/bg/sofia/stores/{slug}"
 
-    # Пробваме различни URL модели за търсене вътре в Glovo магазин
-    search_urls = [
-        f"https://glovoapp.com/bg/bg/sofiya/{slug}/search/{query}",
-        f"https://glovoapp.com/bg/bg/sofiya/{slug}/?search={query}",
-        f"https://glovoapp.com/bg/bg/sofiya/{slug}/",
-    ]
+    # JS: намира и фокусира search input в Glovo SPA
+    find_search_js = """
+    (function() {
+        var selectors = [
+            'input[type="search"]',
+            'input[placeholder*="Търси"]',
+            'input[placeholder*="Search"]',
+            'input[placeholder*="търси"]',
+            '[data-testid*="search"] input',
+            '[role="search"] input',
+            'input[aria-label*="Search"]',
+            'input[aria-label*="Търси"]',
+        ];
+        for (var i = 0; i < selectors.length; i++) {
+            var el = document.querySelector(selectors[i]);
+            if (el) { el.click(); el.focus(); return 'found:' + selectors[i]; }
+        }
+        var btns = document.querySelectorAll('button, [role="button"], a');
+        for (var j = 0; j < btns.length; j++) {
+            var t = (btns[j].textContent || '').toLowerCase();
+            var a = (btns[j].getAttribute('aria-label') || '').toLowerCase();
+            if (t.indexOf('search') >= 0 || t.indexOf('търси') >= 0 ||
+                a.indexOf('search') >= 0 || a.indexOf('търси') >= 0) {
+                btns[j].click();
+                return 'clicked-button';
+            }
+        }
+        return 'not-found';
+    })()
+    """.strip()
 
     try:
         app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
 
-        for url in search_urls:
-            try:
-                result = app.scrape(url, formats=["markdown"], timeout=30000)
-            except Exception as e:
-                logger.info(f"Glovo {store_name}: Firecrawl {url.split('/')[-1] or slug} — {e}")
-                continue
+        # Подход 1: Actions — взаимодействие с search box на store page
+        search_actions = [
+            {"type": "wait", "milliseconds": 4000},
+            {"type": "executeJavascript", "script": find_search_js},
+            {"type": "wait", "milliseconds": 1500},
+            {"type": "write", "text": query},
+            {"type": "wait", "milliseconds": 1000},
+            {"type": "press", "key": "Enter"},
+            {"type": "wait", "milliseconds": 5000},
+            {"type": "scroll", "direction": "down"},
+            {"type": "wait", "milliseconds": 2000},
+            {"type": "scrape"},
+        ]
 
+        try:
+            result = app.scrape(
+                store_url, formats=["markdown"],
+                actions=search_actions, timeout=45000,
+            )
             elapsed = time.time() - start
 
             if isinstance(result, dict):
@@ -1848,31 +1887,31 @@ def _fetch_glovo_via_firecrawl(slug, store_name, query="harmonica"):
             else:
                 markdown = str(result) if result else ""
 
-            if not markdown:
-                logger.info(f"Glovo {store_name}: Firecrawl — празен markdown")
-                continue
+            if markdown:
+                harmonica_refs = len(re.findall(r'(?i)harmonica|хармоника', markdown))
+                logger.info(f"Glovo {store_name}: Firecrawl [search-actions] — "
+                            f"{len(markdown)} chars, {harmonica_refs} harmonica refs ({elapsed:.1f}s)")
 
-            harmonica_refs = len(re.findall(r'(?i)harmonica|хармоника', markdown))
-            url_label = url.split(slug + "/")[-1] or "store-page"
-            logger.info(f"Glovo {store_name}: Firecrawl [{url_label}] — "
-                        f"{len(markdown)} chars, {harmonica_refs} harmonica refs ({elapsed:.1f}s)")
+                if harmonica_refs > 0:
+                    products = _parse_glovo_markdown(markdown, store_name, query)
+                    if products:
+                        return {
+                            "success": True,
+                            "method": "firecrawl_search_actions",
+                            "products": products,
+                            "elapsed": elapsed,
+                        }
+                else:
+                    logger.info(f"  preview: {markdown[:300].replace(chr(10), ' ')}")
+            else:
+                logger.info(f"Glovo {store_name}: Firecrawl [search-actions] — празен markdown ({elapsed:.1f}s)")
 
-            if harmonica_refs == 0:
-                # Dump first 200 chars for debug
-                logger.info(f"  markdown preview: {markdown[:200].replace(chr(10), ' ')}")
-                continue
-
-            products = _parse_glovo_markdown(markdown, store_name, query)
-            if products:
-                return {
-                    "success": True,
-                    "method": f"firecrawl_{url_label}",
-                    "products": products,
-                    "elapsed": elapsed,
-                }
+        except Exception as e:
+            elapsed = time.time() - start
+            logger.info(f"Glovo {store_name}: Firecrawl actions грешка: {e} ({elapsed:.1f}s)")
 
         elapsed = time.time() - start
-        logger.info(f"Glovo {store_name}: Firecrawl — 0 продукта от {len(search_urls)} URL-а ({elapsed:.1f}s)")
+        logger.info(f"Glovo {store_name}: Firecrawl — 0 продукта ({elapsed:.1f}s)")
         return None
 
     except Exception as e:
@@ -2286,13 +2325,14 @@ async def crawl_store(crawler, store_key, store_config):
 
     logger.info(f"CRAWLING{'(magic)' if use_magic else ''}: {store_name}")
 
+    scroll_delay = store_config.get("scroll_delay", 1500)
     scroll_js = ""
     if scroll_times > 0 and not use_magic:
         scroll_js = f"""
         async function scrollPage() {{
             for (let i = 0; i < {scroll_times}; i++) {{
                 window.scrollTo(0, document.body.scrollHeight);
-                await new Promise(r => setTimeout(r, 1500));
+                await new Promise(r => setTimeout(r, {scroll_delay}));
             }}
         }}
         await scrollPage();
@@ -2407,7 +2447,9 @@ async def crawl_all():
             results[store_key] = {"success": False, "error": str(e)}
 
     # Glovo магазини (паралелно, отделен pipeline)
-    if GLOVO_STORES and CURL_CFFI_AVAILABLE:
+    has_glovo_method = (FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY) or \
+                       (GLOVO_AUTH_TOKEN and CURL_CFFI_AVAILABLE)
+    if GLOVO_STORES and has_glovo_method:
         glovo_results = await fetch_all_glovo_products("harmonica")
         results.update(glovo_results)
 
@@ -2496,7 +2538,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер (EXP-003 v9.1.0)'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер (EXP-003 v9.2.0)'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(STORES) + len(GLOVO_STORES)}']
@@ -2694,7 +2736,7 @@ def write_to_sheets(final_products, stats):
 async def main():
     logger.info("=" * 60)
     total_stores = len(STORES) + len(GLOVO_STORES)
-    logger.info(f"EXP-003: CRAWL4AI v9.1.0 — {total_stores} магазина + GraphQL/curl_cffi/Glovo")
+    logger.info(f"EXP-003: CRAWL4AI v9.2.0 — {total_stores} магазина + GraphQL/curl_cffi/Glovo")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}, "
@@ -2917,7 +2959,7 @@ async def main():
     json_stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
 
     output = {
-        "experiment": "EXP-003-v9.1.0",
+        "experiment": "EXP-003-v9.2.0",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stores": len(STORES) + len(GLOVO_STORES),
