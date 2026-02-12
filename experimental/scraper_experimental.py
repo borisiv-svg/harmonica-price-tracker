@@ -1,11 +1,10 @@
 """
-EXP-003: Crawl4AI Experimental Scraper v9.0.4
+EXP-003: Crawl4AI Experimental Scraper v9.0.5
 ===============================================
-Промени спрямо v9.0.3:
-- Lilly: Hyvä Theme поддръжка — JSON-LD, attr search (alt/title), text nodes
-- T-Market: curl_cffi TLS impersonation за CloudCart + Cloudflare bypass
-- Optima: WooCommerce Store API + curl_cffi fallback
-- crawl_all(): паралелни curl_cffi задачи за DM/T-Market/Optima
+Промени спрямо v9.0.4:
+- Lilly: Magento GraphQL + REST API чрез curl_cffi (Hyvä зарежда JS)
+- Optima: BS4 HTML парсване за curl_cffi резултати
+- crawl_all(): Lilly добавен в curl_cffi паралелни задачи
 
 Промени спрямо v8.0:
 - VMV Supermarket, Optima, T-Market добавени (Crawl4AI)
@@ -586,11 +585,64 @@ def extract_optima_products(markdown, html_text=None, brand_page=False):
     if not products:
         products = _extract_generic_products(markdown, brand_page=brand_page)
 
+    # Pattern 3: BS4 HTML парсване (за curl_cffi HTML)
+    if not products and BS4_AVAILABLE and html_text:
+        soup = BeautifulSoup(html_text, 'html.parser')
+
+        # WooCommerce product selectors
+        product_items = soup.select(
+            '.product, .product-item, .wc-block-grid__product, '
+            'li.type-product, .post-type-product, '
+            '[class*=product-card], [class*=product-item]'
+        )
+
+        # Fallback: търсим елементи с harmonica текст
+        if not product_items:
+            for el in soup.find_all(['div', 'li', 'article']):
+                text = el.get_text(strip=True)
+                if 'harmonica' in text.lower() and len(text) < 2000:
+                    # Търсим цена в контекста
+                    if re.search(r'\d+[.,]\d{2}', text):
+                        product_items.append(el)
+
+        for item in product_items:
+            text = item.get_text(' ', strip=True)
+            if not brand_page and not is_harmonica_product(text):
+                continue
+
+            product_name = None
+            for tag in item.find_all(['a', 'h2', 'h3', 'h4', 'span']):
+                tag_text = tag.get_text(strip=True)
+                if tag_text and len(tag_text) > 10 and is_food_product(tag_text):
+                    if brand_page or is_harmonica_product(tag_text):
+                        product_name = tag_text
+                        break
+
+            if not product_name:
+                continue
+
+            name_key = product_name.lower()[:30]
+            if name_key in seen:
+                continue
+
+            bgn = extract_bgn_price(text)
+            eur = extract_eur_price(text)
+
+            if bgn and not eur:
+                eur = round(bgn / EUR_BGN_RATE, 2)
+
+            if bgn or eur:
+                seen.add(name_key)
+                products.append({"name": product_name, "eur": eur, "bgn": bgn})
+
+        if products:
+            logger.info(f"Optima BS4: {len(products)} продукта извлечени от HTML")
+
     if not products:
         logger.warning(f"Optima: 0 продукта, markdown len={len(markdown)}, "
-                       f"preview: {markdown[:500]}")
+                       f"html len={len(html_text) if html_text else 0}")
     else:
-        logger.info(f"Optima: {len(products)} продукта извлечени")
+        logger.info(f"Optima: {len(products)} продукта общо")
     return products
 
 
@@ -1596,6 +1648,167 @@ def extract_dm_from_curl_html(html_text):
 
 
 # =============================================================================
+# LILLY curl_cffi + Magento GraphQL API
+# =============================================================================
+
+async def fetch_lilly_via_curl():
+    """
+    Директен fetch на Lilly продукти чрез Magento 2 GraphQL API.
+    Lilly използва Hyvä Theme — продуктите се зареждат с JavaScript.
+    GraphQL API-то връща JSON без нужда от browser rendering.
+    """
+    if not CURL_CFFI_AVAILABLE:
+        return {"success": False, "error": "curl_cffi not available"}
+
+    logger.info("Lilly: curl_cffi GraphQL API fetch...")
+    start = time.time()
+
+    graphql_query = """
+    {
+      products(
+        search: "harmonica"
+        pageSize: 50
+      ) {
+        total_count
+        items {
+          name
+          sku
+          url_key
+          price_range {
+            minimum_price {
+              regular_price { value currency }
+              final_price { value currency }
+            }
+          }
+          stock_status
+        }
+      }
+    }
+    """
+
+    try:
+        async with CurlAsyncSession(impersonate="chrome") as session:
+            proxy = PROXY_URL if PROXY_URL else None
+
+            # Опит 1: GraphQL API
+            try:
+                resp = await session.post(
+                    "https://lillydrogerie.bg/graphql",
+                    proxy=proxy,
+                    timeout=30,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                        "Store": "default",
+                    },
+                    json={"query": graphql_query},
+                )
+
+                if resp.status_code == 200:
+                    data = resp.json()
+                    items = (data.get("data", {}).get("products", {})
+                             .get("items", []))
+
+                    if items:
+                        products = []
+                        for item in items:
+                            name = item.get("name", "")
+                            if not name:
+                                continue
+
+                            price_range = item.get("price_range", {})
+                            min_price = price_range.get("minimum_price", {})
+                            final = min_price.get("final_price", {})
+                            regular = min_price.get("regular_price", {})
+
+                            price_val = final.get("value") or regular.get("value")
+                            currency = final.get("currency") or regular.get("currency", "BGN")
+
+                            if price_val:
+                                price_bgn = round(float(price_val), 2)
+                                price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+                                in_stock = item.get("stock_status") != "OUT_OF_STOCK"
+
+                                products.append({
+                                    "name": name,
+                                    "eur": price_eur,
+                                    "bgn": price_bgn,
+                                    "in_stock": in_stock,
+                                })
+
+                        elapsed = time.time() - start
+                        total = data.get("data", {}).get("products", {}).get("total_count", 0)
+                        logger.info(f"Lilly GraphQL: {len(products)} продукта от "
+                                    f"{total} total ({elapsed:.1f}s)")
+                        return {
+                            "success": True,
+                            "method": "graphql",
+                            "products": products,
+                            "elapsed": elapsed,
+                        }
+                    else:
+                        logger.info(f"Lilly GraphQL: 0 items, response keys: "
+                                    f"{list(data.get('data', {}).get('products', {}).keys())}")
+                else:
+                    logger.info(f"Lilly GraphQL: HTTP {resp.status_code}")
+            except Exception as e:
+                logger.info(f"Lilly GraphQL: {e}")
+
+            # Опит 2: REST API search
+            try:
+                rest_url = ("https://lillydrogerie.bg/rest/V1/products?"
+                            "searchCriteria[filter_groups][0][filters][0][field]=name"
+                            "&searchCriteria[filter_groups][0][filters][0][value]=%25harmonica%25"
+                            "&searchCriteria[filter_groups][0][filters][0][condition_type]=like"
+                            "&searchCriteria[pageSize]=50")
+                resp = await session.get(
+                    rest_url,
+                    proxy=proxy,
+                    timeout=30,
+                    headers={"Accept": "application/json"},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    items = data.get("items", [])
+                    if items:
+                        products = []
+                        for item in items:
+                            name = item.get("name", "")
+                            price = item.get("price")
+                            if name and price:
+                                price_bgn = round(float(price), 2)
+                                price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+                                products.append({
+                                    "name": name,
+                                    "eur": price_eur,
+                                    "bgn": price_bgn,
+                                    "in_stock": True,
+                                })
+                        if products:
+                            elapsed = time.time() - start
+                            logger.info(f"Lilly REST: {len(products)} продукта ({elapsed:.1f}s)")
+                            return {
+                                "success": True,
+                                "method": "rest_api",
+                                "products": products,
+                                "elapsed": elapsed,
+                            }
+                else:
+                    logger.info(f"Lilly REST: HTTP {resp.status_code}")
+            except Exception as e:
+                logger.info(f"Lilly REST: {e}")
+
+            elapsed = time.time() - start
+            logger.warning(f"Lilly curl_cffi: нито GraphQL, нито REST API работят ({elapsed:.1f}s)")
+            return {"success": False, "error": "GraphQL and REST API both failed"}
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.error(f"Lilly curl_cffi грешка: {e} ({elapsed:.1f}s)")
+        return {"success": False, "error": str(e)}
+
+
+# =============================================================================
 # T-MARKET curl_cffi — CloudCart + Cloudflare bypass
 # =============================================================================
 
@@ -1962,12 +2175,15 @@ async def crawl_all():
 
     results = {}
 
-    # curl_cffi паралелни задачи (DM Algolia, T-Market, Optima)
+    # curl_cffi паралелни задачи (DM Algolia, Lilly GraphQL, T-Market, Optima)
     curl_tasks = {}
 
     dm_config = STORES.get("dm", {})
     if dm_config.get("algolia_enabled") and CURL_CFFI_AVAILABLE:
         curl_tasks["dm"] = asyncio.create_task(fetch_dm_via_algolia("harmonica"))
+
+    if CURL_CFFI_AVAILABLE and "lilly" in STORES:
+        curl_tasks["lilly"] = asyncio.create_task(fetch_lilly_via_curl())
 
     if CURL_CFFI_AVAILABLE and "tmarket" in STORES:
         curl_tasks["tmarket"] = asyncio.create_task(fetch_tmarket_via_curl())
@@ -2299,7 +2515,7 @@ def write_to_sheets(final_products, stats):
 
 async def main():
     logger.info("=" * 60)
-    logger.info("EXP-003: CRAWL4AI v9.0.4 — 8 магазина + curl_cffi bypass")
+    logger.info("EXP-003: CRAWL4AI v9.0.5 — 8 магазина + GraphQL/curl_cffi")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)}, BS4: {BS4_AVAILABLE}, "
@@ -2339,16 +2555,23 @@ async def main():
 
     # Lilly Drogerie
     lilly_products = []
-    if crawl_results.get("lilly", {}).get("success"):
-        lilly_data = crawl_results["lilly"]
-        lilly_products = extract_lilly_products(
-            lilly_data["markdown"],
-            html_text=lilly_data.get("html"),
-        )
-        logger.info(f"Lilly: {len(lilly_products)} Harmonica products")
+    lilly_data = crawl_results.get("lilly", {})
+    if lilly_data.get("success"):
+        method = lilly_data.get("method", "unknown")
+        # GraphQL/REST API — продуктите са вече извлечени
+        if lilly_data.get("products"):
+            lilly_products = lilly_data["products"]
+        elif lilly_data.get("html") or lilly_data.get("markdown"):
+            lilly_products = extract_lilly_products(
+                lilly_data.get("markdown", ""),
+                html_text=lilly_data.get("html"),
+            )
+        logger.info(f"Lilly: {len(lilly_products)} Harmonica products (method: {method})")
         in_stock = sum(1 for p in lilly_products if p.get('in_stock', True))
         if in_stock < len(lilly_products):
             logger.info(f"  Налични: {in_stock}, Изчерпани: {len(lilly_products) - in_stock}")
+    elif lilly_data.get("error"):
+        logger.warning(f"Lilly: {lilly_data['error']}")
 
     # DM Bulgaria
     dm_products = []
@@ -2510,7 +2733,7 @@ async def main():
     json_stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
 
     output = {
-        "experiment": "EXP-003-v9.0.4",
+        "experiment": "EXP-003-v9.0.5",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stores": len(STORES),
