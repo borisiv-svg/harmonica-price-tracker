@@ -1,24 +1,18 @@
 """
-EXP-003: Crawl4AI Experimental Scraper v9.0
-============================================
+EXP-003: Crawl4AI Experimental Scraper v9.0.4
+===============================================
+Промени спрямо v9.0.3:
+- Lilly: Hyvä Theme поддръжка — JSON-LD, attr search (alt/title), text nodes
+- T-Market: curl_cffi TLS impersonation за CloudCart + Cloudflare bypass
+- Optima: WooCommerce Store API + curl_cffi fallback
+- crawl_all(): паралелни curl_cffi задачи за DM/T-Market/Optima
+
 Промени спрямо v8.0:
 - VMV Supermarket, Optima, T-Market добавени (Crawl4AI)
 - DM Algolia API (curl_cffi) с CapSolver fallback
 - curl_cffi за TLS impersonation (Cloudflare bypass)
 - Proxy support (PROXY_URL env var)
 - Общо 8 магазина (Кашон + 7 external)
-
-Промени спрямо v7.0:
-- CapSolver интеграция за сайтове с anti-bot защита (Cloudflare Turnstile/Challenge)
-- DM България добавен (с CapSolver bypass за 403 защитата)
-- Magic mode + CapSolver fallback стратегия за защитени сайтове
-
-Промени спрямо v6.3:
-- logging модул вместо print()
-- Паралелно краулване с asyncio.gather
-- BeautifulSoup за Lilly Drogerie парсване (с regex fallback)
-- Подобрено съпоставяне с нормализация и тежести
-- Retry декоратор за мрежови грешки
 """
 
 import asyncio
@@ -724,68 +718,200 @@ def extract_lilly_products(markdown_text, html_text=None):
     return products
 
 
+def _find_product_container(element, max_levels=6):
+    """
+    Вървим нагоре от element до намерим контейнер с цена.
+    Връща контейнер или None.
+    """
+    current = element
+    for _ in range(max_levels):
+        parent = current.parent
+        if not parent or parent.name in ('body', 'html', '[document]'):
+            break
+        if parent.name in ('header', 'footer', 'nav', 'head'):
+            return None
+
+        text = parent.get_text(' ', strip=True)
+        if len(text) > 3000:
+            cur_text = current.get_text(' ', strip=True)
+            return current if re.search(r'\d+[.,]\d{2}', cur_text) else None
+
+        if re.search(r'\d+[.,]\d{2}', text):
+            if len(text) < 500:
+                current = parent
+                continue
+            return parent
+
+        current = parent
+
+    if current and current.name not in ('body', 'html', '[document]'):
+        text = current.get_text(' ', strip=True)
+        if re.search(r'\d+[.,]\d{2}', text) and len(text) < 3000:
+            return current
+    return None
+
+
 def _extract_lilly_bs4(html_text):
     """
     Извлича Lilly продукти с BeautifulSoup.
 
-    Стратегия (след смяна на Lilly page structure):
-    1. Търси <a> links с HARMONICA в текста
-    2. Използва parent контейнер за цена и наличност
-    3. Не зависи от конкретни Magento CSS selectors
+    Lilly използва Hyvä Theme (Alpine.js + Tailwind CSS) —
+    стандартните Magento CSS selectors не съществуват.
+
+    Стратегии:
+    1. JSON-LD structured data (@type: Product / ItemList)
+    2. Елементи с HARMONICA в text, title, alt атрибути
+    3. Legacy Magento CSS selectors (fallback)
     """
     products = []
     seen = set()
     soup = BeautifulSoup(html_text, 'html.parser')
 
-    # Стратегия 1: Magento selectors (оригинални)
-    product_items = soup.select(
-        '.product-item, .product-item-info, li.item.product, '
-        '.products-grid .item, .category-products .item'
-    )
+    # Стратегия 1: JSON-LD structured data
+    for script in soup.find_all('script', type='application/ld+json'):
+        try:
+            data = json.loads(script.string or '')
+            items = []
+            if isinstance(data, list):
+                items = data
+            elif isinstance(data, dict):
+                if data.get('@type') == 'ItemList':
+                    items = data.get('itemListElement', [])
+                elif data.get('@type') == 'Product':
+                    items = [data]
+                elif 'itemListElement' in data:
+                    items = data['itemListElement']
 
-    # Стратегия 2: Всички links с HARMONICA в текста
-    if not product_items:
-        found_parents = set()
-        for link in soup.find_all('a', href=True):
-            text = link.get_text(strip=True)
-            if not text or 'HARMONICA' not in text.upper():
-                continue
-            if len(text) < 5:
-                continue
-            href = link.get('href', '')
-            # Пропускаме image/media links
-            if any(x in href.lower() for x in ['/media/', '.jpg', '.png', '.svg']):
-                continue
-            # Намираме parent контейнер
-            parent = link.find_parent(['li', 'div', 'article', 'section'])
-            if parent:
-                parent_id = id(parent)
-                if parent_id not in found_parents:
-                    found_parents.add(parent_id)
-                    product_items.append(parent)
-            else:
-                # Ако няма parent, използваме самия link
-                product_items.append(link)
+            for item in items:
+                product = item.get('item', item) if isinstance(item, dict) else {}
+                name = product.get('name', '')
+                if not name:
+                    continue
 
-    for item in product_items:
-        text = item.get_text(' ', strip=True)
-        if 'HARMONICA' not in text.upper():
+                price = None
+                offers = product.get('offers', {})
+                if isinstance(offers, dict):
+                    price = offers.get('price')
+                elif isinstance(offers, list) and offers:
+                    price = offers[0].get('price')
+
+                if price:
+                    price_bgn = round(float(price), 2)
+                    price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+                    name_key = name.lower()[:40]
+                    if name_key not in seen:
+                        seen.add(name_key)
+                        in_stock = True
+                        if isinstance(offers, dict):
+                            avail = offers.get('availability', '')
+                            in_stock = 'OutOfStock' not in avail
+                        products.append({
+                            'name': name,
+                            'eur': price_eur,
+                            'bgn': price_bgn,
+                            'in_stock': in_stock,
+                        })
+        except (json.JSONDecodeError, ValueError, TypeError):
             continue
 
-        # Име — търсим link с HARMONICA в текста
+    if products:
+        logger.info(f"Lilly BS4: {len(products)} продукта от JSON-LD")
+        return products
+
+    # Стратегия 2: Намиране на product containers
+    product_containers = []
+    found_container_ids = set()
+
+    # 2a: <a> tags с HARMONICA в text content
+    for link in soup.find_all('a', href=True):
+        link_text = link.get_text(strip=True)
+        href = link.get('href', '')
+        if not link_text or 'harmonica' not in link_text.lower():
+            continue
+        if len(link_text) < 5:
+            continue
+        if any(x in href.lower() for x in ['/media/', '.jpg', '.png', '.svg', '.css', '.js']):
+            continue
+        container = _find_product_container(link)
+        if container:
+            cid = id(container)
+            if cid not in found_container_ids:
+                found_container_ids.add(cid)
+                product_containers.append(container)
+
+    # 2b: <a> и <img> с HARMONICA в title/alt атрибути
+    for attr_name in ['title', 'alt']:
+        for el in soup.find_all(attrs={attr_name: re.compile(r'harmonica', re.IGNORECASE)}):
+            if el.find_parent(['header', 'nav', 'footer', 'head']):
+                continue
+            container = _find_product_container(el)
+            if container:
+                cid = id(container)
+                if cid not in found_container_ids:
+                    found_container_ids.add(cid)
+                    product_containers.append(container)
+
+    # 2c: Text nodes с HARMONICA (за Hyvä span/div)
+    for text_node in soup.find_all(string=re.compile(r'harmonica', re.IGNORECASE)):
+        parent = text_node.find_parent()
+        if not parent:
+            continue
+        if parent.name in ('script', 'style', 'meta', 'title', 'head', 'noscript'):
+            continue
+        if parent.find_parent(['header', 'nav', 'footer', 'head']):
+            continue
+        container = _find_product_container(parent)
+        if container:
+            cid = id(container)
+            if cid not in found_container_ids:
+                found_container_ids.add(cid)
+                product_containers.append(container)
+
+    logger.info(f"Lilly BS4: {len(product_containers)} потенциални контейнери")
+
+    for container in product_containers:
+        text = container.get_text(' ', strip=True)
+
         product_name = None
-        product_url = ''
-        for link in item.find_all('a', href=True):
-            link_text = link.get_text(strip=True)
+
+        # Опит 1: <a> с HARMONICA text content
+        for link in container.find_all('a', href=True):
+            lt = link.get_text(strip=True)
             href = link.get('href', '')
-            if (link_text and 'HARMONICA' in link_text.upper()
-                    and len(link_text) > 5
-                    and not any(x in href.lower() for x in ['/media/', '.jpg', '.png'])):
-                product_name = link_text
-                product_url = href
-                break
+            if lt and 'harmonica' in lt.lower() and len(lt) > 10:
+                if not any(x in href.lower() for x in ['/media/', '.jpg', '.png', '.svg']):
+                    product_name = lt
+                    break
+
+        # Опит 2: <a title> с HARMONICA
+        if not product_name:
+            for link in container.find_all('a', attrs={'title': True}):
+                title = link.get('title', '')
+                if 'harmonica' in title.lower() and len(title) > 10:
+                    product_name = title
+                    break
+
+        # Опит 3: <img alt> с HARMONICA
+        if not product_name:
+            for img in container.find_all('img', attrs={'alt': True}):
+                alt = img.get('alt', '')
+                if 'harmonica' in alt.lower() and len(alt) > 10:
+                    product_name = alt
+                    break
+
+        # Опит 4: <span>, <div>, <h2-h5>, <strong>, <p> с HARMONICA
+        if not product_name:
+            for tag in container.find_all(['h2', 'h3', 'h4', 'h5', 'span', 'strong', 'p', 'div']):
+                tag_text = tag.get_text(strip=True)
+                if tag_text and 'harmonica' in tag_text.lower() and 10 < len(tag_text) < 200:
+                    if is_food_product(tag_text):
+                        product_name = tag_text
+                        break
 
         if not product_name:
+            continue
+
+        if any(x in product_name.lower() for x in ['навигация', 'меню', 'cookie', 'продукти на']):
             continue
 
         name_key = product_name.lower()[:40]
@@ -793,10 +919,22 @@ def _extract_lilly_bs4(html_text):
             continue
 
         # Цени
-        price_eur = extract_eur_price(text)
         price_bgn = extract_bgn_price(text)
+        price_eur = extract_eur_price(text)
 
-        # Наличност
+        if not price_bgn and not price_eur:
+            price_match = re.search(r'(\d+)[,.](\d{2})', text)
+            if price_match:
+                try:
+                    price = float(f"{price_match.group(1)}.{price_match.group(2)}")
+                    if 0.50 <= price <= 100:
+                        price_bgn = round(price, 2)
+                except ValueError:
+                    pass
+
+        if price_bgn and not price_eur:
+            price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+
         in_stock = 'изчерпан' not in text.lower()
 
         if product_name and (price_eur or price_bgn):
@@ -806,8 +944,34 @@ def _extract_lilly_bs4(html_text):
                 'eur': price_eur,
                 'bgn': price_bgn,
                 'in_stock': in_stock,
-                'url': product_url,
             })
+
+    # Стратегия 3: Legacy Magento CSS selectors
+    if not products:
+        product_items = soup.select(
+            '.product-item, .product-item-info, li.item.product, '
+            '.products-grid .item, .category-products .item'
+        )
+        for item in product_items:
+            text = item.get_text(' ', strip=True)
+            if 'harmonica' not in text.lower():
+                continue
+            for link in item.find_all('a', href=True):
+                lt = link.get_text(strip=True)
+                if lt and 'harmonica' in lt.lower() and len(lt) > 5:
+                    name_key = lt.lower()[:40]
+                    if name_key not in seen:
+                        price_bgn = extract_bgn_price(text)
+                        price_eur = extract_eur_price(text)
+                        if price_bgn or price_eur:
+                            seen.add(name_key)
+                            products.append({
+                                'name': lt,
+                                'eur': price_eur,
+                                'bgn': price_bgn,
+                                'in_stock': 'изчерпан' not in text.lower(),
+                            })
+                    break
 
     logger.info(f"Lilly BS4: {len(products)} продукта извлечени")
     return products
@@ -1432,6 +1596,197 @@ def extract_dm_from_curl_html(html_text):
 
 
 # =============================================================================
+# T-MARKET curl_cffi — CloudCart + Cloudflare bypass
+# =============================================================================
+
+async def fetch_tmarket_via_curl(url="https://tmarketonline.bg/vendor/harmonica-1881705916"):
+    """
+    Директен fetch на T-Market чрез curl_cffi (TLS impersonation).
+    T-Market е CloudCart сайт с Cloudflare — curl_cffi може да bypass-не.
+    """
+    if not CURL_CFFI_AVAILABLE:
+        return {"success": False, "error": "curl_cffi not available"}
+
+    logger.info("T-Market: curl_cffi директен fetch...")
+    start = time.time()
+
+    try:
+        async with CurlAsyncSession(impersonate="chrome") as session:
+            proxy = PROXY_URL if PROXY_URL else None
+            resp = await session.get(
+                url,
+                proxy=proxy,
+                timeout=30,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.8",
+                },
+            )
+
+            elapsed = time.time() - start
+
+            if resp.status_code != 200:
+                logger.warning(f"T-Market curl_cffi: HTTP {resp.status_code}")
+                return {"success": False, "error": f"HTTP {resp.status_code}"}
+
+            html = resp.text
+
+            # Проверка за Cloudflare challenge
+            is_challenge, sitekey = detect_cloudflare_challenge(html)
+            if is_challenge:
+                logger.warning(f"T-Market curl_cffi: Cloudflare challenge ({elapsed:.1f}s)")
+                return {
+                    "success": False,
+                    "error": "Cloudflare challenge via curl_cffi",
+                    "html": html,
+                    "sitekey": sitekey,
+                }
+
+            logger.info(f"T-Market curl_cffi: OK {elapsed:.1f}s, {len(html)} chars")
+            return {
+                "success": True,
+                "method": "curl_cffi",
+                "html": html,
+                "markdown": "",
+                "elapsed": elapsed,
+                "store_key": "tmarket",
+            }
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.error(f"T-Market curl_cffi грешка: {e} ({elapsed:.1f}s)")
+        return {"success": False, "error": str(e)}
+
+
+# =============================================================================
+# OPTIMA curl_cffi + WooCommerce Store API
+# =============================================================================
+
+async def fetch_optima_via_curl(query="harmonica"):
+    """
+    Опит за fetch на Optima.bg чрез curl_cffi.
+    Пробваме WooCommerce Store API и стандартен search.
+    """
+    if not CURL_CFFI_AVAILABLE:
+        return {"success": False, "error": "curl_cffi not available"}
+
+    logger.info("Optima: curl_cffi fetch...")
+    start = time.time()
+
+    try:
+        async with CurlAsyncSession(impersonate="chrome") as session:
+            proxy = PROXY_URL if PROXY_URL else None
+
+            # Опит 1: WooCommerce Store API (публичен, без auth)
+            api_url = f"https://optima.bg/wp-json/wc/store/v1/products?search={query}&per_page=50"
+            try:
+                api_resp = await session.get(
+                    api_url,
+                    proxy=proxy,
+                    timeout=20,
+                    headers={
+                        "Accept": "application/json",
+                        "Accept-Language": "bg-BG,bg;q=0.9",
+                    },
+                )
+                if api_resp.status_code == 200:
+                    data = api_resp.json()
+                    if isinstance(data, list) and data:
+                        products = []
+                        for item in data:
+                            name = item.get('name', '')
+                            if not name:
+                                continue
+                            prices = item.get('prices', {})
+                            price_str = prices.get('price', '0')
+                            try:
+                                price_bgn = round(int(price_str) / 100, 2) if price_str else None
+                            except (ValueError, TypeError):
+                                price_bgn = None
+                            if price_bgn:
+                                price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+                                products.append({
+                                    "name": name,
+                                    "eur": price_eur,
+                                    "bgn": price_bgn,
+                                })
+
+                        if products:
+                            elapsed = time.time() - start
+                            logger.info(f"Optima WC API: {len(products)} продукта ({elapsed:.1f}s)")
+                            return {
+                                "success": True,
+                                "method": "wc_store_api",
+                                "products": products,
+                                "elapsed": elapsed,
+                            }
+                else:
+                    logger.info(f"Optima WC API: HTTP {api_resp.status_code}")
+            except Exception as e:
+                logger.info(f"Optima WC API: {e}")
+
+            # Опит 2: WP REST API v2
+            api_url2 = f"https://optima.bg/wp-json/wp/v2/product?search={query}&per_page=50"
+            try:
+                api_resp2 = await session.get(
+                    api_url2,
+                    proxy=proxy,
+                    timeout=20,
+                    headers={"Accept": "application/json"},
+                )
+                if api_resp2.status_code == 200:
+                    data = api_resp2.json()
+                    if isinstance(data, list) and data:
+                        elapsed = time.time() - start
+                        logger.info(f"Optima WP API: {len(data)} резултата ({elapsed:.1f}s)")
+                        # Partial data — return HTML for BS4 parsing
+                        return {
+                            "success": True,
+                            "method": "wp_api",
+                            "products": [],
+                            "html": "",
+                            "api_data": data,
+                            "elapsed": elapsed,
+                        }
+            except Exception:
+                pass
+
+            # Опит 3: Стандартен HTML fetch
+            search_url = f"https://optima.bg/?s={query}&post_type=product"
+            resp = await session.get(
+                search_url,
+                proxy=proxy,
+                timeout=30,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept-Language": "bg-BG,bg;q=0.9",
+                },
+            )
+
+            elapsed = time.time() - start
+
+            if resp.status_code != 200:
+                logger.warning(f"Optima curl_cffi: HTTP {resp.status_code}")
+                return {"success": False, "error": f"HTTP {resp.status_code}"}
+
+            html = resp.text
+            logger.info(f"Optima curl_cffi: OK {elapsed:.1f}s, {len(html)} chars")
+            return {
+                "success": True,
+                "method": "curl_cffi_html",
+                "html": html,
+                "markdown": "",
+                "elapsed": elapsed,
+                "store_key": "optima",
+            }
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.error(f"Optima curl_cffi грешка: {e} ({elapsed:.1f}s)")
+        return {"success": False, "error": str(e)}
+
+
+# =============================================================================
 # MATCHING — подобрено с нормализация и тежести
 # =============================================================================
 
@@ -1607,17 +1962,24 @@ async def crawl_all():
 
     results = {}
 
-    # DM Algolia: паралелно с Crawl4AI (отделен път)
-    dm_algolia_task = None
+    # curl_cffi паралелни задачи (DM Algolia, T-Market, Optima)
+    curl_tasks = {}
+
     dm_config = STORES.get("dm", {})
     if dm_config.get("algolia_enabled") and CURL_CFFI_AVAILABLE:
-        dm_algolia_task = asyncio.create_task(fetch_dm_via_algolia("harmonica"))
+        curl_tasks["dm"] = asyncio.create_task(fetch_dm_via_algolia("harmonica"))
 
+    if CURL_CFFI_AVAILABLE and "tmarket" in STORES:
+        curl_tasks["tmarket"] = asyncio.create_task(fetch_tmarket_via_curl())
+
+    if CURL_CFFI_AVAILABLE and "optima" in STORES:
+        curl_tasks["optima"] = asyncio.create_task(fetch_optima_via_curl())
+
+    # Crawl4AI задачи (пропускаме stores с curl_cffi path)
     async with AsyncWebCrawler(config=browser_config) as crawler:
         tasks = {}
         for key, cfg in STORES.items():
-            # DM: пропускаме Crawl4AI ако Algolia е активен
-            if key == "dm" and dm_algolia_task is not None:
+            if key in curl_tasks:
                 continue
             if cfg.get("needs_captcha_solver"):
                 tasks[key] = crawl_with_captcha_solver(crawler, key, cfg)
@@ -1633,22 +1995,28 @@ async def crawl_all():
             else:
                 results[key] = result
 
-    # DM Algolia резултат
-    if dm_algolia_task is not None:
+    # curl_cffi резултати с fallback към Crawl4AI
+    for store_key, task in curl_tasks.items():
         try:
-            dm_result = await dm_algolia_task
-            if dm_result.get("success"):
-                results["dm"] = dm_result
-                logger.info(f"DM: Algolia API успех (method: {dm_result.get('method')})")
+            curl_result = await task
+            if curl_result.get("success"):
+                results[store_key] = curl_result
+                logger.info(f"{STORES[store_key]['name']}: curl_cffi успех "
+                            f"(method: {curl_result.get('method')})")
             else:
-                # Algolia не успя — fallback към CapSolver + Crawl4AI
-                logger.warning(f"DM Algolia failed: {dm_result.get('error')} — falling back to CapSolver")
+                logger.warning(f"{STORES[store_key]['name']}: curl_cffi failed: "
+                               f"{curl_result.get('error')} — fallback Crawl4AI")
                 async with AsyncWebCrawler(config=browser_config) as crawler:
-                    results["dm"] = await crawl_with_captcha_solver(crawler, "dm", dm_config)
+                    cfg = STORES[store_key]
+                    if cfg.get("needs_captcha_solver"):
+                        results[store_key] = await crawl_with_captcha_solver(
+                            crawler, store_key, cfg)
+                    else:
+                        results[store_key] = await crawl_store(
+                            crawler, store_key, cfg)
         except Exception as e:
-            logger.error(f"DM Algolia грешка: {e} — falling back to CapSolver")
-            async with AsyncWebCrawler(config=browser_config) as crawler:
-                results["dm"] = await crawl_with_captcha_solver(crawler, "dm", dm_config)
+            logger.error(f"{STORES[store_key]['name']}: curl_cffi грешка: {e}")
+            results[store_key] = {"success": False, "error": str(e)}
 
     return results
 
@@ -1931,7 +2299,7 @@ def write_to_sheets(final_products, stats):
 
 async def main():
     logger.info("=" * 60)
-    logger.info("EXP-003: CRAWL4AI v9.0 — 8 магазина + Algolia API")
+    logger.info("EXP-003: CRAWL4AI v9.0.4 — 8 магазина + curl_cffi bypass")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)}, BS4: {BS4_AVAILABLE}, "
@@ -2018,27 +2386,46 @@ async def main():
 
     # Optima
     optima_products = []
-    if crawl_results.get("optima", {}).get("success"):
-        optima_data = crawl_results["optima"]
-        optima_products = extract_optima_products(
-            optima_data["markdown"],
-            html_text=optima_data.get("html"),
-            brand_page=STORES["optima"].get("brand_page", False),
-        )
-    elif crawl_results.get("optima", {}).get("error"):
-        logger.warning(f"Optima: {crawl_results['optima']['error']}")
+    optima_data = crawl_results.get("optima", {})
+    if optima_data.get("success"):
+        method = optima_data.get("method", "unknown")
+        # WC Store API — продуктите са вече извлечени
+        if optima_data.get("products"):
+            optima_products = optima_data["products"]
+        elif optima_data.get("html"):
+            optima_products = extract_optima_products(
+                optima_data.get("markdown", ""),
+                html_text=optima_data.get("html"),
+                brand_page=STORES["optima"].get("brand_page", False),
+            )
+        elif optima_data.get("markdown"):
+            optima_products = extract_optima_products(
+                optima_data["markdown"],
+                brand_page=STORES["optima"].get("brand_page", False),
+            )
+        logger.info(f"Optima: {len(optima_products)} Harmonica products (method: {method})")
+    elif optima_data.get("error"):
+        logger.warning(f"Optima: {optima_data['error']}")
 
     # T-Market
     tmarket_products = []
-    if crawl_results.get("tmarket", {}).get("success"):
-        tmarket_data = crawl_results["tmarket"]
-        tmarket_products = extract_tmarket_products(
-            tmarket_data["markdown"],
-            html_text=tmarket_data.get("html"),
-            brand_page=STORES["tmarket"].get("brand_page", False),
-        )
-    elif crawl_results.get("tmarket", {}).get("error"):
-        logger.warning(f"T-Market: {crawl_results['tmarket']['error']}")
+    tmarket_data = crawl_results.get("tmarket", {})
+    if tmarket_data.get("success"):
+        method = tmarket_data.get("method", "unknown")
+        if tmarket_data.get("html"):
+            tmarket_products = extract_tmarket_products(
+                tmarket_data.get("markdown", ""),
+                html_text=tmarket_data.get("html"),
+                brand_page=STORES["tmarket"].get("brand_page", True),
+            )
+        elif tmarket_data.get("markdown"):
+            tmarket_products = extract_tmarket_products(
+                tmarket_data["markdown"],
+                brand_page=STORES["tmarket"].get("brand_page", True),
+            )
+        logger.info(f"T-Market: {len(tmarket_products)} Harmonica products (method: {method})")
+    elif tmarket_data.get("error"):
+        logger.warning(f"T-Market: {tmarket_data['error']}")
 
     # 3. Match products
     logger.info("=" * 40 + " MATCHING " + "=" * 40)
@@ -2123,7 +2510,7 @@ async def main():
     json_stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
 
     output = {
-        "experiment": "EXP-003-v9.0",
+        "experiment": "EXP-003-v9.0.4",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stores": len(STORES),
