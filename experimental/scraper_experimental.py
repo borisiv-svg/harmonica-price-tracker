@@ -136,6 +136,7 @@ STORES = {
         "url": "https://optima.bg/?s=harmonica&post_type=product",
         "scroll_times": 5,
         "is_reference": False,
+        "use_magic": True,
     },
     "tmarket": {
         "name": "T-Market",
@@ -143,6 +144,7 @@ STORES = {
         "scroll_times": 8,
         "is_reference": False,
         "brand_page": True,
+        "needs_captcha_solver": True,
     },
 }
 
@@ -723,45 +725,72 @@ def extract_lilly_products(markdown_text, html_text=None):
 
 
 def _extract_lilly_bs4(html_text):
-    """Извлича Lilly продукти с BeautifulSoup — по-устойчиво от regex."""
+    """
+    Извлича Lilly продукти с BeautifulSoup.
+
+    Стратегия (след смяна на Lilly page structure):
+    1. Търси <a> links с HARMONICA в текста
+    2. Използва parent контейнер за цена и наличност
+    3. Не зависи от конкретни Magento CSS selectors
+    """
     products = []
+    seen = set()
     soup = BeautifulSoup(html_text, 'html.parser')
 
-    # Търсим продуктови карти — Magento 2 типично използва .product-item
-    product_items = soup.select('.product-item, .product-item-info, li.item.product')
+    # Стратегия 1: Magento selectors (оригинални)
+    product_items = soup.select(
+        '.product-item, .product-item-info, li.item.product, '
+        '.products-grid .item, .category-products .item'
+    )
 
+    # Стратегия 2: Всички links с HARMONICA в текста
     if not product_items:
-        # Fallback: търсим линкове с HARMONICA в текста
-        product_items = []
+        found_parents = set()
         for link in soup.find_all('a', href=True):
             text = link.get_text(strip=True)
-            if 'HARMONICA' in text.upper() and 'lillydrogerie.bg' in link.get('href', ''):
-                # Обвиваме в parent контейнер ако е наличен
-                parent = link.find_parent(['li', 'div', 'article'])
-                if parent and parent not in product_items:
+            if not text or 'HARMONICA' not in text.upper():
+                continue
+            if len(text) < 5:
+                continue
+            href = link.get('href', '')
+            # Пропускаме image/media links
+            if any(x in href.lower() for x in ['/media/', '.jpg', '.png', '.svg']):
+                continue
+            # Намираме parent контейнер
+            parent = link.find_parent(['li', 'div', 'article', 'section'])
+            if parent:
+                parent_id = id(parent)
+                if parent_id not in found_parents:
+                    found_parents.add(parent_id)
                     product_items.append(parent)
+            else:
+                # Ако няма parent, използваме самия link
+                product_items.append(link)
 
     for item in product_items:
         text = item.get_text(' ', strip=True)
         if 'HARMONICA' not in text.upper():
             continue
 
-        # Име — търсим в заглавен линк (не image)
-        name_link = None
+        # Име — търсим link с HARMONICA в текста
+        product_name = None
+        product_url = ''
         for link in item.find_all('a', href=True):
-            href = link.get('href', '')
             link_text = link.get_text(strip=True)
+            href = link.get('href', '')
             if (link_text and 'HARMONICA' in link_text.upper()
-                    and '/media/' not in href
-                    and len(link_text) > 5):
-                name_link = link
+                    and len(link_text) > 5
+                    and not any(x in href.lower() for x in ['/media/', '.jpg', '.png'])):
+                product_name = link_text
+                product_url = href
                 break
 
-        if not name_link:
+        if not product_name:
             continue
 
-        product_name = name_link.get_text(strip=True)
-        product_url = name_link.get('href', '')
+        name_key = product_name.lower()[:40]
+        if name_key in seen:
+            continue
 
         # Цени
         price_eur = extract_eur_price(text)
@@ -771,6 +800,7 @@ def _extract_lilly_bs4(html_text):
         in_stock = 'изчерпан' not in text.lower()
 
         if product_name and (price_eur or price_bgn):
+            seen.add(name_key)
             products.append({
                 'name': product_name,
                 'eur': price_eur,
