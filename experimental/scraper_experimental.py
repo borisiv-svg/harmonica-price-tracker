@@ -75,6 +75,13 @@ except ImportError:
     CURL_CFFI_AVAILABLE = False
     logger.warning("curl_cffi not installed — TLS impersonation disabled")
 
+try:
+    from firecrawl import FirecrawlApp
+    FIRECRAWL_AVAILABLE = True
+except ImportError:
+    FIRECRAWL_AVAILABLE = False
+    logger.warning("firecrawl not installed — Glovo JS rendering disabled")
+
 
 # =============================================================================
 # CONSTANTS
@@ -83,6 +90,7 @@ except ImportError:
 EUR_BGN_RATE = 1.9558  # Фиксиран курс
 PROXY_URL = os.environ.get("PROXY_URL")  # Optional: http://user:pass@host:port
 GLOVO_AUTH_TOKEN = os.environ.get("GLOVO_AUTH_TOKEN")  # Optional: Glovo Bearer token
+FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")  # Optional: Firecrawl API key
 
 
 def _parse_proxy_url(proxy_url):
@@ -1801,21 +1809,133 @@ async def fetch_tmarket_via_curl(url="https://tmarketonline.bg/vendor/harmonica-
 
 
 # =============================================================================
-# GLOVO API — търсене на Harmonica продукти в Glovo магазини
+# GLOVO — търсене на Harmonica продукти чрез Firecrawl / API / HTML
 # =============================================================================
+
+def _fetch_glovo_via_firecrawl(slug, store_name, query="harmonica"):
+    """
+    Firecrawl: рендерира Glovo SPA с headless browser и извлича продукти.
+    Синхронна функция — ще се изпълнява в thread pool.
+    """
+    if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
+        return None
+
+    start = time.time()
+    store_url = f"https://glovoapp.com/bg/bg/sofiya/{slug}/"
+
+    try:
+        app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
+
+        # Scrape с JS rendering → markdown
+        result = app.scrape_url(store_url, params={
+            "formats": ["markdown"],
+            "waitFor": 5000,
+        })
+
+        elapsed = time.time() - start
+        markdown = result.get("markdown", "")
+
+        if not markdown:
+            logger.info(f"Glovo {store_name}: Firecrawl — празен markdown ({elapsed:.1f}s)")
+            return None
+
+        logger.info(f"Glovo {store_name}: Firecrawl — {len(markdown)} chars markdown ({elapsed:.1f}s)")
+
+        # Парсване на markdown за Harmonica продукти
+        products = _parse_glovo_markdown(markdown, store_name, query)
+        if products:
+            return {
+                "success": True,
+                "method": "firecrawl",
+                "products": products,
+                "elapsed": elapsed,
+            }
+
+        # Ако не намерим — дъмпваме за дебъг
+        harmonica_refs = len(re.findall(r'(?i)harmonica|хармоника', markdown))
+        logger.info(f"Glovo {store_name}: Firecrawl — {harmonica_refs} harmonica refs, "
+                    f"0 продукта с цена")
+        return None
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.warning(f"Glovo {store_name}: Firecrawl грешка: {e} ({elapsed:.1f}s)")
+        return None
+
+
+def _parse_glovo_markdown(markdown, store_name, query):
+    """Парсва Firecrawl markdown от Glovo store page за Harmonica продукти."""
+    products = []
+    seen = set()
+    query_lower = query.lower()
+
+    # Pattern 1: Продукт с цена на следващ ред (markdown формат)
+    # Примери: "Harmonica Био кисело мляко 2% 400г\n3.29 лв" или "3,29 лв"
+    lines = markdown.split('\n')
+    for i, line in enumerate(lines):
+        line_stripped = line.strip()
+        if not line_stripped:
+            continue
+
+        # Търсим ред с harmonica/хармоника
+        if query_lower not in line_stripped.lower() and 'хармоника' not in line_stripped.lower():
+            continue
+
+        if not is_food_product(line_stripped):
+            continue
+
+        name_key = line_stripped.lower()[:30]
+        if name_key in seen:
+            continue
+
+        # Търсим цена в текущия ред или следващите 3 реда
+        context = '\n'.join(lines[i:i+4])
+        bgn = extract_bgn_price(context)
+        if not bgn:
+            eur_only = extract_eur_price(context)
+            if eur_only:
+                bgn = round(eur_only * EUR_BGN_RATE, 2)
+
+        if bgn and bgn > 0:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+            # Чистим името
+            name = re.sub(r'\s*\d+[.,]\d{2}\s*(?:лв|bgn|eur|€)?\s*$', '', line_stripped,
+                          flags=re.IGNORECASE).strip()
+            if len(name) > 5:
+                seen.add(name_key)
+                products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    # Pattern 2: Link формат [Име](url) с цена наблизо
+    link_pattern = r'\[([^\]]*(?:harmonica|хармоника)[^\]]*)\]\([^\)]+\)'
+    for match in re.finditer(link_pattern, markdown, re.IGNORECASE):
+        name = match.group(1).strip()
+        if not name or not is_food_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        idx = match.end()
+        context = markdown[idx:idx + 200]
+        bgn = extract_bgn_price(context)
+        if bgn and bgn > 0:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    return products
+
 
 async def fetch_glovo_store_products(store_key, store_config, query="harmonica"):
     """
-    Търси Harmonica продукти в Glovo магазин чрез API.
+    Търси Harmonica продукти в Glovo магазин.
 
-    Пробва 3 подхода:
-    1. Glovo API v3 product search (с auth token)
-    2. Glovo store page HTML (embedded JSON data)
-    3. Glovo web page scraping
+    Подходи по приоритет:
+    1. Firecrawl (JS rendering, headless browser)
+    2. Glovo API v3 (с auth token)
+    3. curl_cffi HTML (fallback)
     """
-    if not CURL_CFFI_AVAILABLE:
-        return {"success": False, "error": "curl_cffi not available"}
-
     slug = store_config["slug"]
     city_code = store_config.get("city_code", "SOF")
     store_name = store_config["name"]
@@ -1823,128 +1943,71 @@ async def fetch_glovo_store_products(store_key, store_config, query="harmonica")
     logger.info(f"Glovo {store_name}: търсене на '{query}'...")
     start = time.time()
 
-    proxy = PROXY_URL if PROXY_URL else None
-    auth_token = GLOVO_AUTH_TOKEN
+    # === Подход 1: Firecrawl (JS rendering) ===
+    if FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY:
+        # Firecrawl е синхронен — run в thread pool
+        loop = asyncio.get_event_loop()
+        fc_result = await loop.run_in_executor(
+            None, _fetch_glovo_via_firecrawl, slug, store_name, query
+        )
+        if fc_result and fc_result.get("success"):
+            return fc_result
 
-    # Common Glovo headers
-    glovo_headers = {
-        "Accept": "application/json",
-        "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.8",
-        "Glovo-Location-City-Code": city_code,
-        "Glovo-Api-Version": "14",
-        "Glovo-App-Platform": "web",
-        "Glovo-App-Type": "customer",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/122.0.0.0 Safari/537.36",
-    }
-    if auth_token:
-        glovo_headers["Authorization"] = f"Bearer {auth_token}"
+    # === Подход 2: Glovo API (с auth token) ===
+    if GLOVO_AUTH_TOKEN and CURL_CFFI_AVAILABLE:
+        proxy = PROXY_URL if PROXY_URL else None
+        glovo_headers = {
+            "Accept": "application/json",
+            "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.8",
+            "Glovo-Location-City-Code": city_code,
+            "Glovo-Api-Version": "14",
+            "Glovo-App-Platform": "web",
+            "Glovo-App-Type": "customer",
+            "Authorization": f"Bearer {GLOVO_AUTH_TOKEN}",
+        }
 
-    try:
-        async with CurlAsyncSession(impersonate="chrome") as session:
-
-            # === Подход 1: API search ===
-            if auth_token:
-                try:
-                    search_url = f"{GLOVO_API_BASE}/stores/{slug}/search"
-                    params = {"query": query}
-                    resp = await session.get(
-                        search_url,
-                        params=params,
-                        proxy=proxy,
-                        headers=glovo_headers,
-                        timeout=20,
-                    )
-
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        products = _parse_glovo_products(data, store_name)
-                        if products:
-                            elapsed = time.time() - start
-                            logger.info(f"Glovo {store_name}: API search → "
-                                        f"{len(products)} продукта ({elapsed:.1f}s)")
-                            return {
-                                "success": True,
-                                "method": "glovo_api_search",
-                                "products": products,
-                                "elapsed": elapsed,
-                            }
-                    else:
-                        logger.info(f"Glovo {store_name}: API search HTTP {resp.status_code}")
-                except Exception as e:
-                    logger.info(f"Glovo {store_name}: API search грешка: {e}")
-
-                # === Подход 1b: API catalog + filter ===
-                try:
-                    catalog_url = f"{GLOVO_API_BASE}/stores/{slug}"
-                    resp = await session.get(
-                        catalog_url,
-                        proxy=proxy,
-                        headers=glovo_headers,
-                        timeout=20,
-                    )
-
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        products = _parse_glovo_catalog(data, store_name, query)
-                        if products:
-                            elapsed = time.time() - start
-                            logger.info(f"Glovo {store_name}: API catalog → "
-                                        f"{len(products)} продукта ({elapsed:.1f}s)")
-                            return {
-                                "success": True,
-                                "method": "glovo_api_catalog",
-                                "products": products,
-                                "elapsed": elapsed,
-                            }
-                    else:
-                        logger.info(f"Glovo {store_name}: API catalog HTTP {resp.status_code}")
-                except Exception as e:
-                    logger.info(f"Glovo {store_name}: API catalog грешка: {e}")
-
-            # === Подход 2: Web page с embedded JSON ===
-            try:
-                web_url = f"https://glovoapp.com/bg/bg/sofia/stores/{slug}/"
+        try:
+            async with CurlAsyncSession(impersonate="chrome") as session:
+                # API search
+                search_url = f"{GLOVO_API_BASE}/stores/{slug}/search"
                 resp = await session.get(
-                    web_url,
-                    proxy=proxy,
-                    timeout=25,
-                    headers={
-                        "Accept": "text/html,application/xhtml+xml",
-                        "Accept-Language": "bg-BG,bg;q=0.9",
-                    },
+                    search_url, params={"query": query},
+                    proxy=proxy, headers=glovo_headers, timeout=20,
                 )
-
                 if resp.status_code == 200:
-                    html = resp.text
-                    products = _parse_glovo_html(html, store_name, query)
+                    data = resp.json()
+                    products = _parse_glovo_products(data, store_name)
                     if products:
                         elapsed = time.time() - start
-                        logger.info(f"Glovo {store_name}: HTML → "
+                        logger.info(f"Glovo {store_name}: API search → "
                                     f"{len(products)} продукта ({elapsed:.1f}s)")
-                        return {
-                            "success": True,
-                            "method": "glovo_html",
-                            "products": products,
-                            "elapsed": elapsed,
-                        }
-                    else:
-                        logger.info(f"Glovo {store_name}: HTML {len(html)} chars, "
-                                    f"0 Harmonica продукта")
+                        return {"success": True, "method": "glovo_api_search",
+                                "products": products, "elapsed": elapsed}
                 else:
-                    logger.info(f"Glovo {store_name}: web HTTP {resp.status_code}")
-            except Exception as e:
-                logger.info(f"Glovo {store_name}: web грешка: {e}")
+                    logger.info(f"Glovo {store_name}: API search HTTP {resp.status_code}")
 
-            elapsed = time.time() - start
-            logger.warning(f"Glovo {store_name}: не намерени Harmonica продукти ({elapsed:.1f}s)")
-            return {"success": False, "error": "No products found"}
+                # API catalog
+                catalog_url = f"{GLOVO_API_BASE}/stores/{slug}"
+                resp = await session.get(
+                    catalog_url, proxy=proxy, headers=glovo_headers, timeout=20,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    products = _parse_glovo_catalog(data, store_name, query)
+                    if products:
+                        elapsed = time.time() - start
+                        logger.info(f"Glovo {store_name}: API catalog → "
+                                    f"{len(products)} продукта ({elapsed:.1f}s)")
+                        return {"success": True, "method": "glovo_api_catalog",
+                                "products": products, "elapsed": elapsed}
+                else:
+                    logger.info(f"Glovo {store_name}: API catalog HTTP {resp.status_code}")
+        except Exception as e:
+            logger.info(f"Glovo {store_name}: API грешка: {e}")
 
-    except Exception as e:
-        elapsed = time.time() - start
-        logger.error(f"Glovo {store_name}: грешка: {e} ({elapsed:.1f}s)")
-        return {"success": False, "error": str(e)}
+    elapsed = time.time() - start
+    logger.warning(f"Glovo {store_name}: не намерени Harmonica продукти ({elapsed:.1f}s)")
+    return {"success": False, "error": "No products found"}
 
 
 def _parse_glovo_products(data, store_name):
@@ -2050,96 +2113,22 @@ def _parse_glovo_catalog(data, store_name, query):
     return products
 
 
-def _parse_glovo_html(html, store_name, query):
-    """Парсва embedded JSON от Glovo web page."""
-    products = []
-
-    # Търсим __NEXT_DATA__ или подобен embedded JSON
-    json_patterns = [
-        r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.+?)</script>',
-        r'window\.__INITIAL_STATE__\s*=\s*({.+?});\s*</script>',
-        r'window\.__PRELOADED_STATE__\s*=\s*({.+?});\s*</script>',
-    ]
-
-    for pattern in json_patterns:
-        match = re.search(pattern, html, re.DOTALL)
-        if match:
-            try:
-                data = json.loads(match.group(1))
-                # Рекурсивно търсене за продукти
-                products = _extract_products_recursive(data, query)
-                if products:
-                    return products
-            except json.JSONDecodeError:
-                continue
-
-    # Fallback: BS4 парсване
-    if BS4_AVAILABLE:
-        soup = BeautifulSoup(html, 'html.parser')
-        # Glovo product cards
-        for el in soup.select('[class*=product], [class*=Product], [data-testid*=product]'):
-            text = el.get_text(' ', strip=True)
-            if 'harmonica' in text.lower() or 'хармоника' in text.lower():
-                name_el = el.select_one('[class*=name], [class*=title], h3, h4')
-                if name_el:
-                    name = name_el.get_text(strip=True)
-                    bgn = extract_bgn_price(text)
-                    if bgn:
-                        eur = round(bgn / EUR_BGN_RATE, 2)
-                        products.append({"name": name, "eur": eur, "bgn": bgn})
-
-    return products
-
-
-def _extract_products_recursive(data, query, depth=0, max_depth=8):
-    """Рекурсивно търси продукти в nested JSON."""
-    if depth > max_depth:
-        return []
-
-    products = []
-    query_lower = query.lower()
-
-    if isinstance(data, dict):
-        # Проверяваме дали е продукт
-        name = data.get("name", data.get("productName", ""))
-        price = data.get("price", data.get("priceInfo"))
-        if name and price and (query_lower in name.lower() or "хармоника" in name.lower()):
-            if is_food_product(name):
-                price_bgn = None
-                if isinstance(price, (int, float)):
-                    price_bgn = round(float(price) / 100, 2) if price > 100 else float(price)
-                elif isinstance(price, dict):
-                    amount = price.get("amount", price.get("value", 0))
-                    if amount:
-                        price_bgn = round(float(amount) / 100, 2) if amount > 100 else float(amount)
-                if price_bgn and price_bgn > 0:
-                    products.append({
-                        "name": name,
-                        "eur": round(price_bgn / EUR_BGN_RATE, 2),
-                        "bgn": price_bgn,
-                    })
-
-        # Рекурсия
-        for value in data.values():
-            products.extend(_extract_products_recursive(value, query, depth + 1, max_depth))
-    elif isinstance(data, list):
-        for item in data:
-            products.extend(_extract_products_recursive(item, query, depth + 1, max_depth))
-
-    return products
-
-
 async def fetch_all_glovo_products(query="harmonica"):
     """Търси Harmonica продукти във всички Glovo магазини паралелно."""
-    if not CURL_CFFI_AVAILABLE:
-        logger.warning("Glovo: curl_cffi не е наличен — пропускане")
-        return {}
-
     if not GLOVO_STORES:
         return {}
 
-    if not GLOVO_AUTH_TOKEN:
-        logger.info("Glovo: GLOVO_AUTH_TOKEN не е зададен — опит с HTML scraping")
+    has_firecrawl = FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY
+    has_api = GLOVO_AUTH_TOKEN and CURL_CFFI_AVAILABLE
+
+    if not has_firecrawl and not has_api:
+        logger.warning("Glovo: нито FIRECRAWL_API_KEY, нито GLOVO_AUTH_TOKEN — пропускане")
+        return {}
+
+    if has_firecrawl:
+        logger.info("Glovo: ще използваме Firecrawl (JS rendering)")
+    elif has_api:
+        logger.info("Glovo: ще използваме API с auth token")
 
     tasks = {}
     for store_key, config in GLOVO_STORES.items():
@@ -2694,10 +2683,12 @@ async def main():
                 f"CapSolver: {CAPSOLVER_AVAILABLE}, curl_cffi: {CURL_CFFI_AVAILABLE}")
     if PROXY_URL:
         logger.info(f"Proxy: {PROXY_URL[:30]}...")
+    if FIRECRAWL_API_KEY:
+        logger.info(f"Firecrawl: YES (key: {FIRECRAWL_API_KEY[:8]}...)")
     if GLOVO_AUTH_TOKEN:
         logger.info(f"Glovo auth: YES (token length: {len(GLOVO_AUTH_TOKEN)})")
-    else:
-        logger.info("Glovo auth: NO — ще опитаме HTML scraping")
+    if not FIRECRAWL_API_KEY and not GLOVO_AUTH_TOKEN:
+        logger.info("Glovo: нито Firecrawl, нито auth — Glovo магазините ще се пропуснат")
 
     if not CRAWL4AI_AVAILABLE:
         logger.error("Crawl4AI not available!")
