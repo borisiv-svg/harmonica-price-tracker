@@ -116,7 +116,7 @@ STORES = {
     "kashon": {
         "name": "Кашон",
         "url": "https://kashonharmonica.bg/bg/products/field_producer/harmonica-144#content",
-        "scroll_times": 10,
+        "scroll_times": 15,
         "is_master": True,
     },
     "ebag": {
@@ -1821,47 +1821,58 @@ def _fetch_glovo_via_firecrawl(slug, store_name, query="harmonica"):
         return None
 
     start = time.time()
-    store_url = f"https://glovoapp.com/bg/bg/sofiya/{slug}/"
+
+    # Пробваме различни URL модели за търсене вътре в Glovo магазин
+    search_urls = [
+        f"https://glovoapp.com/bg/bg/sofiya/{slug}/search/{query}",
+        f"https://glovoapp.com/bg/bg/sofiya/{slug}/?search={query}",
+        f"https://glovoapp.com/bg/bg/sofiya/{slug}/",
+    ]
 
     try:
         app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
 
-        # Scrape с JS rendering → markdown
-        result = app.scrape(store_url, formats=["markdown"], timeout=30000)
+        for url in search_urls:
+            try:
+                result = app.scrape(url, formats=["markdown"], timeout=30000)
+            except Exception as e:
+                logger.info(f"Glovo {store_name}: Firecrawl {url.split('/')[-1] or slug} — {e}")
+                continue
+
+            elapsed = time.time() - start
+
+            if isinstance(result, dict):
+                markdown = result.get("markdown", "")
+            elif hasattr(result, "markdown"):
+                markdown = result.markdown or ""
+            else:
+                markdown = str(result) if result else ""
+
+            if not markdown:
+                logger.info(f"Glovo {store_name}: Firecrawl — празен markdown")
+                continue
+
+            harmonica_refs = len(re.findall(r'(?i)harmonica|хармоника', markdown))
+            url_label = url.split(slug + "/")[-1] or "store-page"
+            logger.info(f"Glovo {store_name}: Firecrawl [{url_label}] — "
+                        f"{len(markdown)} chars, {harmonica_refs} harmonica refs ({elapsed:.1f}s)")
+
+            if harmonica_refs == 0:
+                # Dump first 200 chars for debug
+                logger.info(f"  markdown preview: {markdown[:200].replace(chr(10), ' ')}")
+                continue
+
+            products = _parse_glovo_markdown(markdown, store_name, query)
+            if products:
+                return {
+                    "success": True,
+                    "method": f"firecrawl_{url_label}",
+                    "products": products,
+                    "elapsed": elapsed,
+                }
 
         elapsed = time.time() - start
-
-        # Debug: какъв тип е result и какви ключове има
-        if isinstance(result, dict):
-            logger.info(f"Glovo {store_name}: Firecrawl keys={list(result.keys())[:10]}")
-            markdown = result.get("markdown", "")
-        elif hasattr(result, "markdown"):
-            markdown = result.markdown or ""
-            logger.info(f"Glovo {store_name}: Firecrawl object, markdown={len(markdown)} chars")
-        else:
-            markdown = str(result) if result else ""
-            logger.info(f"Glovo {store_name}: Firecrawl type={type(result).__name__}")
-
-        if not markdown:
-            logger.info(f"Glovo {store_name}: Firecrawl — празен markdown ({elapsed:.1f}s)")
-            return None
-
-        logger.info(f"Glovo {store_name}: Firecrawl — {len(markdown)} chars markdown ({elapsed:.1f}s)")
-
-        # Парсване на markdown за Harmonica продукти
-        products = _parse_glovo_markdown(markdown, store_name, query)
-        if products:
-            return {
-                "success": True,
-                "method": "firecrawl",
-                "products": products,
-                "elapsed": elapsed,
-            }
-
-        # Ако не намерим — дъмпваме за дебъг
-        harmonica_refs = len(re.findall(r'(?i)harmonica|хармоника', markdown))
-        logger.info(f"Glovo {store_name}: Firecrawl — {harmonica_refs} harmonica refs, "
-                    f"0 продукта с цена")
+        logger.info(f"Glovo {store_name}: Firecrawl — 0 продукта от {len(search_urls)} URL-а ({elapsed:.1f}s)")
         return None
 
     except Exception as e:
