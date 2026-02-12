@@ -1,17 +1,22 @@
 """
-EXP-003: Crawl4AI Experimental Scraper v9.0.5
+EXP-003: Crawl4AI Experimental Scraper v9.1.0
 ===============================================
+Промени спрямо v9.0.5:
+- Optima премахнат (search е безнадеждно счупен)
+- Кашон URL обновен (field_producer/harmonica-144)
+- Таблица: Кашон=EUR+BGN, останалите=EUR, Средна EUR, Статус
+- Подготовка за Glovo интеграция
+
 Промени спрямо v9.0.4:
 - Lilly: Magento GraphQL + REST API чрез curl_cffi (Hyvä зарежда JS)
-- Optima: BS4 HTML парсване за curl_cffi резултати
 - crawl_all(): Lilly добавен в curl_cffi паралелни задачи
 
 Промени спрямо v8.0:
-- VMV Supermarket, Optima, T-Market добавени (Crawl4AI)
+- VMV Supermarket, T-Market добавени (Crawl4AI)
 - DM Algolia API (curl_cffi) с CapSolver fallback
 - curl_cffi за TLS impersonation (Cloudflare bypass)
 - Proxy support (PROXY_URL env var)
-- Общо 8 магазина (Кашон + 7 external)
+- Общо 7 магазина (Кашон + 6 external)
 """
 
 import asyncio
@@ -77,6 +82,7 @@ except ImportError:
 
 EUR_BGN_RATE = 1.9558  # Фиксиран курс
 PROXY_URL = os.environ.get("PROXY_URL")  # Optional: http://user:pass@host:port
+GLOVO_AUTH_TOKEN = os.environ.get("GLOVO_AUTH_TOKEN")  # Optional: Glovo Bearer token
 
 
 # =============================================================================
@@ -85,61 +91,74 @@ PROXY_URL = os.environ.get("PROXY_URL")  # Optional: http://user:pass@host:port
 
 STORES = {
     "kashon": {
-        "name": "Кашон Harmonica",
-        "url": "https://kashonharmonica.bg/bg/products",
+        "name": "Кашон",
+        "url": "https://kashonharmonica.bg/bg/products/field_producer/harmonica-144#content",
         "scroll_times": 10,
-        "is_reference": True,
+        "is_master": True,
     },
     "ebag": {
         "name": "eBag",
         "url": "https://www.ebag.bg/search/?products%5BrefinementList%5D%5Bbrand_name_bg%5D%5B0%5D=%D0%A5%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
         "scroll_times": 12,
-        "is_reference": False,
     },
     "balev": {
-        "name": "Balev Bio Market",
+        "name": "Balev Bio",
         "url": "https://balevbiomarket.com/productBrands/harmonica",
         "scroll_times": 8,
-        "is_reference": False,
     },
     "lilly": {
-        "name": "Lilly Drogerie",
+        "name": "Lilly",
         "url": "https://lillydrogerie.bg/brands/harmonica",
         "scroll_times": 4,
-        "is_reference": False,
         "brand_page": True,
         "use_magic": True,
     },
     "dm": {
-        "name": "DM Bulgaria",
+        "name": "DM",
         "url": "https://www.dm.bg/search?query=harmonica&searchType=product",
         "scroll_times": 5,
-        "is_reference": False,
         "needs_captcha_solver": True,
         "algolia_enabled": True,
     },
     "vmv": {
-        "name": "VMV Supermarket",
+        "name": "VMV",
         "url": "https://vmv.bg/search?q=harmonica",
         "scroll_times": 5,
-        "is_reference": False,
-    },
-    "optima": {
-        "name": "Optima",
-        "url": "https://optima.bg/?s=harmonica&post_type=product",
-        "scroll_times": 5,
-        "is_reference": False,
-        "use_magic": True,
     },
     "tmarket": {
         "name": "T-Market",
         "url": "https://tmarketonline.bg/vendor/harmonica-1881705916",
         "scroll_times": 8,
-        "is_reference": False,
         "brand_page": True,
         "needs_captcha_solver": True,
     },
 }
+
+# Glovo магазини в София — ще се сканират чрез Glovo API
+GLOVO_STORES = {
+    "glovo_kaufland": {
+        "name": "Kaufland",
+        "slug": "kaufland-sof",
+        "city_code": "SOF",
+    },
+    "glovo_billa": {
+        "name": "Billa",
+        "slug": "billa-sof1",
+        "city_code": "SOF",
+    },
+    "glovo_cba": {
+        "name": "CBA",
+        "slug": "cba-supermarket-cherni-vruh-sof",
+        "city_code": "SOF",
+    },
+    "glovo_fantastico": {
+        "name": "Fantastico",
+        "slug": "fantastico-sof",
+        "city_code": "SOF",
+    },
+}
+
+GLOVO_API_BASE = "https://api.glovoapp.com/v3"
 
 
 # =============================================================================
@@ -540,111 +559,6 @@ def extract_vmv_products(markdown, html_text=None, brand_page=True):
 # =============================================================================
 # OPTIMA EXTRACTION
 # =============================================================================
-
-def extract_optima_products(markdown, html_text=None, brand_page=False):
-    """
-    Извлича Harmonica продукти от Optima.bg.
-
-    Optima.bg е онлайн супермаркет в София. URL формат:
-    optima.bg/магазин/{category}/{id}/{product-slug}
-    Цени в BGN. Search page: ?s=harmonica
-    """
-    products = []
-    seen = set()
-
-    # Pattern 1: Links с Harmonica (search page — проверяваме за harmonica)
-    link_pattern = r'\[([^\]]{5,120})\]\(((?:https?://[^\)]+|/[^\)]+))\)'
-    for match in re.finditer(link_pattern, markdown):
-        name = match.group(1).strip()
-
-        if name.startswith('!') or 'logo' in name.lower():
-            continue
-        if not brand_page and not is_harmonica_product(name):
-            continue
-
-        name_key = name.lower()[:30]
-        if name_key in seen:
-            continue
-        if not is_food_product(name):
-            continue
-
-        idx = match.end()
-        context = markdown[max(0, idx - 100):idx + 400]
-
-        bgn = extract_bgn_price(context)
-        eur = extract_eur_price(context)
-
-        if bgn and not eur:
-            eur = round(bgn / EUR_BGN_RATE, 2)
-
-        if bgn or eur:
-            seen.add(name_key)
-            products.append({"name": name, "eur": eur, "bgn": bgn})
-
-    # Pattern 2: Текстови блокове с harmonica + цена
-    if not products:
-        products = _extract_generic_products(markdown, brand_page=brand_page)
-
-    # Pattern 3: BS4 HTML парсване (за curl_cffi HTML)
-    if not products and BS4_AVAILABLE and html_text:
-        soup = BeautifulSoup(html_text, 'html.parser')
-
-        # WooCommerce product selectors
-        product_items = soup.select(
-            '.product, .product-item, .wc-block-grid__product, '
-            'li.type-product, .post-type-product, '
-            '[class*=product-card], [class*=product-item]'
-        )
-
-        # Fallback: търсим елементи с harmonica текст
-        if not product_items:
-            for el in soup.find_all(['div', 'li', 'article']):
-                text = el.get_text(strip=True)
-                if 'harmonica' in text.lower() and len(text) < 2000:
-                    # Търсим цена в контекста
-                    if re.search(r'\d+[.,]\d{2}', text):
-                        product_items.append(el)
-
-        for item in product_items:
-            text = item.get_text(' ', strip=True)
-            if not brand_page and not is_harmonica_product(text):
-                continue
-
-            product_name = None
-            for tag in item.find_all(['a', 'h2', 'h3', 'h4', 'span']):
-                tag_text = tag.get_text(strip=True)
-                if tag_text and len(tag_text) > 10 and is_food_product(tag_text):
-                    if brand_page or is_harmonica_product(tag_text):
-                        product_name = tag_text
-                        break
-
-            if not product_name:
-                continue
-
-            name_key = product_name.lower()[:30]
-            if name_key in seen:
-                continue
-
-            bgn = extract_bgn_price(text)
-            eur = extract_eur_price(text)
-
-            if bgn and not eur:
-                eur = round(bgn / EUR_BGN_RATE, 2)
-
-            if bgn or eur:
-                seen.add(name_key)
-                products.append({"name": product_name, "eur": eur, "bgn": bgn})
-
-        if products:
-            logger.info(f"Optima BS4: {len(products)} продукта извлечени от HTML")
-
-    if not products:
-        logger.warning(f"Optima: 0 продукта, markdown len={len(markdown)}, "
-                       f"html len={len(html_text) if html_text else 0}")
-    else:
-        logger.info(f"Optima: {len(products)} продукта общо")
-    return products
-
 
 # =============================================================================
 # T-MARKET EXTRACTION
@@ -1872,131 +1786,369 @@ async def fetch_tmarket_via_curl(url="https://tmarketonline.bg/vendor/harmonica-
 
 
 # =============================================================================
-# OPTIMA curl_cffi + WooCommerce Store API
+# GLOVO API — търсене на Harmonica продукти в Glovo магазини
 # =============================================================================
 
-async def fetch_optima_via_curl(query="harmonica"):
+async def fetch_glovo_store_products(store_key, store_config, query="harmonica"):
     """
-    Опит за fetch на Optima.bg чрез curl_cffi.
-    Пробваме WooCommerce Store API и стандартен search.
+    Търси Harmonica продукти в Glovo магазин чрез API.
+
+    Пробва 3 подхода:
+    1. Glovo API v3 product search (с auth token)
+    2. Glovo store page HTML (embedded JSON data)
+    3. Glovo web page scraping
     """
     if not CURL_CFFI_AVAILABLE:
         return {"success": False, "error": "curl_cffi not available"}
 
-    logger.info("Optima: curl_cffi fetch...")
+    slug = store_config["slug"]
+    city_code = store_config.get("city_code", "SOF")
+    store_name = store_config["name"]
+
+    logger.info(f"Glovo {store_name}: търсене на '{query}'...")
     start = time.time()
+
+    proxy = PROXY_URL if PROXY_URL else None
+    auth_token = GLOVO_AUTH_TOKEN
+
+    # Common Glovo headers
+    glovo_headers = {
+        "Accept": "application/json",
+        "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.8",
+        "Glovo-Location-City-Code": city_code,
+        "Glovo-Api-Version": "14",
+        "Glovo-App-Platform": "web",
+        "Glovo-App-Type": "customer",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/122.0.0.0 Safari/537.36",
+    }
+    if auth_token:
+        glovo_headers["Authorization"] = f"Bearer {auth_token}"
 
     try:
         async with CurlAsyncSession(impersonate="chrome") as session:
-            proxy = PROXY_URL if PROXY_URL else None
 
-            # Опит 1: WooCommerce Store API (публичен, без auth)
-            api_url = f"https://optima.bg/wp-json/wc/store/v1/products?search={query}&per_page=50"
-            try:
-                api_resp = await session.get(
-                    api_url,
-                    proxy=proxy,
-                    timeout=20,
-                    headers={
-                        "Accept": "application/json",
-                        "Accept-Language": "bg-BG,bg;q=0.9",
-                    },
-                )
-                if api_resp.status_code == 200:
-                    data = api_resp.json()
-                    if isinstance(data, list) and data:
-                        products = []
-                        for item in data:
-                            name = item.get('name', '')
-                            if not name:
-                                continue
-                            prices = item.get('prices', {})
-                            price_str = prices.get('price', '0')
-                            try:
-                                price_bgn = round(int(price_str) / 100, 2) if price_str else None
-                            except (ValueError, TypeError):
-                                price_bgn = None
-                            if price_bgn:
-                                price_eur = round(price_bgn / EUR_BGN_RATE, 2)
-                                products.append({
-                                    "name": name,
-                                    "eur": price_eur,
-                                    "bgn": price_bgn,
-                                })
+            # === Подход 1: API search ===
+            if auth_token:
+                try:
+                    search_url = f"{GLOVO_API_BASE}/stores/{slug}/search"
+                    params = {"query": query}
+                    resp = await session.get(
+                        search_url,
+                        params=params,
+                        proxy=proxy,
+                        headers=glovo_headers,
+                        timeout=20,
+                    )
 
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        products = _parse_glovo_products(data, store_name)
                         if products:
                             elapsed = time.time() - start
-                            logger.info(f"Optima WC API: {len(products)} продукта ({elapsed:.1f}s)")
+                            logger.info(f"Glovo {store_name}: API search → "
+                                        f"{len(products)} продукта ({elapsed:.1f}s)")
                             return {
                                 "success": True,
-                                "method": "wc_store_api",
+                                "method": "glovo_api_search",
                                 "products": products,
                                 "elapsed": elapsed,
                             }
-                else:
-                    logger.info(f"Optima WC API: HTTP {api_resp.status_code}")
-            except Exception as e:
-                logger.info(f"Optima WC API: {e}")
+                    else:
+                        logger.info(f"Glovo {store_name}: API search HTTP {resp.status_code}")
+                except Exception as e:
+                    logger.info(f"Glovo {store_name}: API search грешка: {e}")
 
-            # Опит 2: WP REST API v2
-            api_url2 = f"https://optima.bg/wp-json/wp/v2/product?search={query}&per_page=50"
+                # === Подход 1b: API catalog + filter ===
+                try:
+                    catalog_url = f"{GLOVO_API_BASE}/stores/{slug}"
+                    resp = await session.get(
+                        catalog_url,
+                        proxy=proxy,
+                        headers=glovo_headers,
+                        timeout=20,
+                    )
+
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        products = _parse_glovo_catalog(data, store_name, query)
+                        if products:
+                            elapsed = time.time() - start
+                            logger.info(f"Glovo {store_name}: API catalog → "
+                                        f"{len(products)} продукта ({elapsed:.1f}s)")
+                            return {
+                                "success": True,
+                                "method": "glovo_api_catalog",
+                                "products": products,
+                                "elapsed": elapsed,
+                            }
+                    else:
+                        logger.info(f"Glovo {store_name}: API catalog HTTP {resp.status_code}")
+                except Exception as e:
+                    logger.info(f"Glovo {store_name}: API catalog грешка: {e}")
+
+            # === Подход 2: Web page с embedded JSON ===
             try:
-                api_resp2 = await session.get(
-                    api_url2,
+                web_url = f"https://glovoapp.com/bg/bg/sofia/stores/{slug}/"
+                resp = await session.get(
+                    web_url,
                     proxy=proxy,
-                    timeout=20,
-                    headers={"Accept": "application/json"},
+                    timeout=25,
+                    headers={
+                        "Accept": "text/html,application/xhtml+xml",
+                        "Accept-Language": "bg-BG,bg;q=0.9",
+                    },
                 )
-                if api_resp2.status_code == 200:
-                    data = api_resp2.json()
-                    if isinstance(data, list) and data:
+
+                if resp.status_code == 200:
+                    html = resp.text
+                    products = _parse_glovo_html(html, store_name, query)
+                    if products:
                         elapsed = time.time() - start
-                        logger.info(f"Optima WP API: {len(data)} резултата ({elapsed:.1f}s)")
-                        # Partial data — return HTML for BS4 parsing
+                        logger.info(f"Glovo {store_name}: HTML → "
+                                    f"{len(products)} продукта ({elapsed:.1f}s)")
                         return {
                             "success": True,
-                            "method": "wp_api",
-                            "products": [],
-                            "html": "",
-                            "api_data": data,
+                            "method": "glovo_html",
+                            "products": products,
                             "elapsed": elapsed,
                         }
-            except Exception:
-                pass
-
-            # Опит 3: Стандартен HTML fetch
-            search_url = f"https://optima.bg/?s={query}&post_type=product"
-            resp = await session.get(
-                search_url,
-                proxy=proxy,
-                timeout=30,
-                headers={
-                    "Accept": "text/html,application/xhtml+xml",
-                    "Accept-Language": "bg-BG,bg;q=0.9",
-                },
-            )
+                    else:
+                        logger.info(f"Glovo {store_name}: HTML {len(html)} chars, "
+                                    f"0 Harmonica продукта")
+                else:
+                    logger.info(f"Glovo {store_name}: web HTTP {resp.status_code}")
+            except Exception as e:
+                logger.info(f"Glovo {store_name}: web грешка: {e}")
 
             elapsed = time.time() - start
-
-            if resp.status_code != 200:
-                logger.warning(f"Optima curl_cffi: HTTP {resp.status_code}")
-                return {"success": False, "error": f"HTTP {resp.status_code}"}
-
-            html = resp.text
-            logger.info(f"Optima curl_cffi: OK {elapsed:.1f}s, {len(html)} chars")
-            return {
-                "success": True,
-                "method": "curl_cffi_html",
-                "html": html,
-                "markdown": "",
-                "elapsed": elapsed,
-                "store_key": "optima",
-            }
+            logger.warning(f"Glovo {store_name}: не намерени Harmonica продукти ({elapsed:.1f}s)")
+            return {"success": False, "error": "No products found"}
 
     except Exception as e:
         elapsed = time.time() - start
-        logger.error(f"Optima curl_cffi грешка: {e} ({elapsed:.1f}s)")
+        logger.error(f"Glovo {store_name}: грешка: {e} ({elapsed:.1f}s)")
         return {"success": False, "error": str(e)}
+
+
+def _parse_glovo_products(data, store_name):
+    """Парсва продукти от Glovo API search response."""
+    products = []
+    seen = set()
+
+    # Glovo search response може да е dict с "products" или list
+    items = []
+    if isinstance(data, dict):
+        items = data.get("products", data.get("items", data.get("results", [])))
+        # Опит: sections → products
+        for section in data.get("sections", []):
+            items.extend(section.get("products", section.get("items", [])))
+    elif isinstance(data, list):
+        items = data
+
+    for item in items:
+        name = item.get("name", item.get("productName", ""))
+        if not name:
+            continue
+        if not is_harmonica_product(name):
+            continue
+        if not is_food_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        # Price — Glovo обикновено връща в стотинки или пряко в BGN
+        price_bgn = None
+        price_obj = item.get("price", item.get("priceInfo", {}))
+        if isinstance(price_obj, (int, float)):
+            price_bgn = round(float(price_obj) / 100, 2) if price_obj > 100 else float(price_obj)
+        elif isinstance(price_obj, dict):
+            amount = price_obj.get("amount", price_obj.get("value", 0))
+            if amount:
+                price_bgn = round(float(amount) / 100, 2) if amount > 100 else float(amount)
+
+        if price_bgn and price_bgn > 0:
+            price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+            seen.add(name_key)
+            products.append({
+                "name": name,
+                "eur": price_eur,
+                "bgn": price_bgn,
+            })
+
+    return products
+
+
+def _parse_glovo_catalog(data, store_name, query):
+    """Парсва целия каталог и филтрира по query."""
+    all_products = []
+
+    # Каталогът може да е в categories → sections → products
+    categories = data.get("categories", data.get("menu", {}).get("categories", []))
+    for cat in categories:
+        sections = cat.get("sections", cat.get("groups", []))
+        for section in sections:
+            items = section.get("products", section.get("items", []))
+            all_products.extend(items)
+        # Директни продукти в категорията
+        all_products.extend(cat.get("products", []))
+
+    # Филтрираме за Harmonica
+    products = []
+    seen = set()
+    query_lower = query.lower()
+
+    for item in all_products:
+        name = item.get("name", "")
+        if not name:
+            continue
+        if query_lower not in name.lower() and "хармоника" not in name.lower():
+            continue
+        if not is_food_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        price_bgn = None
+        price_obj = item.get("price", item.get("priceInfo", {}))
+        if isinstance(price_obj, (int, float)):
+            price_bgn = round(float(price_obj) / 100, 2) if price_obj > 100 else float(price_obj)
+        elif isinstance(price_obj, dict):
+            amount = price_obj.get("amount", price_obj.get("value", 0))
+            if amount:
+                price_bgn = round(float(amount) / 100, 2) if amount > 100 else float(amount)
+
+        if price_bgn and price_bgn > 0:
+            price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+            seen.add(name_key)
+            products.append({
+                "name": name,
+                "eur": price_eur,
+                "bgn": price_bgn,
+            })
+
+    return products
+
+
+def _parse_glovo_html(html, store_name, query):
+    """Парсва embedded JSON от Glovo web page."""
+    products = []
+
+    # Търсим __NEXT_DATA__ или подобен embedded JSON
+    json_patterns = [
+        r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.+?)</script>',
+        r'window\.__INITIAL_STATE__\s*=\s*({.+?});\s*</script>',
+        r'window\.__PRELOADED_STATE__\s*=\s*({.+?});\s*</script>',
+    ]
+
+    for pattern in json_patterns:
+        match = re.search(pattern, html, re.DOTALL)
+        if match:
+            try:
+                data = json.loads(match.group(1))
+                # Рекурсивно търсене за продукти
+                products = _extract_products_recursive(data, query)
+                if products:
+                    return products
+            except json.JSONDecodeError:
+                continue
+
+    # Fallback: BS4 парсване
+    if BS4_AVAILABLE:
+        soup = BeautifulSoup(html, 'html.parser')
+        # Glovo product cards
+        for el in soup.select('[class*=product], [class*=Product], [data-testid*=product]'):
+            text = el.get_text(' ', strip=True)
+            if 'harmonica' in text.lower() or 'хармоника' in text.lower():
+                name_el = el.select_one('[class*=name], [class*=title], h3, h4')
+                if name_el:
+                    name = name_el.get_text(strip=True)
+                    bgn = extract_bgn_price(text)
+                    if bgn:
+                        eur = round(bgn / EUR_BGN_RATE, 2)
+                        products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    return products
+
+
+def _extract_products_recursive(data, query, depth=0, max_depth=8):
+    """Рекурсивно търси продукти в nested JSON."""
+    if depth > max_depth:
+        return []
+
+    products = []
+    query_lower = query.lower()
+
+    if isinstance(data, dict):
+        # Проверяваме дали е продукт
+        name = data.get("name", data.get("productName", ""))
+        price = data.get("price", data.get("priceInfo"))
+        if name and price and (query_lower in name.lower() or "хармоника" in name.lower()):
+            if is_food_product(name):
+                price_bgn = None
+                if isinstance(price, (int, float)):
+                    price_bgn = round(float(price) / 100, 2) if price > 100 else float(price)
+                elif isinstance(price, dict):
+                    amount = price.get("amount", price.get("value", 0))
+                    if amount:
+                        price_bgn = round(float(amount) / 100, 2) if amount > 100 else float(amount)
+                if price_bgn and price_bgn > 0:
+                    products.append({
+                        "name": name,
+                        "eur": round(price_bgn / EUR_BGN_RATE, 2),
+                        "bgn": price_bgn,
+                    })
+
+        # Рекурсия
+        for value in data.values():
+            products.extend(_extract_products_recursive(value, query, depth + 1, max_depth))
+    elif isinstance(data, list):
+        for item in data:
+            products.extend(_extract_products_recursive(item, query, depth + 1, max_depth))
+
+    return products
+
+
+async def fetch_all_glovo_products(query="harmonica"):
+    """Търси Harmonica продукти във всички Glovo магазини паралелно."""
+    if not CURL_CFFI_AVAILABLE:
+        logger.warning("Glovo: curl_cffi не е наличен — пропускане")
+        return {}
+
+    if not GLOVO_STORES:
+        return {}
+
+    if not GLOVO_AUTH_TOKEN:
+        logger.info("Glovo: GLOVO_AUTH_TOKEN не е зададен — опит с HTML scraping")
+
+    tasks = {}
+    for store_key, config in GLOVO_STORES.items():
+        tasks[store_key] = asyncio.create_task(
+            fetch_glovo_store_products(store_key, config, query)
+        )
+
+    results = {}
+    for store_key, task in tasks.items():
+        try:
+            result = await task
+            results[store_key] = result
+            if result.get("success"):
+                products = result.get("products", [])
+                logger.info(f"Glovo {GLOVO_STORES[store_key]['name']}: "
+                            f"{len(products)} Harmonica продукта")
+            else:
+                logger.info(f"Glovo {GLOVO_STORES[store_key]['name']}: "
+                            f"{result.get('error', 'неизвестна грешка')}")
+        except Exception as e:
+            logger.error(f"Glovo {GLOVO_STORES[store_key]['name']}: {e}")
+            results[store_key] = {"success": False, "error": str(e)}
+
+    return results
 
 
 # =============================================================================
@@ -2168,14 +2320,14 @@ async def crawl_all():
         "viewport_height": 1080,
     }
     if PROXY_URL:
-        browser_kwargs["proxy"] = PROXY_URL
+        browser_kwargs["proxy_config"] = {"server": PROXY_URL}
         logger.info(f"Proxy: {PROXY_URL[:30]}...")
 
     browser_config = BrowserConfig(**browser_kwargs)
 
     results = {}
 
-    # curl_cffi паралелни задачи (DM Algolia, Lilly GraphQL, T-Market, Optima)
+    # curl_cffi паралелни задачи (DM Algolia, Lilly GraphQL, T-Market)
     curl_tasks = {}
 
     dm_config = STORES.get("dm", {})
@@ -2187,9 +2339,6 @@ async def crawl_all():
 
     if CURL_CFFI_AVAILABLE and "tmarket" in STORES:
         curl_tasks["tmarket"] = asyncio.create_task(fetch_tmarket_via_curl())
-
-    if CURL_CFFI_AVAILABLE and "optima" in STORES:
-        curl_tasks["optima"] = asyncio.create_task(fetch_optima_via_curl())
 
     # Crawl4AI задачи (пропускаме stores с curl_cffi path)
     async with AsyncWebCrawler(config=browser_config) as crawler:
@@ -2234,6 +2383,11 @@ async def crawl_all():
             logger.error(f"{STORES[store_key]['name']}: curl_cffi грешка: {e}")
             results[store_key] = {"success": False, "error": str(e)}
 
+    # Glovo магазини (паралелно, отделен pipeline)
+    if GLOVO_STORES and CURL_CFFI_AVAILABLE:
+        glovo_results = await fetch_all_glovo_products("harmonica")
+        results.update(glovo_results)
+
     return results
 
 
@@ -2251,8 +2405,9 @@ def extract_weight(name):
 
 def write_to_sheets(final_products, stats):
     """
-    Записва данните в Google Sheets с автоматично сиво форматиране
-    за изчерпани продукти (in_stock=False).
+    Записва данните в Google Sheets.
+    Формат: № | Продукт | Грамаж | Кашон BGN | Кашон EUR | Store1 EUR | ... | Ср.EUR | Статус
+    Кашон показва и BGN и EUR, всички останали магазини — само EUR.
     """
     if not GSPREAD_AVAILABLE:
         logger.warning("gspread not available — skipping Sheets write")
@@ -2263,13 +2418,16 @@ def write_to_sheets(final_products, stats):
     tab_suffix = os.environ.get("SHEET_TAB_SUFFIX", "")
     tab_name = f"{BASE_TAB}{tab_suffix}"
 
-    store_columns = [key for key, cfg in STORES.items() if not cfg.get("is_reference")]
+    # Магазини без Кашон (те показват само EUR) + Glovo магазини
+    store_columns = [key for key, cfg in STORES.items() if not cfg.get("is_master")]
+    store_columns += list(GLOVO_STORES.keys())
     store_display_names = {key: cfg["name"] for key, cfg in STORES.items()}
+    store_display_names.update({k: f"Glovo {cfg['name']}" for k, cfg in GLOVO_STORES.items()})
 
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     logger.info(f"Google Sheets: записване в '{tab_name}'")
-    logger.info(f"Магазини: {', '.join(store_display_names[s] for s in store_columns)}")
+    logger.info(f"Магазини: Кашон + {', '.join(store_display_names[s] for s in store_columns)}")
 
     try:
         creds_json = os.environ.get("GOOGLE_CREDENTIALS")
@@ -2302,21 +2460,23 @@ def write_to_sheets(final_products, stats):
         return False
 
     # --- Изграждане на данните ---
+    # Колони: №(0) | Продукт(1) | Грамаж(2) | Кашон BGN(3) | Кашон EUR(4) | Store1(5) | ... | Ср.EUR | Статус
     HEADER_ROW = 4
     DATA_START_ROW = 5
-    STORE_COL_START = 5
+    KASHON_COL_START = 3     # Кашон BGN
+    STORE_COL_START = 5      # Първи external store
 
-    headers = ['№', 'Продукт', 'Грамаж', 'Реф.BGN', 'Реф.EUR']
+    headers = ['№', 'Продукт', 'Грамаж', 'Кашон BGN', 'Кашон EUR']
     for store_key in store_columns:
         headers.append(store_display_names[store_key])
-    headers.extend(['Ср.BGN', 'Откл.%', 'Статус'])
+    headers.extend(['Ср.EUR', 'Статус'])
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер (EXP-003)'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер (EXP-003 v9.1.0)'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
-            f'Магазини: {len(store_columns) + 1}']
+            f'Магазини: {len(STORES) + len(GLOVO_STORES)}']
     meta.extend([''] * (len(headers) - len(meta)))
     all_data.append(meta)
 
@@ -2326,19 +2486,19 @@ def write_to_sheets(final_products, stats):
     out_of_stock_cells = []
 
     for i, product in enumerate(final_products, 1):
-        ref = product.get("kashon") or {}
-        ref_bgn = ref.get("bgn")
-        ref_eur = ref.get("eur")
+        kashon = product.get("kashon") or {}
+        kashon_bgn = kashon.get("bgn")
+        kashon_eur = kashon.get("eur")
 
         row = [
             i,
             product["name"],
             extract_weight(product["name"]),
-            ref_bgn if ref_bgn else '',
-            ref_eur if ref_eur else '',
+            kashon_bgn if kashon_bgn else '',
+            kashon_eur if kashon_eur else '',
         ]
 
-        store_prices_bgn = []
+        store_prices_eur = []
 
         for col_offset, store_key in enumerate(store_columns):
             store_data = product.get(store_key)
@@ -2346,30 +2506,25 @@ def write_to_sheets(final_products, stats):
             row_index = DATA_START_ROW - 1 + i
 
             if store_data:
-                price_bgn = store_data.get("bgn")
-                row.append(price_bgn if price_bgn else '')
+                price_eur = store_data.get("eur")
+                row.append(price_eur if price_eur else '')
 
-                if price_bgn:
-                    store_prices_bgn.append(price_bgn)
+                if price_eur:
+                    store_prices_eur.append(price_eur)
 
                 if not store_data.get("in_stock", True):
                     out_of_stock_cells.append((row_index, col_index))
             else:
                 row.append('')
 
-        if store_prices_bgn:
-            avg_bgn = round(sum(store_prices_bgn) / len(store_prices_bgn), 2)
-            row.append(avg_bgn)
-        else:
-            avg_bgn = None
-            row.append('')
-
-        if avg_bgn and ref_bgn and ref_bgn > 0:
-            deviation = round((avg_bgn - ref_bgn) / ref_bgn * 100, 1)
-            row.append(f"{deviation}%")
+        # Средна EUR (от external магазини, без Кашон)
+        if store_prices_eur:
+            avg_eur = round(sum(store_prices_eur) / len(store_prices_eur), 2)
+            row.append(avg_eur)
         else:
             row.append('')
 
+        # Статус: в колко магазина е намерен
         matched_count = sum(1 for s in store_columns if product.get(s))
         row.append(f"{matched_count}/{len(store_columns)}")
 
@@ -2443,9 +2598,9 @@ def write_to_sheets(final_products, stats):
             }
         })
 
-        # Числов формат
-        price_start = 3
-        price_end = STORE_COL_START + len(store_columns) + 1
+        # Числов формат за ценови колони
+        price_start = KASHON_COL_START
+        price_end = STORE_COL_START + len(store_columns) + 1  # +1 за Ср.EUR
         if last_row > HEADER_ROW:
             format_requests.append({
                 "repeatCell": {
@@ -2460,12 +2615,12 @@ def write_to_sheets(final_products, stats):
             })
 
         # Ширини
-        col_widths = {0: 35, 1: 250, 2: 55, 3: 75, 4: 75}
+        col_widths = {0: 35, 1: 250, 2: 55, 3: 80, 4: 80}  # №, Продукт, Грамаж, Кашон BGN/EUR
         for offset in range(len(store_columns)):
-            col_widths[STORE_COL_START + offset] = 85
-        col_widths[STORE_COL_START + len(store_columns)] = 75
-        col_widths[STORE_COL_START + len(store_columns) + 1] = 65
-        col_widths[STORE_COL_START + len(store_columns) + 2] = 55
+            col_widths[STORE_COL_START + offset] = 80
+        avg_col = STORE_COL_START + len(store_columns)
+        col_widths[avg_col] = 75       # Ср.EUR
+        col_widths[avg_col + 1] = 55   # Статус
 
         for col_idx, width in col_widths.items():
             format_requests.append({
@@ -2515,13 +2670,18 @@ def write_to_sheets(final_products, stats):
 
 async def main():
     logger.info("=" * 60)
-    logger.info("EXP-003: CRAWL4AI v9.0.5 — 8 магазина + GraphQL/curl_cffi")
+    total_stores = len(STORES) + len(GLOVO_STORES)
+    logger.info(f"EXP-003: CRAWL4AI v9.1.0 — {total_stores} магазина + GraphQL/curl_cffi/Glovo")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"Магазини: {len(STORES)}, BS4: {BS4_AVAILABLE}, "
+    logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}, "
                 f"CapSolver: {CAPSOLVER_AVAILABLE}, curl_cffi: {CURL_CFFI_AVAILABLE}")
     if PROXY_URL:
         logger.info(f"Proxy: {PROXY_URL[:30]}...")
+    if GLOVO_AUTH_TOKEN:
+        logger.info(f"Glovo auth: YES (token length: {len(GLOVO_AUTH_TOKEN)})")
+    else:
+        logger.info("Glovo auth: NO — ще опитаме HTML scraping")
 
     if not CRAWL4AI_AVAILABLE:
         logger.error("Crawl4AI not available!")
@@ -2607,29 +2767,6 @@ async def main():
     elif crawl_results.get("vmv", {}).get("error"):
         logger.warning(f"VMV: {crawl_results['vmv']['error']}")
 
-    # Optima
-    optima_products = []
-    optima_data = crawl_results.get("optima", {})
-    if optima_data.get("success"):
-        method = optima_data.get("method", "unknown")
-        # WC Store API — продуктите са вече извлечени
-        if optima_data.get("products"):
-            optima_products = optima_data["products"]
-        elif optima_data.get("html"):
-            optima_products = extract_optima_products(
-                optima_data.get("markdown", ""),
-                html_text=optima_data.get("html"),
-                brand_page=STORES["optima"].get("brand_page", False),
-            )
-        elif optima_data.get("markdown"):
-            optima_products = extract_optima_products(
-                optima_data["markdown"],
-                brand_page=STORES["optima"].get("brand_page", False),
-            )
-        logger.info(f"Optima: {len(optima_products)} Harmonica products (method: {method})")
-    elif optima_data.get("error"):
-        logger.warning(f"Optima: {optima_data['error']}")
-
     # T-Market
     tmarket_products = []
     tmarket_data = crawl_results.get("tmarket", {})
@@ -2650,16 +2787,32 @@ async def main():
     elif tmarket_data.get("error"):
         logger.warning(f"T-Market: {tmarket_data['error']}")
 
+    # Glovo магазини — продуктите са вече извлечени от fetch_all_glovo_products()
+    glovo_all_products = {}
+    for gkey, gconfig in GLOVO_STORES.items():
+        gdata = crawl_results.get(gkey, {})
+        if gdata.get("success") and gdata.get("products"):
+            glovo_all_products[gkey] = gdata["products"]
+            logger.info(f"Glovo {gconfig['name']}: {len(gdata['products'])} Harmonica products "
+                        f"(method: {gdata.get('method')})")
+        elif gdata.get("error"):
+            glovo_all_products[gkey] = []
+            logger.warning(f"Glovo {gconfig['name']}: {gdata['error']}")
+        else:
+            glovo_all_products[gkey] = []
+
     # 3. Match products
     logger.info("=" * 40 + " MATCHING " + "=" * 40)
 
-    # Динамично генериране на store keys (без reference)
-    store_keys = [key for key, cfg in STORES.items() if not cfg.get("is_reference")]
+    # Store keys: основни магазини (без Кашон) + Glovo магазини
+    store_keys = [key for key, cfg in STORES.items() if not cfg.get("is_master")]
+    glovo_keys = list(GLOVO_STORES.keys())
+    all_keys = store_keys + glovo_keys
 
     final_products = []
     for ref in kashon_products:
         product = {"name": ref["name"], "kashon": {"eur": ref["eur"], "bgn": ref["bgn"]}}
-        for sk in store_keys:
+        for sk in all_keys:
             product[sk] = None
         final_products.append(product)
 
@@ -2670,9 +2823,10 @@ async def main():
         "lilly": lilly_products,
         "dm": dm_products,
         "vmv": vmv_products,
-        "optima": optima_products,
         "tmarket": tmarket_products,
     }
+    # Добавяме Glovo магазините
+    all_store_products.update(glovo_all_products)
 
     for store_key, store_prods in all_store_products.items():
         if not store_prods:
@@ -2689,10 +2843,15 @@ async def main():
     # 4. Statistics
     logger.info("=" * 40 + " STATISTICS " + "=" * 40)
     kashon_count = len([p for p in final_products if p.get("kashon")])
-    logger.info(f"Референтни (Кашон): {kashon_count}")
+    logger.info(f"Кашон (master list): {kashon_count}")
+
+    # Всички имена на магазини (обикновени + Glovo)
+    all_display = {}
+    all_display.update({k: cfg["name"] for k, cfg in STORES.items()})
+    all_display.update({k: f"Glovo {cfg['name']}" for k, cfg in GLOVO_STORES.items()})
 
     store_counts = {}
-    for sk in store_keys:
+    for sk in all_keys:
         count = len([p for p in final_products if p.get(sk)])
         store_counts[sk] = count
         if kashon_count:
@@ -2703,14 +2862,14 @@ async def main():
                            if p.get("lilly") and not p["lilly"].get("in_stock", True)])
                 extra = f" — {oos} изчерпани"
                 store_counts["lilly_oos"] = oos
-            logger.info(f"{STORES[sk]['name']}: {count}/{kashon_count} ({pct:.0f}%){extra}")
+            logger.info(f"{all_display.get(sk, sk)}: {count}/{kashon_count} ({pct:.0f}%){extra}")
 
     # Примерни продукти
     matched = [p for p in final_products
-               if any(p.get(sk) for sk in store_keys)][:5]
+               if any(p.get(sk) for sk in all_keys)][:5]
     for p in matched:
         parts = [f"{p['name'][:50]}:"]
-        for store in ["kashon"] + store_keys:
+        for store in ["kashon"] + all_keys:
             if p.get(store):
                 bgn = p[store].get('bgn')
                 parts.append(f"  {store}={'%.2f' % bgn if bgn else 'N/A'}лв")
@@ -2720,7 +2879,7 @@ async def main():
 
     # 5. Write to Google Sheets
     stats = {"kashon_products": kashon_count}
-    for sk in store_keys:
+    for sk in all_keys:
         stats[f"{sk}_matches"] = store_counts.get(sk, 0)
     stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
     write_to_sheets(final_products, stats)
@@ -2733,10 +2892,10 @@ async def main():
     json_stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
 
     output = {
-        "experiment": "EXP-003-v9.0.5",
+        "experiment": "EXP-003-v9.1.0",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
-        "stores": len(STORES),
+        "stores": len(STORES) + len(GLOVO_STORES),
         "stats": json_stats,
         "products": final_products,
     }
@@ -2749,8 +2908,8 @@ async def main():
     except Exception as e:
         logger.error(f"Грешка при запис на JSON: {e}")
 
-    logger.info(f"ГОТОВО за {total_time:.1f}s — {len(STORES)} магазина, "
-                f"{kashon_count} референтни продукта")
+    logger.info(f"ГОТОВО за {total_time:.1f}s — {len(STORES) + len(GLOVO_STORES)} магазина, "
+                f"{kashon_count} продукта в Кашон")
 
 
 if __name__ == "__main__":

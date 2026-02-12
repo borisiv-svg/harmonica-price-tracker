@@ -69,9 +69,10 @@ jobs:
       - name: ℹ️ Environment info
         env:
           PROXY_URL: ${{ secrets.PROXY_URL }}
+          GLOVO_AUTH_TOKEN: ${{ secrets.GLOVO_AUTH_TOKEN }}
         run: |
           echo "=========================================="
-          echo "EXPERIMENTAL SCRAPER"
+          echo "EXPERIMENTAL SCRAPER v9.1.0"
           echo "=========================================="
           echo "Python: $(python --version)"
           echo "Branch: $(git branch --show-current)"
@@ -79,6 +80,7 @@ jobs:
           echo "Date: $(date)"
           echo "PROXY_URL set: $([ -n "$PROXY_URL" ] && echo 'YES (length: '${#PROXY_URL}')' || echo 'NO — secret missing!')"
           echo "CAPSOLVER_API_KEY set: $([ -n "$CAPSOLVER_API_KEY" ] && echo 'YES' || echo 'NO')"
+          echo "GLOVO_AUTH_TOKEN set: $([ -n "$GLOVO_AUTH_TOKEN" ] && echo 'YES' || echo 'NO')"
           echo "=========================================="
       
       - name: 🔬 Run Experimental Scraper
@@ -90,6 +92,7 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           CAPSOLVER_API_KEY: ${{ secrets.CAPSOLVER_API_KEY }}
           PROXY_URL: ${{ secrets.PROXY_URL }}
+          GLOVO_AUTH_TOKEN: ${{ secrets.GLOVO_AUTH_TOKEN }}
           EXPERIMENTAL_MODE: "true"
           USE_CRAWL4AI: ${{ github.event.inputs.use_crawl4ai || 'false' }}
           SHEET_TAB_SUFFIX: "_experimental"
