@@ -1,24 +1,22 @@
 """
-EXP-003: Crawl4AI Experimental Scraper v8.0
-============================================
-Промени спрямо v7.0:
-- CapSolver интеграция за сайтове с anti-bot защита (Cloudflare Turnstile/Challenge)
-- DM България добавен (с CapSolver bypass за 403 защитата)
-- Magic mode + CapSolver fallback стратегия за защитени сайтове
+EXP-003: Crawl4AI Experimental Scraper v9.1.0
+===============================================
+Промени спрямо v9.0.5:
+- Optima премахнат (search е безнадеждно счупен)
+- Кашон URL обновен (field_producer/harmonica-144)
+- Таблица: Кашон=EUR+BGN, останалите=EUR, Средна EUR, Статус
+- Подготовка за Glovo интеграция
 
-Промени спрямо v6.3:
-- logging модул вместо print()
-- Паралелно краулване с asyncio.gather
-- BeautifulSoup за Lilly Drogerie парсване (с regex fallback)
-- Подобрено съпоставяне с нормализация и тежести
-- Retry декоратор за мрежови грешки
+Промени спрямо v9.0.4:
+- Lilly: Magento GraphQL + REST API чрез curl_cffi (Hyvä зарежда JS)
+- crawl_all(): Lilly добавен в curl_cffi паралелни задачи
 
-Структура на данните:
-- Кашон: [Име продукт](URL) с цени наблизо
-- eBag: [![Име](img)](url) + ### [Име ... X,XX € ... X,XX лв.]
-- Balev: Редове с грамаж + цени EUR/BGN
-- Lilly: [![ALT](img)](url) [NAME](url) X,XX € / X,XX лв. Изчерпан
-- DM: CapSolver → HTML парсване с BS4
+Промени спрямо v8.0:
+- VMV Supermarket, T-Market добавени (Crawl4AI)
+- DM Algolia API (curl_cffi) с CapSolver fallback
+- curl_cffi за TLS impersonation (Cloudflare bypass)
+- Proxy support (PROXY_URL env var)
+- Общо 7 магазина (Кашон + 6 external)
 """
 
 import asyncio
@@ -70,12 +68,21 @@ except ImportError:
     BS4_AVAILABLE = False
     logger.warning("beautifulsoup4 not installed — using regex fallback for Lilly")
 
+try:
+    from curl_cffi.requests import AsyncSession as CurlAsyncSession
+    CURL_CFFI_AVAILABLE = True
+except ImportError:
+    CURL_CFFI_AVAILABLE = False
+    logger.warning("curl_cffi not installed — TLS impersonation disabled")
+
 
 # =============================================================================
 # CONSTANTS
 # =============================================================================
 
 EUR_BGN_RATE = 1.9558  # Фиксиран курс
+PROXY_URL = os.environ.get("PROXY_URL")  # Optional: http://user:pass@host:port
+GLOVO_AUTH_TOKEN = os.environ.get("GLOVO_AUTH_TOKEN")  # Optional: Glovo Bearer token
 
 
 # =============================================================================
@@ -84,38 +91,74 @@ EUR_BGN_RATE = 1.9558  # Фиксиран курс
 
 STORES = {
     "kashon": {
-        "name": "Кашон Harmonica",
-        "url": "https://kashonharmonica.bg/bg/products",
+        "name": "Кашон",
+        "url": "https://kashonharmonica.bg/bg/products/field_producer/harmonica-144#content",
         "scroll_times": 10,
-        "is_reference": True,
+        "is_master": True,
     },
     "ebag": {
         "name": "eBag",
         "url": "https://www.ebag.bg/search/?products%5BrefinementList%5D%5Bbrand_name_bg%5D%5B0%5D=%D0%A5%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
         "scroll_times": 12,
-        "is_reference": False,
     },
     "balev": {
-        "name": "Balev Bio Market",
+        "name": "Balev Bio",
         "url": "https://balevbiomarket.com/productBrands/harmonica",
         "scroll_times": 8,
-        "is_reference": False,
     },
     "lilly": {
-        "name": "Lilly Drogerie",
+        "name": "Lilly",
         "url": "https://lillydrogerie.bg/brands/harmonica",
-        "scroll_times": 2,  # JS rendering: изчакваме product grid да се зареди
-        "wait_for": "css:.product-item-info,.product-items,ol.products",
-        "is_reference": False,
+        "scroll_times": 4,
+        "brand_page": True,
+        "use_magic": True,
     },
     "dm": {
-        "name": "DM Bulgaria",
+        "name": "DM",
         "url": "https://www.dm.bg/search?query=harmonica&searchType=product",
         "scroll_times": 5,
-        "is_reference": False,
+        "needs_captcha_solver": True,
+        "algolia_enabled": True,
+    },
+    "vmv": {
+        "name": "VMV",
+        "url": "https://vmv.bg/search?q=harmonica",
+        "scroll_times": 5,
+    },
+    "tmarket": {
+        "name": "T-Market",
+        "url": "https://tmarketonline.bg/vendor/harmonica-1881705916",
+        "scroll_times": 8,
+        "brand_page": True,
         "needs_captcha_solver": True,
     },
 }
+
+# Glovo магазини в София — ще се сканират чрез Glovo API
+GLOVO_STORES = {
+    "glovo_kaufland": {
+        "name": "Kaufland",
+        "slug": "kaufland-sof",
+        "city_code": "SOF",
+    },
+    "glovo_billa": {
+        "name": "Billa",
+        "slug": "billa-sof1",
+        "city_code": "SOF",
+    },
+    "glovo_cba": {
+        "name": "CBA",
+        "slug": "cba-supermarket-cherni-vruh-sof",
+        "city_code": "SOF",
+    },
+    "glovo_fantastico": {
+        "name": "Fantastico",
+        "slug": "fantastico-sof",
+        "city_code": "SOF",
+    },
+}
+
+GLOVO_API_BASE = "https://api.glovoapp.com/v3"
 
 
 # =============================================================================
@@ -367,6 +410,242 @@ def extract_balev_products(markdown):
 
 
 # =============================================================================
+# GENERIC EXTRACTION — универсален fallback за нови магазини
+# =============================================================================
+
+def _extract_generic_products(markdown, brand_page=False):
+    """
+    Универсален fallback extractor. Работи с всякакъв markdown.
+
+    Стратегия:
+    1. Разделя markdown на блокове (двоен нов ред)
+    2. Търси блокове с BGN цена (X,XX лв)
+    3. Извлича най-подходящия текст като име на продукт
+    4. Ако brand_page=True, не проверява за "harmonica" в името
+    """
+    products = []
+    seen = set()
+
+    # Разделяме на блокове
+    blocks = re.split(r'\n{2,}', markdown)
+
+    for block in blocks:
+        # Проверка за harmonica (освен ако е brand page)
+        if not brand_page and not is_harmonica_product(block):
+            continue
+
+        # Търсим цена
+        bgn = extract_bgn_price(block)
+        eur = extract_eur_price(block)
+        if not bgn and not eur:
+            # Опит: цена без валутен суфикс (напр. "2.99")
+            price_match = re.search(r'(\d+)[,.](\d{2})\b', block)
+            if price_match:
+                try:
+                    price = float(f"{price_match.group(1)}.{price_match.group(2)}")
+                    if 0.50 <= price <= 100:
+                        bgn = round(price, 2)
+                except ValueError:
+                    pass
+        if not bgn and not eur:
+            continue
+
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+
+        # Извличаме продуктово име
+        name = None
+
+        # Опит 1: Link текст
+        link_match = re.search(r'(?<!!)\[([^\]]{5,100})\]\([^\)]+\)', block)
+        if link_match:
+            candidate = link_match.group(1).strip()
+            if len(candidate) > 5 and is_food_product(candidate):
+                name = candidate
+
+        # Опит 2: Heading
+        if not name:
+            heading_match = re.search(r'#+\s*(.{5,80})', block)
+            if heading_match:
+                candidate = heading_match.group(1).strip()
+                if is_food_product(candidate):
+                    name = candidate
+
+        # Опит 3: Най-дълъг текстов ред (вероятно продуктово име)
+        if not name:
+            for line in block.split('\n'):
+                line = line.strip()
+                line = re.sub(r'\[([^\]]*)\]\([^\)]*\)', r'\1', line)
+                line = re.sub(r'[#*_>|!]', '', line).strip()
+                line = re.sub(r'\s+', ' ', line)
+                if (len(line) > 10 and
+                        len(re.findall(r'[а-яА-Яa-zA-Z]', line)) >= 3 and
+                        is_food_product(line)):
+                    name = line
+                    break
+
+        if not name:
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        seen.add(name_key)
+        products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    return products
+
+
+# =============================================================================
+# VMV SUPERMARKET EXTRACTION
+# =============================================================================
+
+def extract_vmv_products(markdown, html_text=None, brand_page=True):
+    """
+    Извлича Harmonica продукти от VMV Supermarket.
+
+    VMV.bg е онлайн супермаркет. Brand page: vmv.bg/brands/harmonica
+    На brand page всички продукти са Harmonica → skip harmonica name check.
+    Цени в BGN (лева).
+    """
+    products = []
+    seen = set()
+
+    # Pattern 1: Links — на brand page всички продукти са Harmonica
+    link_pattern = r'\[([^\]]{5,100})\]\(((?:https?://[^\)]+|/[^\)]+))\)'
+    for match in re.finditer(link_pattern, markdown):
+        name = match.group(1).strip()
+        url = match.group(2)
+
+        if name.startswith('!') or 'logo' in name.lower() or 'banner' in name.lower():
+            continue
+        if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
+            continue
+        # На brand page не проверяваме за harmonica в името
+        if not brand_page and not is_harmonica_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+        if not is_food_product(name):
+            continue
+
+        idx = match.end()
+        context = markdown[max(0, idx - 100):idx + 400]
+
+        bgn = extract_bgn_price(context)
+        eur = extract_eur_price(context)
+
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+
+        if bgn or eur:
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    # Pattern 2: Текстови блокове с цена (без link)
+    if not products:
+        products = _extract_generic_products(markdown, brand_page=brand_page)
+
+    if not products:
+        logger.warning(f"VMV: 0 продукта, markdown preview: {markdown[:500]}")
+    else:
+        logger.info(f"VMV: {len(products)} продукта извлечени")
+    return products
+
+
+# =============================================================================
+# OPTIMA EXTRACTION
+# =============================================================================
+
+# =============================================================================
+# T-MARKET EXTRACTION
+# =============================================================================
+
+def extract_tmarket_products(markdown, html_text=None, brand_page=True):
+    """
+    Извлича Harmonica продукти от T-Market Online.
+
+    T-Market vendor page: tmarketonline.bg/vendor/harmonica-1881705916
+    На vendor page всички продукти са Harmonica → skip harmonica name check.
+    Цени в BGN.
+    """
+    products = []
+    seen = set()
+
+    # Pattern 1: Всички links с продуктови имена
+    link_pattern = r'\[([^\]]{5,120})\]\(((?:https?://[^\)]+|/[^\)]+))\)'
+    for match in re.finditer(link_pattern, markdown):
+        name = match.group(1).strip()
+
+        if name.startswith('!') or 'logo' in name.lower():
+            continue
+        if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
+            continue
+        if not brand_page and not is_harmonica_product(name):
+            continue
+        if not is_food_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        idx = match.end()
+        context = markdown[max(0, idx - 150):idx + 400]
+
+        bgn = extract_bgn_price(context)
+        eur = extract_eur_price(context)
+
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+
+        if bgn or eur:
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    # Pattern 2: Generic text blocks + BS4 fallback
+    if not products:
+        products = _extract_generic_products(markdown, brand_page=brand_page)
+
+    if BS4_AVAILABLE and html_text and not products:
+        soup = BeautifulSoup(html_text, 'html.parser')
+        for item in soup.select('.product-card, .product-item, .product, [class*=product]'):
+            text = item.get_text(' ', strip=True)
+            if not brand_page and not is_harmonica_product(text):
+                continue
+            name_el = item.select_one('h2, h3, h4, a.product-name, [class*=title], [class*=name]')
+            if not name_el:
+                for link in item.find_all('a', href=True):
+                    link_text = link.get_text(strip=True)
+                    if len(link_text) > 10:
+                        name_el = link
+                        break
+            if not name_el:
+                continue
+            product_name = name_el.get_text(strip=True)
+            name_key = product_name.lower()[:30]
+            if name_key in seen or not is_food_product(product_name):
+                continue
+            bgn = extract_bgn_price(text)
+            eur = extract_eur_price(text)
+            if bgn and not eur:
+                eur = round(bgn / EUR_BGN_RATE, 2)
+            if bgn or eur:
+                seen.add(name_key)
+                products.append({"name": product_name, "eur": eur, "bgn": bgn})
+
+    if not products:
+        logger.warning(f"T-Market: 0 продукта, markdown len={len(markdown)}, "
+                       f"preview: {markdown[:500]}")
+    else:
+        logger.info(f"T-Market: {len(products)} продукта извлечени")
+    return products
+
+
+# =============================================================================
 # LILLY DROGERIE EXTRACTION (EXP-003) — BeautifulSoup с regex fallback
 # =============================================================================
 
@@ -379,67 +658,286 @@ def extract_lilly_products(markdown_text, html_text=None):
 
     Връща list of dicts с допълнително поле 'in_stock' (bool).
     """
+    products = []
     if BS4_AVAILABLE and html_text:
-        return _extract_lilly_bs4(html_text)
-    return _extract_lilly_regex(markdown_text)
+        products = _extract_lilly_bs4(html_text)
+    if not products:
+        products = _extract_lilly_regex(markdown_text)
+    if not products:
+        # Допълнителен debug: какво съдържа HTML-а
+        html_preview = ""
+        if html_text:
+            soup = BeautifulSoup(html_text, 'html.parser') if BS4_AVAILABLE else None
+            if soup:
+                # Проверяваме за Harmonica ключова дума в HTML
+                harmonica_count = html_text.upper().count('HARMONICA')
+                # Проверяваме за типични Magento product selectors
+                selectors = ['.product-item', '.product-items', 'ol.products',
+                             '.products-grid', '.category-products', '[data-role=product]']
+                found_selectors = [s for s in selectors if soup.select_one(s)]
+                html_preview = (f"harmonica_refs={harmonica_count}, "
+                               f"selectors={found_selectors or 'NONE'}, "
+                               f"title={soup.title.string if soup.title else 'N/A'}")
+        logger.warning(f"Lilly: 0 продукта, markdown len={len(markdown_text)}, "
+                       f"html len={len(html_text) if html_text else 0}, "
+                       f"{html_preview}")
+    return products
+
+
+def _find_product_container(element, max_levels=6):
+    """
+    Вървим нагоре от element до намерим контейнер с цена.
+    Връща контейнер или None.
+    """
+    current = element
+    for _ in range(max_levels):
+        parent = current.parent
+        if not parent or parent.name in ('body', 'html', '[document]'):
+            break
+        if parent.name in ('header', 'footer', 'nav', 'head'):
+            return None
+
+        text = parent.get_text(' ', strip=True)
+        if len(text) > 3000:
+            cur_text = current.get_text(' ', strip=True)
+            return current if re.search(r'\d+[.,]\d{2}', cur_text) else None
+
+        if re.search(r'\d+[.,]\d{2}', text):
+            if len(text) < 500:
+                current = parent
+                continue
+            return parent
+
+        current = parent
+
+    if current and current.name not in ('body', 'html', '[document]'):
+        text = current.get_text(' ', strip=True)
+        if re.search(r'\d+[.,]\d{2}', text) and len(text) < 3000:
+            return current
+    return None
 
 
 def _extract_lilly_bs4(html_text):
-    """Извлича Lilly продукти с BeautifulSoup — по-устойчиво от regex."""
+    """
+    Извлича Lilly продукти с BeautifulSoup.
+
+    Lilly използва Hyvä Theme (Alpine.js + Tailwind CSS) —
+    стандартните Magento CSS selectors не съществуват.
+
+    Стратегии:
+    1. JSON-LD structured data (@type: Product / ItemList)
+    2. Елементи с HARMONICA в text, title, alt атрибути
+    3. Legacy Magento CSS selectors (fallback)
+    """
     products = []
+    seen = set()
     soup = BeautifulSoup(html_text, 'html.parser')
 
-    # Търсим продуктови карти — Magento 2 типично използва .product-item
-    product_items = soup.select('.product-item, .product-item-info, li.item.product')
+    # Стратегия 1: JSON-LD structured data
+    for script in soup.find_all('script', type='application/ld+json'):
+        try:
+            data = json.loads(script.string or '')
+            items = []
+            if isinstance(data, list):
+                items = data
+            elif isinstance(data, dict):
+                if data.get('@type') == 'ItemList':
+                    items = data.get('itemListElement', [])
+                elif data.get('@type') == 'Product':
+                    items = [data]
+                elif 'itemListElement' in data:
+                    items = data['itemListElement']
 
-    if not product_items:
-        # Fallback: търсим линкове с HARMONICA в текста
-        product_items = []
-        for link in soup.find_all('a', href=True):
-            text = link.get_text(strip=True)
-            if 'HARMONICA' in text.upper() and 'lillydrogerie.bg' in link.get('href', ''):
-                # Обвиваме в parent контейнер ако е наличен
-                parent = link.find_parent(['li', 'div', 'article'])
-                if parent and parent not in product_items:
-                    product_items.append(parent)
+            for item in items:
+                product = item.get('item', item) if isinstance(item, dict) else {}
+                name = product.get('name', '')
+                if not name:
+                    continue
 
-    for item in product_items:
-        text = item.get_text(' ', strip=True)
-        if 'HARMONICA' not in text.upper():
+                price = None
+                offers = product.get('offers', {})
+                if isinstance(offers, dict):
+                    price = offers.get('price')
+                elif isinstance(offers, list) and offers:
+                    price = offers[0].get('price')
+
+                if price:
+                    price_bgn = round(float(price), 2)
+                    price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+                    name_key = name.lower()[:40]
+                    if name_key not in seen:
+                        seen.add(name_key)
+                        in_stock = True
+                        if isinstance(offers, dict):
+                            avail = offers.get('availability', '')
+                            in_stock = 'OutOfStock' not in avail
+                        products.append({
+                            'name': name,
+                            'eur': price_eur,
+                            'bgn': price_bgn,
+                            'in_stock': in_stock,
+                        })
+        except (json.JSONDecodeError, ValueError, TypeError):
             continue
 
-        # Име — търсим в заглавен линк (не image)
-        name_link = None
-        for link in item.find_all('a', href=True):
+    if products:
+        logger.info(f"Lilly BS4: {len(products)} продукта от JSON-LD")
+        return products
+
+    # Стратегия 2: Намиране на product containers
+    product_containers = []
+    found_container_ids = set()
+
+    # 2a: <a> tags с HARMONICA в text content
+    for link in soup.find_all('a', href=True):
+        link_text = link.get_text(strip=True)
+        href = link.get('href', '')
+        if not link_text or 'harmonica' not in link_text.lower():
+            continue
+        if len(link_text) < 5:
+            continue
+        if any(x in href.lower() for x in ['/media/', '.jpg', '.png', '.svg', '.css', '.js']):
+            continue
+        container = _find_product_container(link)
+        if container:
+            cid = id(container)
+            if cid not in found_container_ids:
+                found_container_ids.add(cid)
+                product_containers.append(container)
+
+    # 2b: <a> и <img> с HARMONICA в title/alt атрибути
+    for attr_name in ['title', 'alt']:
+        for el in soup.find_all(attrs={attr_name: re.compile(r'harmonica', re.IGNORECASE)}):
+            if el.find_parent(['header', 'nav', 'footer', 'head']):
+                continue
+            container = _find_product_container(el)
+            if container:
+                cid = id(container)
+                if cid not in found_container_ids:
+                    found_container_ids.add(cid)
+                    product_containers.append(container)
+
+    # 2c: Text nodes с HARMONICA (за Hyvä span/div)
+    for text_node in soup.find_all(string=re.compile(r'harmonica', re.IGNORECASE)):
+        parent = text_node.find_parent()
+        if not parent:
+            continue
+        if parent.name in ('script', 'style', 'meta', 'title', 'head', 'noscript'):
+            continue
+        if parent.find_parent(['header', 'nav', 'footer', 'head']):
+            continue
+        container = _find_product_container(parent)
+        if container:
+            cid = id(container)
+            if cid not in found_container_ids:
+                found_container_ids.add(cid)
+                product_containers.append(container)
+
+    logger.info(f"Lilly BS4: {len(product_containers)} потенциални контейнери")
+
+    for container in product_containers:
+        text = container.get_text(' ', strip=True)
+
+        product_name = None
+
+        # Опит 1: <a> с HARMONICA text content
+        for link in container.find_all('a', href=True):
+            lt = link.get_text(strip=True)
             href = link.get('href', '')
-            link_text = link.get_text(strip=True)
-            if (link_text and 'HARMONICA' in link_text.upper()
-                    and '/media/' not in href
-                    and len(link_text) > 5):
-                name_link = link
-                break
+            if lt and 'harmonica' in lt.lower() and len(lt) > 10:
+                if not any(x in href.lower() for x in ['/media/', '.jpg', '.png', '.svg']):
+                    product_name = lt
+                    break
 
-        if not name_link:
+        # Опит 2: <a title> с HARMONICA
+        if not product_name:
+            for link in container.find_all('a', attrs={'title': True}):
+                title = link.get('title', '')
+                if 'harmonica' in title.lower() and len(title) > 10:
+                    product_name = title
+                    break
+
+        # Опит 3: <img alt> с HARMONICA
+        if not product_name:
+            for img in container.find_all('img', attrs={'alt': True}):
+                alt = img.get('alt', '')
+                if 'harmonica' in alt.lower() and len(alt) > 10:
+                    product_name = alt
+                    break
+
+        # Опит 4: <span>, <div>, <h2-h5>, <strong>, <p> с HARMONICA
+        if not product_name:
+            for tag in container.find_all(['h2', 'h3', 'h4', 'h5', 'span', 'strong', 'p', 'div']):
+                tag_text = tag.get_text(strip=True)
+                if tag_text and 'harmonica' in tag_text.lower() and 10 < len(tag_text) < 200:
+                    if is_food_product(tag_text):
+                        product_name = tag_text
+                        break
+
+        if not product_name:
             continue
 
-        product_name = name_link.get_text(strip=True)
-        product_url = name_link.get('href', '')
+        if any(x in product_name.lower() for x in ['навигация', 'меню', 'cookie', 'продукти на']):
+            continue
+
+        name_key = product_name.lower()[:40]
+        if name_key in seen:
+            continue
 
         # Цени
-        price_eur = extract_eur_price(text)
         price_bgn = extract_bgn_price(text)
+        price_eur = extract_eur_price(text)
 
-        # Наличност
+        if not price_bgn and not price_eur:
+            price_match = re.search(r'(\d+)[,.](\d{2})', text)
+            if price_match:
+                try:
+                    price = float(f"{price_match.group(1)}.{price_match.group(2)}")
+                    if 0.50 <= price <= 100:
+                        price_bgn = round(price, 2)
+                except ValueError:
+                    pass
+
+        if price_bgn and not price_eur:
+            price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+
         in_stock = 'изчерпан' not in text.lower()
 
         if product_name and (price_eur or price_bgn):
+            seen.add(name_key)
             products.append({
                 'name': product_name,
                 'eur': price_eur,
                 'bgn': price_bgn,
                 'in_stock': in_stock,
-                'url': product_url,
             })
+
+    # Стратегия 3: Legacy Magento CSS selectors
+    if not products:
+        product_items = soup.select(
+            '.product-item, .product-item-info, li.item.product, '
+            '.products-grid .item, .category-products .item'
+        )
+        for item in product_items:
+            text = item.get_text(' ', strip=True)
+            if 'harmonica' not in text.lower():
+                continue
+            for link in item.find_all('a', href=True):
+                lt = link.get_text(strip=True)
+                if lt and 'harmonica' in lt.lower() and len(lt) > 5:
+                    name_key = lt.lower()[:40]
+                    if name_key not in seen:
+                        price_bgn = extract_bgn_price(text)
+                        price_eur = extract_eur_price(text)
+                        if price_bgn or price_eur:
+                            seen.add(name_key)
+                            products.append({
+                                'name': lt,
+                                'eur': price_eur,
+                                'bgn': price_bgn,
+                                'in_stock': 'изчерпан' not in text.lower(),
+                            })
+                    break
 
     logger.info(f"Lilly BS4: {len(products)} продукта извлечени")
     return products
@@ -832,6 +1330,828 @@ async def crawl_with_captcha_solver(crawler, store_key, store_config):
 
 
 # =============================================================================
+# DM ALGOLIA API — direct query bypass (без Cloudflare)
+# =============================================================================
+
+async def extract_algolia_config(html_text):
+    """
+    Извлича Algolia конфигурация от HTML/JS на DM.bg.
+
+    Търси appId, apiKey и indexName в:
+    - window.__INITIAL_STATE__ / window.__NEXT_DATA__
+    - Inline <script> tags с algolia config
+    - data-* атрибути
+    """
+    if not html_text:
+        return None
+
+    config = {}
+
+    # Pattern 1: applicationId / appId
+    app_id_patterns = [
+        r'(?:applicationId|appId|algoliaAppId|ALGOLIA_APP_ID)["\s:=]+["\']([A-Z0-9]{10,})["\']',
+        r'X-Algolia-Application-Id["\s:=]+["\']([A-Z0-9]{10,})["\']',
+        r'"appId"\s*:\s*"([A-Z0-9]{10,})"',
+    ]
+    for pattern in app_id_patterns:
+        match = re.search(pattern, html_text, re.IGNORECASE)
+        if match:
+            config['app_id'] = match.group(1)
+            break
+
+    # Pattern 2: searchOnlyApiKey / apiKey
+    api_key_patterns = [
+        r'(?:searchOnlyApiKey|apiKey|algoliaApiKey|ALGOLIA_API_KEY|searchKey)["\s:=]+["\']([a-f0-9]{20,})["\']',
+        r'X-Algolia-API-Key["\s:=]+["\']([a-f0-9]{20,})["\']',
+        r'"apiKey"\s*:\s*"([a-f0-9]{20,})"',
+    ]
+    for pattern in api_key_patterns:
+        match = re.search(pattern, html_text, re.IGNORECASE)
+        if match:
+            config['api_key'] = match.group(1)
+            break
+
+    # Pattern 3: indexName
+    index_patterns = [
+        r'(?:indexName|algoliaIndex|ALGOLIA_INDEX)["\s:=]+["\']([a-zA-Z0-9_\-]+(?:product|search|bg)[a-zA-Z0-9_\-]*)["\']',
+        r'"indexName"\s*:\s*"([^"]+)"',
+    ]
+    for pattern in index_patterns:
+        match = re.search(pattern, html_text, re.IGNORECASE)
+        if match:
+            config['index_name'] = match.group(1)
+            break
+
+    if config.get('app_id') and config.get('api_key'):
+        logger.info(f"Algolia config extracted: appId={config['app_id']}, "
+                     f"index={config.get('index_name', 'N/A')}")
+        return config
+
+    return None
+
+
+async def fetch_dm_via_algolia(query="harmonica"):
+    """
+    Опит за директна Algolia API заявка за DM Bulgaria.
+
+    Стратегия:
+    1. curl_cffi fetch на dm.bg → извличане на Algolia ключове от JS
+    2. Директна Algolia API заявка с намерените ключове
+    3. Парсване на JSON отговора в продуктов формат
+
+    Връща dict с "success", "products", "method".
+    """
+    if not CURL_CFFI_AVAILABLE:
+        logger.warning("DM Algolia: curl_cffi не е наличен")
+        return {"success": False, "error": "curl_cffi not available"}
+
+    logger.info("DM Algolia: опит за директна API заявка...")
+    start = time.time()
+
+    try:
+        async with CurlAsyncSession(impersonate="chrome") as session:
+            proxy = PROXY_URL if PROXY_URL else None
+
+            # Стъпка 1: Fetch dm.bg за Algolia config
+            logger.info("DM Algolia: извличане на конфигурация от dm.bg...")
+            resp = await session.get(
+                "https://www.dm.bg/search?query=harmonica&searchType=product",
+                proxy=proxy,
+                timeout=30,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.8",
+                },
+            )
+
+            if resp.status_code != 200:
+                logger.warning(f"DM Algolia: HTTP {resp.status_code} при fetch на dm.bg")
+                return {"success": False, "error": f"HTTP {resp.status_code}"}
+
+            html = resp.text
+
+            # Стъпка 2: Извличане на Algolia config
+            config = await extract_algolia_config(html)
+
+            if not config:
+                # Пробваме да намерим JS bundle URLs
+                js_urls = re.findall(
+                    r'(?:src|href)=["\']([^"\']*(?:chunk|main|app|search|algolia)[^"\']*\.js)["\']',
+                    html
+                )
+                for js_url in js_urls[:5]:
+                    if not js_url.startswith('http'):
+                        js_url = f"https://www.dm.bg{js_url}"
+                    try:
+                        js_resp = await session.get(js_url, proxy=proxy, timeout=15)
+                        if js_resp.status_code == 200:
+                            config = await extract_algolia_config(js_resp.text)
+                            if config:
+                                logger.info(f"DM Algolia: config намерен в {js_url}")
+                                break
+                    except Exception:
+                        continue
+
+            if not config:
+                elapsed = time.time() - start
+                logger.warning(f"DM Algolia: не може да се извлече конфигурация ({elapsed:.1f}s)")
+                # Връщаме HTML за BS4 парсване като fallback
+                return {
+                    "success": True,
+                    "method": "curl_cffi_html",
+                    "html": html,
+                    "markdown": "",
+                    "products": [],
+                    "elapsed": elapsed,
+                }
+
+            # Стъпка 3: Algolia API заявка
+            app_id = config['app_id']
+            api_key = config['api_key']
+            index_name = config.get('index_name', 'prod_search_bg')
+
+            algolia_url = f"https://{app_id}-dsn.algolia.net/1/indexes/{index_name}/query"
+            algolia_resp = await session.post(
+                algolia_url,
+                proxy=proxy,
+                timeout=15,
+                headers={
+                    "X-Algolia-Application-Id": app_id,
+                    "X-Algolia-API-Key": api_key,
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "query": query,
+                    "hitsPerPage": 50,
+                    "attributesToRetrieve": [
+                        "name", "title", "price", "brand", "url",
+                        "gtin", "image", "slug", "description",
+                    ],
+                },
+            )
+
+            if algolia_resp.status_code != 200:
+                logger.warning(f"DM Algolia API: HTTP {algolia_resp.status_code}")
+                # Fallback: парсваме HTML от стъпка 1
+                return {
+                    "success": True,
+                    "method": "curl_cffi_html",
+                    "html": html,
+                    "markdown": "",
+                    "products": [],
+                    "elapsed": time.time() - start,
+                }
+
+            algolia_data = algolia_resp.json()
+            hits = algolia_data.get("hits", [])
+            elapsed = time.time() - start
+
+            # Стъпка 4: Парсване на Algolia резултати
+            products = []
+            for hit in hits:
+                product_name = hit.get("name") or hit.get("title") or ""
+                if not product_name:
+                    continue
+
+                price = hit.get("price")
+                price_bgn = None
+                price_eur = None
+
+                if isinstance(price, (int, float)):
+                    price_bgn = round(float(price), 2)
+                elif isinstance(price, dict):
+                    price_bgn = price.get("BGN") or price.get("bgn") or price.get("value")
+                    if price_bgn:
+                        price_bgn = round(float(price_bgn), 2)
+
+                if price_bgn and not price_eur:
+                    price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+
+                if product_name and price_bgn:
+                    products.append({
+                        "name": product_name,
+                        "eur": price_eur,
+                        "bgn": price_bgn,
+                    })
+
+            logger.info(f"DM Algolia: {len(products)} продукта от {len(hits)} hits ({elapsed:.1f}s)")
+            return {
+                "success": True,
+                "method": "algolia_api",
+                "products": products,
+                "elapsed": elapsed,
+                "html": html,
+            }
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.error(f"DM Algolia грешка: {e} ({elapsed:.1f}s)")
+        return {"success": False, "error": str(e)}
+
+
+def extract_dm_from_curl_html(html_text):
+    """
+    Парсва DM продукти от HTML, получен чрез curl_cffi.
+    Използва се когато Algolia API не е наличен, но curl_cffi bypass-ва Cloudflare.
+    """
+    if not html_text:
+        return []
+    if BS4_AVAILABLE:
+        return _extract_dm_bs4(html_text)
+    return []
+
+
+# =============================================================================
+# LILLY curl_cffi + Magento GraphQL API
+# =============================================================================
+
+async def fetch_lilly_via_curl():
+    """
+    Директен fetch на Lilly продукти чрез Magento 2 GraphQL API.
+    Lilly използва Hyvä Theme — продуктите се зареждат с JavaScript.
+    GraphQL API-то връща JSON без нужда от browser rendering.
+    """
+    if not CURL_CFFI_AVAILABLE:
+        return {"success": False, "error": "curl_cffi not available"}
+
+    logger.info("Lilly: curl_cffi GraphQL API fetch...")
+    start = time.time()
+
+    graphql_query = """
+    {
+      products(
+        search: "harmonica"
+        pageSize: 50
+      ) {
+        total_count
+        items {
+          name
+          sku
+          url_key
+          price_range {
+            minimum_price {
+              regular_price { value currency }
+              final_price { value currency }
+            }
+          }
+          stock_status
+        }
+      }
+    }
+    """
+
+    try:
+        async with CurlAsyncSession(impersonate="chrome") as session:
+            proxy = PROXY_URL if PROXY_URL else None
+
+            # Опит 1: GraphQL API
+            try:
+                resp = await session.post(
+                    "https://lillydrogerie.bg/graphql",
+                    proxy=proxy,
+                    timeout=30,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                        "Store": "default",
+                    },
+                    json={"query": graphql_query},
+                )
+
+                if resp.status_code == 200:
+                    data = resp.json()
+                    items = (data.get("data", {}).get("products", {})
+                             .get("items", []))
+
+                    if items:
+                        products = []
+                        for item in items:
+                            name = item.get("name", "")
+                            if not name:
+                                continue
+
+                            price_range = item.get("price_range", {})
+                            min_price = price_range.get("minimum_price", {})
+                            final = min_price.get("final_price", {})
+                            regular = min_price.get("regular_price", {})
+
+                            price_val = final.get("value") or regular.get("value")
+                            currency = final.get("currency") or regular.get("currency", "BGN")
+
+                            if price_val:
+                                price_bgn = round(float(price_val), 2)
+                                price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+                                in_stock = item.get("stock_status") != "OUT_OF_STOCK"
+
+                                products.append({
+                                    "name": name,
+                                    "eur": price_eur,
+                                    "bgn": price_bgn,
+                                    "in_stock": in_stock,
+                                })
+
+                        elapsed = time.time() - start
+                        total = data.get("data", {}).get("products", {}).get("total_count", 0)
+                        logger.info(f"Lilly GraphQL: {len(products)} продукта от "
+                                    f"{total} total ({elapsed:.1f}s)")
+                        return {
+                            "success": True,
+                            "method": "graphql",
+                            "products": products,
+                            "elapsed": elapsed,
+                        }
+                    else:
+                        logger.info(f"Lilly GraphQL: 0 items, response keys: "
+                                    f"{list(data.get('data', {}).get('products', {}).keys())}")
+                else:
+                    logger.info(f"Lilly GraphQL: HTTP {resp.status_code}")
+            except Exception as e:
+                logger.info(f"Lilly GraphQL: {e}")
+
+            # Опит 2: REST API search
+            try:
+                rest_url = ("https://lillydrogerie.bg/rest/V1/products?"
+                            "searchCriteria[filter_groups][0][filters][0][field]=name"
+                            "&searchCriteria[filter_groups][0][filters][0][value]=%25harmonica%25"
+                            "&searchCriteria[filter_groups][0][filters][0][condition_type]=like"
+                            "&searchCriteria[pageSize]=50")
+                resp = await session.get(
+                    rest_url,
+                    proxy=proxy,
+                    timeout=30,
+                    headers={"Accept": "application/json"},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    items = data.get("items", [])
+                    if items:
+                        products = []
+                        for item in items:
+                            name = item.get("name", "")
+                            price = item.get("price")
+                            if name and price:
+                                price_bgn = round(float(price), 2)
+                                price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+                                products.append({
+                                    "name": name,
+                                    "eur": price_eur,
+                                    "bgn": price_bgn,
+                                    "in_stock": True,
+                                })
+                        if products:
+                            elapsed = time.time() - start
+                            logger.info(f"Lilly REST: {len(products)} продукта ({elapsed:.1f}s)")
+                            return {
+                                "success": True,
+                                "method": "rest_api",
+                                "products": products,
+                                "elapsed": elapsed,
+                            }
+                else:
+                    logger.info(f"Lilly REST: HTTP {resp.status_code}")
+            except Exception as e:
+                logger.info(f"Lilly REST: {e}")
+
+            elapsed = time.time() - start
+            logger.warning(f"Lilly curl_cffi: нито GraphQL, нито REST API работят ({elapsed:.1f}s)")
+            return {"success": False, "error": "GraphQL and REST API both failed"}
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.error(f"Lilly curl_cffi грешка: {e} ({elapsed:.1f}s)")
+        return {"success": False, "error": str(e)}
+
+
+# =============================================================================
+# T-MARKET curl_cffi — CloudCart + Cloudflare bypass
+# =============================================================================
+
+async def fetch_tmarket_via_curl(url="https://tmarketonline.bg/vendor/harmonica-1881705916"):
+    """
+    Директен fetch на T-Market чрез curl_cffi (TLS impersonation).
+    T-Market е CloudCart сайт с Cloudflare — curl_cffi може да bypass-не.
+    """
+    if not CURL_CFFI_AVAILABLE:
+        return {"success": False, "error": "curl_cffi not available"}
+
+    logger.info("T-Market: curl_cffi директен fetch...")
+    start = time.time()
+
+    try:
+        async with CurlAsyncSession(impersonate="chrome") as session:
+            proxy = PROXY_URL if PROXY_URL else None
+            resp = await session.get(
+                url,
+                proxy=proxy,
+                timeout=30,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.8",
+                },
+            )
+
+            elapsed = time.time() - start
+
+            if resp.status_code != 200:
+                logger.warning(f"T-Market curl_cffi: HTTP {resp.status_code}")
+                return {"success": False, "error": f"HTTP {resp.status_code}"}
+
+            html = resp.text
+
+            # Проверка за Cloudflare challenge
+            is_challenge, sitekey = detect_cloudflare_challenge(html)
+            if is_challenge:
+                logger.warning(f"T-Market curl_cffi: Cloudflare challenge ({elapsed:.1f}s)")
+                return {
+                    "success": False,
+                    "error": "Cloudflare challenge via curl_cffi",
+                    "html": html,
+                    "sitekey": sitekey,
+                }
+
+            logger.info(f"T-Market curl_cffi: OK {elapsed:.1f}s, {len(html)} chars")
+            return {
+                "success": True,
+                "method": "curl_cffi",
+                "html": html,
+                "markdown": "",
+                "elapsed": elapsed,
+                "store_key": "tmarket",
+            }
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.error(f"T-Market curl_cffi грешка: {e} ({elapsed:.1f}s)")
+        return {"success": False, "error": str(e)}
+
+
+# =============================================================================
+# GLOVO API — търсене на Harmonica продукти в Glovo магазини
+# =============================================================================
+
+async def fetch_glovo_store_products(store_key, store_config, query="harmonica"):
+    """
+    Търси Harmonica продукти в Glovo магазин чрез API.
+
+    Пробва 3 подхода:
+    1. Glovo API v3 product search (с auth token)
+    2. Glovo store page HTML (embedded JSON data)
+    3. Glovo web page scraping
+    """
+    if not CURL_CFFI_AVAILABLE:
+        return {"success": False, "error": "curl_cffi not available"}
+
+    slug = store_config["slug"]
+    city_code = store_config.get("city_code", "SOF")
+    store_name = store_config["name"]
+
+    logger.info(f"Glovo {store_name}: търсене на '{query}'...")
+    start = time.time()
+
+    proxy = PROXY_URL if PROXY_URL else None
+    auth_token = GLOVO_AUTH_TOKEN
+
+    # Common Glovo headers
+    glovo_headers = {
+        "Accept": "application/json",
+        "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.8",
+        "Glovo-Location-City-Code": city_code,
+        "Glovo-Api-Version": "14",
+        "Glovo-App-Platform": "web",
+        "Glovo-App-Type": "customer",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/122.0.0.0 Safari/537.36",
+    }
+    if auth_token:
+        glovo_headers["Authorization"] = f"Bearer {auth_token}"
+
+    try:
+        async with CurlAsyncSession(impersonate="chrome") as session:
+
+            # === Подход 1: API search ===
+            if auth_token:
+                try:
+                    search_url = f"{GLOVO_API_BASE}/stores/{slug}/search"
+                    params = {"query": query}
+                    resp = await session.get(
+                        search_url,
+                        params=params,
+                        proxy=proxy,
+                        headers=glovo_headers,
+                        timeout=20,
+                    )
+
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        products = _parse_glovo_products(data, store_name)
+                        if products:
+                            elapsed = time.time() - start
+                            logger.info(f"Glovo {store_name}: API search → "
+                                        f"{len(products)} продукта ({elapsed:.1f}s)")
+                            return {
+                                "success": True,
+                                "method": "glovo_api_search",
+                                "products": products,
+                                "elapsed": elapsed,
+                            }
+                    else:
+                        logger.info(f"Glovo {store_name}: API search HTTP {resp.status_code}")
+                except Exception as e:
+                    logger.info(f"Glovo {store_name}: API search грешка: {e}")
+
+                # === Подход 1b: API catalog + filter ===
+                try:
+                    catalog_url = f"{GLOVO_API_BASE}/stores/{slug}"
+                    resp = await session.get(
+                        catalog_url,
+                        proxy=proxy,
+                        headers=glovo_headers,
+                        timeout=20,
+                    )
+
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        products = _parse_glovo_catalog(data, store_name, query)
+                        if products:
+                            elapsed = time.time() - start
+                            logger.info(f"Glovo {store_name}: API catalog → "
+                                        f"{len(products)} продукта ({elapsed:.1f}s)")
+                            return {
+                                "success": True,
+                                "method": "glovo_api_catalog",
+                                "products": products,
+                                "elapsed": elapsed,
+                            }
+                    else:
+                        logger.info(f"Glovo {store_name}: API catalog HTTP {resp.status_code}")
+                except Exception as e:
+                    logger.info(f"Glovo {store_name}: API catalog грешка: {e}")
+
+            # === Подход 2: Web page с embedded JSON ===
+            try:
+                web_url = f"https://glovoapp.com/bg/bg/sofia/stores/{slug}/"
+                resp = await session.get(
+                    web_url,
+                    proxy=proxy,
+                    timeout=25,
+                    headers={
+                        "Accept": "text/html,application/xhtml+xml",
+                        "Accept-Language": "bg-BG,bg;q=0.9",
+                    },
+                )
+
+                if resp.status_code == 200:
+                    html = resp.text
+                    products = _parse_glovo_html(html, store_name, query)
+                    if products:
+                        elapsed = time.time() - start
+                        logger.info(f"Glovo {store_name}: HTML → "
+                                    f"{len(products)} продукта ({elapsed:.1f}s)")
+                        return {
+                            "success": True,
+                            "method": "glovo_html",
+                            "products": products,
+                            "elapsed": elapsed,
+                        }
+                    else:
+                        logger.info(f"Glovo {store_name}: HTML {len(html)} chars, "
+                                    f"0 Harmonica продукта")
+                else:
+                    logger.info(f"Glovo {store_name}: web HTTP {resp.status_code}")
+            except Exception as e:
+                logger.info(f"Glovo {store_name}: web грешка: {e}")
+
+            elapsed = time.time() - start
+            logger.warning(f"Glovo {store_name}: не намерени Harmonica продукти ({elapsed:.1f}s)")
+            return {"success": False, "error": "No products found"}
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.error(f"Glovo {store_name}: грешка: {e} ({elapsed:.1f}s)")
+        return {"success": False, "error": str(e)}
+
+
+def _parse_glovo_products(data, store_name):
+    """Парсва продукти от Glovo API search response."""
+    products = []
+    seen = set()
+
+    # Glovo search response може да е dict с "products" или list
+    items = []
+    if isinstance(data, dict):
+        items = data.get("products", data.get("items", data.get("results", [])))
+        # Опит: sections → products
+        for section in data.get("sections", []):
+            items.extend(section.get("products", section.get("items", [])))
+    elif isinstance(data, list):
+        items = data
+
+    for item in items:
+        name = item.get("name", item.get("productName", ""))
+        if not name:
+            continue
+        if not is_harmonica_product(name):
+            continue
+        if not is_food_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        # Price — Glovo обикновено връща в стотинки или пряко в BGN
+        price_bgn = None
+        price_obj = item.get("price", item.get("priceInfo", {}))
+        if isinstance(price_obj, (int, float)):
+            price_bgn = round(float(price_obj) / 100, 2) if price_obj > 100 else float(price_obj)
+        elif isinstance(price_obj, dict):
+            amount = price_obj.get("amount", price_obj.get("value", 0))
+            if amount:
+                price_bgn = round(float(amount) / 100, 2) if amount > 100 else float(amount)
+
+        if price_bgn and price_bgn > 0:
+            price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+            seen.add(name_key)
+            products.append({
+                "name": name,
+                "eur": price_eur,
+                "bgn": price_bgn,
+            })
+
+    return products
+
+
+def _parse_glovo_catalog(data, store_name, query):
+    """Парсва целия каталог и филтрира по query."""
+    all_products = []
+
+    # Каталогът може да е в categories → sections → products
+    categories = data.get("categories", data.get("menu", {}).get("categories", []))
+    for cat in categories:
+        sections = cat.get("sections", cat.get("groups", []))
+        for section in sections:
+            items = section.get("products", section.get("items", []))
+            all_products.extend(items)
+        # Директни продукти в категорията
+        all_products.extend(cat.get("products", []))
+
+    # Филтрираме за Harmonica
+    products = []
+    seen = set()
+    query_lower = query.lower()
+
+    for item in all_products:
+        name = item.get("name", "")
+        if not name:
+            continue
+        if query_lower not in name.lower() and "хармоника" not in name.lower():
+            continue
+        if not is_food_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        price_bgn = None
+        price_obj = item.get("price", item.get("priceInfo", {}))
+        if isinstance(price_obj, (int, float)):
+            price_bgn = round(float(price_obj) / 100, 2) if price_obj > 100 else float(price_obj)
+        elif isinstance(price_obj, dict):
+            amount = price_obj.get("amount", price_obj.get("value", 0))
+            if amount:
+                price_bgn = round(float(amount) / 100, 2) if amount > 100 else float(amount)
+
+        if price_bgn and price_bgn > 0:
+            price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+            seen.add(name_key)
+            products.append({
+                "name": name,
+                "eur": price_eur,
+                "bgn": price_bgn,
+            })
+
+    return products
+
+
+def _parse_glovo_html(html, store_name, query):
+    """Парсва embedded JSON от Glovo web page."""
+    products = []
+
+    # Търсим __NEXT_DATA__ или подобен embedded JSON
+    json_patterns = [
+        r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.+?)</script>',
+        r'window\.__INITIAL_STATE__\s*=\s*({.+?});\s*</script>',
+        r'window\.__PRELOADED_STATE__\s*=\s*({.+?});\s*</script>',
+    ]
+
+    for pattern in json_patterns:
+        match = re.search(pattern, html, re.DOTALL)
+        if match:
+            try:
+                data = json.loads(match.group(1))
+                # Рекурсивно търсене за продукти
+                products = _extract_products_recursive(data, query)
+                if products:
+                    return products
+            except json.JSONDecodeError:
+                continue
+
+    # Fallback: BS4 парсване
+    if BS4_AVAILABLE:
+        soup = BeautifulSoup(html, 'html.parser')
+        # Glovo product cards
+        for el in soup.select('[class*=product], [class*=Product], [data-testid*=product]'):
+            text = el.get_text(' ', strip=True)
+            if 'harmonica' in text.lower() or 'хармоника' in text.lower():
+                name_el = el.select_one('[class*=name], [class*=title], h3, h4')
+                if name_el:
+                    name = name_el.get_text(strip=True)
+                    bgn = extract_bgn_price(text)
+                    if bgn:
+                        eur = round(bgn / EUR_BGN_RATE, 2)
+                        products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    return products
+
+
+def _extract_products_recursive(data, query, depth=0, max_depth=8):
+    """Рекурсивно търси продукти в nested JSON."""
+    if depth > max_depth:
+        return []
+
+    products = []
+    query_lower = query.lower()
+
+    if isinstance(data, dict):
+        # Проверяваме дали е продукт
+        name = data.get("name", data.get("productName", ""))
+        price = data.get("price", data.get("priceInfo"))
+        if name and price and (query_lower in name.lower() or "хармоника" in name.lower()):
+            if is_food_product(name):
+                price_bgn = None
+                if isinstance(price, (int, float)):
+                    price_bgn = round(float(price) / 100, 2) if price > 100 else float(price)
+                elif isinstance(price, dict):
+                    amount = price.get("amount", price.get("value", 0))
+                    if amount:
+                        price_bgn = round(float(amount) / 100, 2) if amount > 100 else float(amount)
+                if price_bgn and price_bgn > 0:
+                    products.append({
+                        "name": name,
+                        "eur": round(price_bgn / EUR_BGN_RATE, 2),
+                        "bgn": price_bgn,
+                    })
+
+        # Рекурсия
+        for value in data.values():
+            products.extend(_extract_products_recursive(value, query, depth + 1, max_depth))
+    elif isinstance(data, list):
+        for item in data:
+            products.extend(_extract_products_recursive(item, query, depth + 1, max_depth))
+
+    return products
+
+
+async def fetch_all_glovo_products(query="harmonica"):
+    """Търси Harmonica продукти във всички Glovo магазини паралелно."""
+    if not CURL_CFFI_AVAILABLE:
+        logger.warning("Glovo: curl_cffi не е наличен — пропускане")
+        return {}
+
+    if not GLOVO_STORES:
+        return {}
+
+    if not GLOVO_AUTH_TOKEN:
+        logger.info("Glovo: GLOVO_AUTH_TOKEN не е зададен — опит с HTML scraping")
+
+    tasks = {}
+    for store_key, config in GLOVO_STORES.items():
+        tasks[store_key] = asyncio.create_task(
+            fetch_glovo_store_products(store_key, config, query)
+        )
+
+    results = {}
+    for store_key, task in tasks.items():
+        try:
+            result = await task
+            results[store_key] = result
+            if result.get("success"):
+                products = result.get("products", [])
+                logger.info(f"Glovo {GLOVO_STORES[store_key]['name']}: "
+                            f"{len(products)} Harmonica продукта")
+            else:
+                logger.info(f"Glovo {GLOVO_STORES[store_key]['name']}: "
+                            f"{result.get('error', 'неизвестна грешка')}")
+        except Exception as e:
+            logger.error(f"Glovo {GLOVO_STORES[store_key]['name']}: {e}")
+            results[store_key] = {"success": False, "error": str(e)}
+
+    return results
+
+
+# =============================================================================
 # MATCHING — подобрено с нормализация и тежести
 # =============================================================================
 
@@ -940,11 +2260,12 @@ async def crawl_store(crawler, store_key, store_config):
     store_name = store_config["name"]
     url = store_config["url"]
     scroll_times = store_config.get("scroll_times", 5)
+    use_magic = store_config.get("use_magic", False)
 
-    logger.info(f"CRAWLING: {store_name}")
+    logger.info(f"CRAWLING{'(magic)' if use_magic else ''}: {store_name}")
 
     scroll_js = ""
-    if scroll_times > 0:
+    if scroll_times > 0 and not use_magic:
         scroll_js = f"""
         async function scrollPage() {{
             for (let i = 0; i < {scroll_times}; i++) {{
@@ -956,12 +2277,21 @@ async def crawl_store(crawler, store_key, store_config):
         """
 
     wait_for = store_config.get("wait_for")
-    config = CrawlerRunConfig(
-        page_timeout=90000,
-        remove_overlay_elements=True,
-        js_code=scroll_js if scroll_js else None,
-        wait_for=wait_for,
-    )
+
+    if use_magic:
+        config = CrawlerRunConfig(
+            magic=True,
+            page_timeout=60000,
+            remove_overlay_elements=True,
+            cache_mode=CacheMode.BYPASS,
+        )
+    else:
+        config = CrawlerRunConfig(
+            page_timeout=90000,
+            remove_overlay_elements=True,
+            js_code=scroll_js if scroll_js else None,
+            wait_for=wait_for,
+        )
 
     start = time.time()
     result = await crawler.arun(url=url, config=config)
@@ -984,15 +2314,38 @@ async def crawl_store(crawler, store_key, store_config):
 
 async def crawl_all():
     """Сканира всички магазини паралелно с asyncio.gather."""
-    browser_config = BrowserConfig(
-        headless=True,
-        viewport_width=1920,
-        viewport_height=1080,
-    )
+    browser_kwargs = {
+        "headless": True,
+        "viewport_width": 1920,
+        "viewport_height": 1080,
+    }
+    if PROXY_URL:
+        browser_kwargs["proxy_config"] = {"server": PROXY_URL}
+        logger.info(f"Proxy: {PROXY_URL[:30]}...")
 
+    browser_config = BrowserConfig(**browser_kwargs)
+
+    results = {}
+
+    # curl_cffi паралелни задачи (DM Algolia, Lilly GraphQL, T-Market)
+    curl_tasks = {}
+
+    dm_config = STORES.get("dm", {})
+    if dm_config.get("algolia_enabled") and CURL_CFFI_AVAILABLE:
+        curl_tasks["dm"] = asyncio.create_task(fetch_dm_via_algolia("harmonica"))
+
+    if CURL_CFFI_AVAILABLE and "lilly" in STORES:
+        curl_tasks["lilly"] = asyncio.create_task(fetch_lilly_via_curl())
+
+    if CURL_CFFI_AVAILABLE and "tmarket" in STORES:
+        curl_tasks["tmarket"] = asyncio.create_task(fetch_tmarket_via_curl())
+
+    # Crawl4AI задачи (пропускаме stores с curl_cffi path)
     async with AsyncWebCrawler(config=browser_config) as crawler:
         tasks = {}
         for key, cfg in STORES.items():
+            if key in curl_tasks:
+                continue
             if cfg.get("needs_captcha_solver"):
                 tasks[key] = crawl_with_captcha_solver(crawler, key, cfg)
             else:
@@ -1000,13 +2353,40 @@ async def crawl_all():
 
         task_results = await asyncio.gather(*tasks.values(), return_exceptions=True)
 
-        results = {}
         for key, result in zip(tasks.keys(), task_results):
             if isinstance(result, Exception):
                 logger.error(f"{key}: Неочаквана грешка — {result}")
                 results[key] = {"success": False, "error": str(result)}
             else:
                 results[key] = result
+
+    # curl_cffi резултати с fallback към Crawl4AI
+    for store_key, task in curl_tasks.items():
+        try:
+            curl_result = await task
+            if curl_result.get("success"):
+                results[store_key] = curl_result
+                logger.info(f"{STORES[store_key]['name']}: curl_cffi успех "
+                            f"(method: {curl_result.get('method')})")
+            else:
+                logger.warning(f"{STORES[store_key]['name']}: curl_cffi failed: "
+                               f"{curl_result.get('error')} — fallback Crawl4AI")
+                async with AsyncWebCrawler(config=browser_config) as crawler:
+                    cfg = STORES[store_key]
+                    if cfg.get("needs_captcha_solver"):
+                        results[store_key] = await crawl_with_captcha_solver(
+                            crawler, store_key, cfg)
+                    else:
+                        results[store_key] = await crawl_store(
+                            crawler, store_key, cfg)
+        except Exception as e:
+            logger.error(f"{STORES[store_key]['name']}: curl_cffi грешка: {e}")
+            results[store_key] = {"success": False, "error": str(e)}
+
+    # Glovo магазини (паралелно, отделен pipeline)
+    if GLOVO_STORES and CURL_CFFI_AVAILABLE:
+        glovo_results = await fetch_all_glovo_products("harmonica")
+        results.update(glovo_results)
 
     return results
 
@@ -1025,8 +2405,9 @@ def extract_weight(name):
 
 def write_to_sheets(final_products, stats):
     """
-    Записва данните в Google Sheets с автоматично сиво форматиране
-    за изчерпани продукти (in_stock=False).
+    Записва данните в Google Sheets.
+    Формат: № | Продукт | Грамаж | Кашон BGN | Кашон EUR | Store1 EUR | ... | Ср.EUR | Статус
+    Кашон показва и BGN и EUR, всички останали магазини — само EUR.
     """
     if not GSPREAD_AVAILABLE:
         logger.warning("gspread not available — skipping Sheets write")
@@ -1037,13 +2418,16 @@ def write_to_sheets(final_products, stats):
     tab_suffix = os.environ.get("SHEET_TAB_SUFFIX", "")
     tab_name = f"{BASE_TAB}{tab_suffix}"
 
-    store_columns = [key for key, cfg in STORES.items() if not cfg.get("is_reference")]
+    # Магазини без Кашон (те показват само EUR) + Glovo магазини
+    store_columns = [key for key, cfg in STORES.items() if not cfg.get("is_master")]
+    store_columns += list(GLOVO_STORES.keys())
     store_display_names = {key: cfg["name"] for key, cfg in STORES.items()}
+    store_display_names.update({k: f"Glovo {cfg['name']}" for k, cfg in GLOVO_STORES.items()})
 
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     logger.info(f"Google Sheets: записване в '{tab_name}'")
-    logger.info(f"Магазини: {', '.join(store_display_names[s] for s in store_columns)}")
+    logger.info(f"Магазини: Кашон + {', '.join(store_display_names[s] for s in store_columns)}")
 
     try:
         creds_json = os.environ.get("GOOGLE_CREDENTIALS")
@@ -1076,21 +2460,23 @@ def write_to_sheets(final_products, stats):
         return False
 
     # --- Изграждане на данните ---
+    # Колони: №(0) | Продукт(1) | Грамаж(2) | Кашон BGN(3) | Кашон EUR(4) | Store1(5) | ... | Ср.EUR | Статус
     HEADER_ROW = 4
     DATA_START_ROW = 5
-    STORE_COL_START = 5
+    KASHON_COL_START = 3     # Кашон BGN
+    STORE_COL_START = 5      # Първи external store
 
-    headers = ['№', 'Продукт', 'Грамаж', 'Реф.BGN', 'Реф.EUR']
+    headers = ['№', 'Продукт', 'Грамаж', 'Кашон BGN', 'Кашон EUR']
     for store_key in store_columns:
         headers.append(store_display_names[store_key])
-    headers.extend(['Ср.BGN', 'Откл.%', 'Статус'])
+    headers.extend(['Ср.EUR', 'Статус'])
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер (EXP-003)'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер (EXP-003 v9.1.0)'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
-            f'Магазини: {len(store_columns) + 1}']
+            f'Магазини: {len(STORES) + len(GLOVO_STORES)}']
     meta.extend([''] * (len(headers) - len(meta)))
     all_data.append(meta)
 
@@ -1100,19 +2486,19 @@ def write_to_sheets(final_products, stats):
     out_of_stock_cells = []
 
     for i, product in enumerate(final_products, 1):
-        ref = product.get("kashon") or {}
-        ref_bgn = ref.get("bgn")
-        ref_eur = ref.get("eur")
+        kashon = product.get("kashon") or {}
+        kashon_bgn = kashon.get("bgn")
+        kashon_eur = kashon.get("eur")
 
         row = [
             i,
             product["name"],
             extract_weight(product["name"]),
-            ref_bgn if ref_bgn else '',
-            ref_eur if ref_eur else '',
+            kashon_bgn if kashon_bgn else '',
+            kashon_eur if kashon_eur else '',
         ]
 
-        store_prices_bgn = []
+        store_prices_eur = []
 
         for col_offset, store_key in enumerate(store_columns):
             store_data = product.get(store_key)
@@ -1120,30 +2506,25 @@ def write_to_sheets(final_products, stats):
             row_index = DATA_START_ROW - 1 + i
 
             if store_data:
-                price_bgn = store_data.get("bgn")
-                row.append(price_bgn if price_bgn else '')
+                price_eur = store_data.get("eur")
+                row.append(price_eur if price_eur else '')
 
-                if price_bgn:
-                    store_prices_bgn.append(price_bgn)
+                if price_eur:
+                    store_prices_eur.append(price_eur)
 
                 if not store_data.get("in_stock", True):
                     out_of_stock_cells.append((row_index, col_index))
             else:
                 row.append('')
 
-        if store_prices_bgn:
-            avg_bgn = round(sum(store_prices_bgn) / len(store_prices_bgn), 2)
-            row.append(avg_bgn)
-        else:
-            avg_bgn = None
-            row.append('')
-
-        if avg_bgn and ref_bgn and ref_bgn > 0:
-            deviation = round((avg_bgn - ref_bgn) / ref_bgn * 100, 1)
-            row.append(f"{deviation}%")
+        # Средна EUR (от external магазини, без Кашон)
+        if store_prices_eur:
+            avg_eur = round(sum(store_prices_eur) / len(store_prices_eur), 2)
+            row.append(avg_eur)
         else:
             row.append('')
 
+        # Статус: в колко магазина е намерен
         matched_count = sum(1 for s in store_columns if product.get(s))
         row.append(f"{matched_count}/{len(store_columns)}")
 
@@ -1217,9 +2598,9 @@ def write_to_sheets(final_products, stats):
             }
         })
 
-        # Числов формат
-        price_start = 3
-        price_end = STORE_COL_START + len(store_columns) + 1
+        # Числов формат за ценови колони
+        price_start = KASHON_COL_START
+        price_end = STORE_COL_START + len(store_columns) + 1  # +1 за Ср.EUR
         if last_row > HEADER_ROW:
             format_requests.append({
                 "repeatCell": {
@@ -1234,12 +2615,12 @@ def write_to_sheets(final_products, stats):
             })
 
         # Ширини
-        col_widths = {0: 35, 1: 250, 2: 55, 3: 75, 4: 75}
+        col_widths = {0: 35, 1: 250, 2: 55, 3: 80, 4: 80}  # №, Продукт, Грамаж, Кашон BGN/EUR
         for offset in range(len(store_columns)):
-            col_widths[STORE_COL_START + offset] = 85
-        col_widths[STORE_COL_START + len(store_columns)] = 75
-        col_widths[STORE_COL_START + len(store_columns) + 1] = 65
-        col_widths[STORE_COL_START + len(store_columns) + 2] = 55
+            col_widths[STORE_COL_START + offset] = 80
+        avg_col = STORE_COL_START + len(store_columns)
+        col_widths[avg_col] = 75       # Ср.EUR
+        col_widths[avg_col + 1] = 55   # Статус
 
         for col_idx, width in col_widths.items():
             format_requests.append({
@@ -1289,10 +2670,18 @@ def write_to_sheets(final_products, stats):
 
 async def main():
     logger.info("=" * 60)
-    logger.info("EXP-003: CRAWL4AI v8.0 + CapSolver + DM Bulgaria")
+    total_stores = len(STORES) + len(GLOVO_STORES)
+    logger.info(f"EXP-003: CRAWL4AI v9.1.0 — {total_stores} магазина + GraphQL/curl_cffi/Glovo")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"Магазини: {len(STORES)}, BS4: {BS4_AVAILABLE}, CapSolver: {CAPSOLVER_AVAILABLE}")
+    logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}, "
+                f"CapSolver: {CAPSOLVER_AVAILABLE}, curl_cffi: {CURL_CFFI_AVAILABLE}")
+    if PROXY_URL:
+        logger.info(f"Proxy: {PROXY_URL[:30]}...")
+    if GLOVO_AUTH_TOKEN:
+        logger.info(f"Glovo auth: YES (token length: {len(GLOVO_AUTH_TOKEN)})")
+    else:
+        logger.info("Glovo auth: NO — ще опитаме HTML scraping")
 
     if not CRAWL4AI_AVAILABLE:
         logger.error("Crawl4AI not available!")
@@ -1326,96 +2715,161 @@ async def main():
 
     # Lilly Drogerie
     lilly_products = []
-    if crawl_results.get("lilly", {}).get("success"):
-        lilly_data = crawl_results["lilly"]
-        lilly_products = extract_lilly_products(
-            lilly_data["markdown"],
-            html_text=lilly_data.get("html"),
-        )
-        logger.info(f"Lilly: {len(lilly_products)} Harmonica products")
+    lilly_data = crawl_results.get("lilly", {})
+    if lilly_data.get("success"):
+        method = lilly_data.get("method", "unknown")
+        # GraphQL/REST API — продуктите са вече извлечени
+        if lilly_data.get("products"):
+            lilly_products = lilly_data["products"]
+        elif lilly_data.get("html") or lilly_data.get("markdown"):
+            lilly_products = extract_lilly_products(
+                lilly_data.get("markdown", ""),
+                html_text=lilly_data.get("html"),
+            )
+        logger.info(f"Lilly: {len(lilly_products)} Harmonica products (method: {method})")
         in_stock = sum(1 for p in lilly_products if p.get('in_stock', True))
         if in_stock < len(lilly_products):
             logger.info(f"  Налични: {in_stock}, Изчерпани: {len(lilly_products) - in_stock}")
+    elif lilly_data.get("error"):
+        logger.warning(f"Lilly: {lilly_data['error']}")
 
     # DM Bulgaria
     dm_products = []
-    if crawl_results.get("dm", {}).get("success"):
-        dm_data = crawl_results["dm"]
-        dm_products = extract_dm_products(
-            dm_data["markdown"],
-            html_text=dm_data.get("html"),
-        )
+    dm_data = crawl_results.get("dm", {})
+    if dm_data.get("success"):
         method = dm_data.get("method", "unknown")
+        # Algolia API — продуктите са вече извлечени
+        if dm_data.get("products"):
+            dm_products = dm_data["products"]
+        # curl_cffi HTML или Crawl4AI HTML — парсваме
+        elif dm_data.get("html"):
+            dm_products = extract_dm_from_curl_html(dm_data["html"])
+            if not dm_products:
+                dm_products = extract_dm_products(
+                    dm_data.get("markdown", ""),
+                    html_text=dm_data.get("html"),
+                )
+        elif dm_data.get("markdown"):
+            dm_products = extract_dm_products(dm_data["markdown"])
         logger.info(f"DM: {len(dm_products)} Harmonica products (method: {method})")
-    elif crawl_results.get("dm", {}).get("error"):
-        logger.warning(f"DM: {crawl_results['dm']['error']}")
+    elif dm_data.get("error"):
+        logger.warning(f"DM: {dm_data['error']}")
+
+    # VMV Supermarket
+    vmv_products = []
+    if crawl_results.get("vmv", {}).get("success"):
+        vmv_data = crawl_results["vmv"]
+        vmv_products = extract_vmv_products(
+            vmv_data["markdown"],
+            html_text=vmv_data.get("html"),
+            brand_page=STORES["vmv"].get("brand_page", False),
+        )
+    elif crawl_results.get("vmv", {}).get("error"):
+        logger.warning(f"VMV: {crawl_results['vmv']['error']}")
+
+    # T-Market
+    tmarket_products = []
+    tmarket_data = crawl_results.get("tmarket", {})
+    if tmarket_data.get("success"):
+        method = tmarket_data.get("method", "unknown")
+        if tmarket_data.get("html"):
+            tmarket_products = extract_tmarket_products(
+                tmarket_data.get("markdown", ""),
+                html_text=tmarket_data.get("html"),
+                brand_page=STORES["tmarket"].get("brand_page", True),
+            )
+        elif tmarket_data.get("markdown"):
+            tmarket_products = extract_tmarket_products(
+                tmarket_data["markdown"],
+                brand_page=STORES["tmarket"].get("brand_page", True),
+            )
+        logger.info(f"T-Market: {len(tmarket_products)} Harmonica products (method: {method})")
+    elif tmarket_data.get("error"):
+        logger.warning(f"T-Market: {tmarket_data['error']}")
+
+    # Glovo магазини — продуктите са вече извлечени от fetch_all_glovo_products()
+    glovo_all_products = {}
+    for gkey, gconfig in GLOVO_STORES.items():
+        gdata = crawl_results.get(gkey, {})
+        if gdata.get("success") and gdata.get("products"):
+            glovo_all_products[gkey] = gdata["products"]
+            logger.info(f"Glovo {gconfig['name']}: {len(gdata['products'])} Harmonica products "
+                        f"(method: {gdata.get('method')})")
+        elif gdata.get("error"):
+            glovo_all_products[gkey] = []
+            logger.warning(f"Glovo {gconfig['name']}: {gdata['error']}")
+        else:
+            glovo_all_products[gkey] = []
 
     # 3. Match products
     logger.info("=" * 40 + " MATCHING " + "=" * 40)
 
+    # Store keys: основни магазини (без Кашон) + Glovo магазини
+    store_keys = [key for key, cfg in STORES.items() if not cfg.get("is_master")]
+    glovo_keys = list(GLOVO_STORES.keys())
+    all_keys = store_keys + glovo_keys
+
     final_products = []
     for ref in kashon_products:
-        product = {
-            "name": ref["name"],
-            "kashon": {"eur": ref["eur"], "bgn": ref["bgn"]},
-            "ebag": None,
-            "balev": None,
-            "lilly": None,
-            "dm": None,
-        }
+        product = {"name": ref["name"], "kashon": {"eur": ref["eur"], "bgn": ref["bgn"]}}
+        for sk in all_keys:
+            product[sk] = None
         final_products.append(product)
 
-    ebag_matches = match_products(kashon_products, ebag_products)
-    for product in final_products:
-        if product["name"] in ebag_matches:
-            m = ebag_matches[product["name"]]
-            product["ebag"] = {"eur": m["eur"], "bgn": m["bgn"]}
+    # Всички магазини и техните продукти
+    all_store_products = {
+        "ebag": ebag_products,
+        "balev": balev_products,
+        "lilly": lilly_products,
+        "dm": dm_products,
+        "vmv": vmv_products,
+        "tmarket": tmarket_products,
+    }
+    # Добавяме Glovo магазините
+    all_store_products.update(glovo_all_products)
 
-    balev_matches = match_products(kashon_products, balev_products)
-    for product in final_products:
-        if product["name"] in balev_matches:
-            m = balev_matches[product["name"]]
-            product["balev"] = {"eur": m["eur"], "bgn": m["bgn"]}
-
-    lilly_matches = match_products(kashon_products, lilly_products)
-    for product in final_products:
-        if product["name"] in lilly_matches:
-            m = lilly_matches[product["name"]]
-            product["lilly"] = {
-                "eur": m["eur"],
-                "bgn": m["bgn"],
-                "in_stock": m.get("in_stock", True),
-            }
-
-    dm_matches = match_products(kashon_products, dm_products)
-    for product in final_products:
-        if product["name"] in dm_matches:
-            m = dm_matches[product["name"]]
-            product["dm"] = {"eur": m["eur"], "bgn": m["bgn"]}
+    for store_key, store_prods in all_store_products.items():
+        if not store_prods:
+            continue
+        matches = match_products(kashon_products, store_prods)
+        for product in final_products:
+            if product["name"] in matches:
+                m = matches[product["name"]]
+                entry = {"eur": m["eur"], "bgn": m["bgn"]}
+                if "in_stock" in m:
+                    entry["in_stock"] = m["in_stock"]
+                product[store_key] = entry
 
     # 4. Statistics
-    kashon_count = len([p for p in final_products if p["kashon"]])
-    ebag_count = len([p for p in final_products if p["ebag"]])
-    balev_count = len([p for p in final_products if p["balev"]])
-    lilly_count = len([p for p in final_products if p["lilly"]])
-    lilly_oos_count = len([p for p in final_products
-                           if p["lilly"] and not p["lilly"].get("in_stock", True)])
-    dm_count = len([p for p in final_products if p["dm"]])
-
     logger.info("=" * 40 + " STATISTICS " + "=" * 40)
-    logger.info(f"Референтни (Кашон): {kashon_count}")
-    if kashon_count:
-        logger.info(f"eBag: {ebag_count}/{kashon_count} ({ebag_count/kashon_count*100:.0f}%)")
-        logger.info(f"Balev: {balev_count}/{kashon_count} ({balev_count/kashon_count*100:.0f}%)")
-        logger.info(f"Lilly: {lilly_count}/{kashon_count} ({lilly_count/kashon_count*100:.0f}%)"
-                     f" — {lilly_oos_count} изчерпани")
-        logger.info(f"DM: {dm_count}/{kashon_count} ({dm_count/kashon_count*100:.0f}%)")
+    kashon_count = len([p for p in final_products if p.get("kashon")])
+    logger.info(f"Кашон (master list): {kashon_count}")
+
+    # Всички имена на магазини (обикновени + Glovo)
+    all_display = {}
+    all_display.update({k: cfg["name"] for k, cfg in STORES.items()})
+    all_display.update({k: f"Glovo {cfg['name']}" for k, cfg in GLOVO_STORES.items()})
+
+    store_counts = {}
+    for sk in all_keys:
+        count = len([p for p in final_products if p.get(sk)])
+        store_counts[sk] = count
+        if kashon_count:
+            pct = count / kashon_count * 100
+            extra = ""
+            if sk == "lilly":
+                oos = len([p for p in final_products
+                           if p.get("lilly") and not p["lilly"].get("in_stock", True)])
+                extra = f" — {oos} изчерпани"
+                store_counts["lilly_oos"] = oos
+            logger.info(f"{all_display.get(sk, sk)}: {count}/{kashon_count} ({pct:.0f}%){extra}")
 
     # Примерни продукти
-    matched = [p for p in final_products if p["ebag"] or p["balev"] or p["lilly"] or p["dm"]][:5]
+    matched = [p for p in final_products
+               if any(p.get(sk) for sk in all_keys)][:5]
     for p in matched:
         parts = [f"{p['name'][:50]}:"]
-        for store in ["kashon", "ebag", "balev", "lilly", "dm"]:
+        for store in ["kashon"] + all_keys:
             if p.get(store):
                 bgn = p[store].get('bgn')
                 parts.append(f"  {store}={'%.2f' % bgn if bgn else 'N/A'}лв")
@@ -1424,32 +2878,25 @@ async def main():
     total_time = time.time() - total_start
 
     # 5. Write to Google Sheets
-    write_to_sheets(final_products, {
-        "kashon_products": kashon_count,
-        "ebag_matches": ebag_count,
-        "balev_matches": balev_count,
-        "lilly_matches": lilly_count,
-        "lilly_out_of_stock": lilly_oos_count,
-        "dm_matches": dm_count,
-    })
+    stats = {"kashon_products": kashon_count}
+    for sk in all_keys:
+        stats[f"{sk}_matches"] = store_counts.get(sk, 0)
+    stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
+    write_to_sheets(final_products, stats)
 
     # 6. Save JSON
+    json_stats = {"kashon_products": kashon_count}
+    for sk, prods in all_store_products.items():
+        json_stats[f"{sk}_products"] = len(prods)
+        json_stats[f"{sk}_matches"] = store_counts.get(sk, 0)
+    json_stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
+
     output = {
-        "experiment": "EXP-003-v8.0",
+        "experiment": "EXP-003-v9.1.0",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
-        "stats": {
-            "kashon_products": kashon_count,
-            "ebag_products": len(ebag_products),
-            "ebag_matches": ebag_count,
-            "balev_products": len(balev_products),
-            "balev_matches": balev_count,
-            "lilly_products": len(lilly_products),
-            "lilly_matches": lilly_count,
-            "lilly_out_of_stock": lilly_oos_count,
-            "dm_products": len(dm_products),
-            "dm_matches": dm_count,
-        },
+        "stores": len(STORES) + len(GLOVO_STORES),
+        "stats": json_stats,
         "products": final_products,
     }
 
@@ -1461,7 +2908,8 @@ async def main():
     except Exception as e:
         logger.error(f"Грешка при запис на JSON: {e}")
 
-    logger.info(f"ГОТОВО за {total_time:.1f}s")
+    logger.info(f"ГОТОВО за {total_time:.1f}s — {len(STORES) + len(GLOVO_STORES)} магазина, "
+                f"{kashon_count} продукта в Кашон")
 
 
 if __name__ == "__main__":

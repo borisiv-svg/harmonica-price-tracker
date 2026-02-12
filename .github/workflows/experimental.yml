@@ -51,8 +51,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           
-          # Инсталиране на Crawl4AI за експериментите
-          pip install crawl4ai
+          # Инсталиране на Crawl4AI и curl_cffi за експериментите
+          pip install crawl4ai curl_cffi
           
           # Поправка за Ubuntu 24.04
           sudo apt-get update
@@ -67,14 +67,20 @@ jobs:
           crawl4ai-setup || true
       
       - name: ℹ️ Environment info
+        env:
+          PROXY_URL: ${{ secrets.PROXY_URL }}
+          GLOVO_AUTH_TOKEN: ${{ secrets.GLOVO_AUTH_TOKEN }}
         run: |
           echo "=========================================="
-          echo "EXPERIMENTAL SCRAPER"
+          echo "EXPERIMENTAL SCRAPER v9.1.0"
           echo "=========================================="
           echo "Python: $(python --version)"
           echo "Branch: $(git branch --show-current)"
           echo "Use Crawl4AI: ${{ github.event.inputs.use_crawl4ai || 'false' }}"
           echo "Date: $(date)"
+          echo "PROXY_URL set: $([ -n "$PROXY_URL" ] && echo 'YES (length: '${#PROXY_URL}')' || echo 'NO — secret missing!')"
+          echo "CAPSOLVER_API_KEY set: $([ -n "$CAPSOLVER_API_KEY" ] && echo 'YES' || echo 'NO')"
+          echo "GLOVO_AUTH_TOKEN set: $([ -n "$GLOVO_AUTH_TOKEN" ] && echo 'YES' || echo 'NO')"
           echo "=========================================="
       
       - name: 🔬 Run Experimental Scraper
@@ -85,12 +91,15 @@ jobs:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           CAPSOLVER_API_KEY: ${{ secrets.CAPSOLVER_API_KEY }}
+          PROXY_URL: ${{ secrets.PROXY_URL }}
+          GLOVO_AUTH_TOKEN: ${{ secrets.GLOVO_AUTH_TOKEN }}
           EXPERIMENTAL_MODE: "true"
           USE_CRAWL4AI: ${{ github.event.inputs.use_crawl4ai || 'false' }}
           SHEET_TAB_SUFFIX: "_experimental"
           ALERT_EMAIL: "boris.iv@gmail.com"
         run: |
           echo "Starting experimental scraper..."
+          echo "PROXY_URL check: $([ -n "$PROXY_URL" ] && echo 'SET (length: '${#PROXY_URL}')' || echo 'EMPTY')"
 
           if [ -f "experimental/scraper_experimental.py" ]; then
             python experimental/scraper_experimental.py
