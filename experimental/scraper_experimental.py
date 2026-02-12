@@ -116,7 +116,7 @@ STORES = {
     "kashon": {
         "name": "Кашон",
         "url": "https://kashonharmonica.bg/bg/products/field_producer/harmonica-144",
-        "scroll_times": 15,
+        "scroll_times": 20,
         "scroll_delay": 2000,
         "is_master": True,
     },
@@ -2330,10 +2330,16 @@ async def crawl_store(crawler, store_key, store_config):
     if scroll_times > 0 and not use_magic:
         scroll_js = f"""
         async function scrollPage() {{
+            const step = window.innerHeight || 800;
             for (let i = 0; i < {scroll_times}; i++) {{
-                window.scrollTo(0, document.body.scrollHeight);
+                window.scrollBy(0, step);
                 await new Promise(r => setTimeout(r, {scroll_delay}));
             }}
+            // Final: scroll to absolute bottom twice to catch stragglers
+            window.scrollTo(0, document.body.scrollHeight);
+            await new Promise(r => setTimeout(r, {scroll_delay}));
+            window.scrollTo(0, document.body.scrollHeight);
+            await new Promise(r => setTimeout(r, {scroll_delay}));
         }}
         await scrollPage();
         """
