@@ -1876,7 +1876,7 @@ def _fetch_glovo_via_firecrawl(slug, store_name, query="harmonica"):
         try:
             result = app.scrape(
                 store_url, formats=["markdown"],
-                actions=search_actions, timeout=45000,
+                actions=search_actions, timeout=60000,
             )
             elapsed = time.time() - start
 
