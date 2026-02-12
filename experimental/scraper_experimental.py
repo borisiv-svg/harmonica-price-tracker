@@ -177,7 +177,7 @@ GLOVO_STORES = {
     },
     "glovo_fantastico": {
         "name": "Fantastico",
-        "slug": "fantastico-sof",
+        "slug": "coca-cola-real-magic-sof",
         "city_code": "SOF",
     },
 }
