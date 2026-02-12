@@ -113,9 +113,9 @@ STORES = {
         "name": "Lilly Drogerie",
         "url": "https://lillydrogerie.bg/brands/harmonica",
         "scroll_times": 4,
-        "wait_for": "css:.product-item-info,.product-items,ol.products,.products-grid",
         "is_reference": False,
         "brand_page": True,
+        "use_magic": True,
     },
     "dm": {
         "name": "DM Bulgaria",
@@ -127,14 +127,13 @@ STORES = {
     },
     "vmv": {
         "name": "VMV Supermarket",
-        "url": "https://vmv.bg/brands/harmonica",
-        "scroll_times": 8,
+        "url": "https://vmv.bg/search?q=harmonica",
+        "scroll_times": 5,
         "is_reference": False,
-        "brand_page": True,
     },
     "optima": {
         "name": "Optima",
-        "url": "https://optima.bg/?s=harmonica",
+        "url": "https://optima.bg/?s=harmonica&post_type=product",
         "scroll_times": 5,
         "is_reference": False,
     },
@@ -142,7 +141,6 @@ STORES = {
         "name": "T-Market",
         "url": "https://tmarketonline.bg/vendor/harmonica-1881705916",
         "scroll_times": 8,
-        "wait_for": "css:.product-card,.product-item,.products,[class*=product]",
         "is_reference": False,
         "brand_page": True,
     },
@@ -704,9 +702,23 @@ def extract_lilly_products(markdown_text, html_text=None):
     if not products:
         products = _extract_lilly_regex(markdown_text)
     if not products:
+        # Допълнителен debug: какво съдържа HTML-а
+        html_preview = ""
+        if html_text:
+            soup = BeautifulSoup(html_text, 'html.parser') if BS4_AVAILABLE else None
+            if soup:
+                # Проверяваме за Harmonica ключова дума в HTML
+                harmonica_count = html_text.upper().count('HARMONICA')
+                # Проверяваме за типични Magento product selectors
+                selectors = ['.product-item', '.product-items', 'ol.products',
+                             '.products-grid', '.category-products', '[data-role=product]']
+                found_selectors = [s for s in selectors if soup.select_one(s)]
+                html_preview = (f"harmonica_refs={harmonica_count}, "
+                               f"selectors={found_selectors or 'NONE'}, "
+                               f"title={soup.title.string if soup.title else 'N/A'}")
         logger.warning(f"Lilly: 0 продукта, markdown len={len(markdown_text)}, "
                        f"html len={len(html_text) if html_text else 0}, "
-                       f"preview: {markdown_text[:500]}")
+                       f"{html_preview}")
     return products
 
 
@@ -1498,11 +1510,12 @@ async def crawl_store(crawler, store_key, store_config):
     store_name = store_config["name"]
     url = store_config["url"]
     scroll_times = store_config.get("scroll_times", 5)
+    use_magic = store_config.get("use_magic", False)
 
-    logger.info(f"CRAWLING: {store_name}")
+    logger.info(f"CRAWLING{'(magic)' if use_magic else ''}: {store_name}")
 
     scroll_js = ""
-    if scroll_times > 0:
+    if scroll_times > 0 and not use_magic:
         scroll_js = f"""
         async function scrollPage() {{
             for (let i = 0; i < {scroll_times}; i++) {{
@@ -1514,12 +1527,21 @@ async def crawl_store(crawler, store_key, store_config):
         """
 
     wait_for = store_config.get("wait_for")
-    config = CrawlerRunConfig(
-        page_timeout=90000,
-        remove_overlay_elements=True,
-        js_code=scroll_js if scroll_js else None,
-        wait_for=wait_for,
-    )
+
+    if use_magic:
+        config = CrawlerRunConfig(
+            magic=True,
+            page_timeout=60000,
+            remove_overlay_elements=True,
+            cache_mode=CacheMode.BYPASS,
+        )
+    else:
+        config = CrawlerRunConfig(
+            page_timeout=90000,
+            remove_overlay_elements=True,
+            js_code=scroll_js if scroll_js else None,
+            wait_for=wait_for,
+        )
 
     start = time.time()
     result = await crawler.arun(url=url, config=config)
