@@ -85,6 +85,21 @@ PROXY_URL = os.environ.get("PROXY_URL")  # Optional: http://user:pass@host:port
 GLOVO_AUTH_TOKEN = os.environ.get("GLOVO_AUTH_TOKEN")  # Optional: Glovo Bearer token
 
 
+def _parse_proxy_url(proxy_url):
+    """Парсва proxy URL за Playwright proxy_config (server, username, password)."""
+    if not proxy_url:
+        return None
+    from urllib.parse import urlparse
+    parsed = urlparse(proxy_url)
+    if parsed.username:
+        return {
+            "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
+            "username": parsed.username,
+            "password": parsed.password or "",
+        }
+    return {"server": proxy_url}
+
+
 # =============================================================================
 # STORES
 # =============================================================================
@@ -2320,8 +2335,9 @@ async def crawl_all():
         "viewport_height": 1080,
     }
     if PROXY_URL:
-        browser_kwargs["proxy_config"] = {"server": PROXY_URL}
-        logger.info(f"Proxy: {PROXY_URL[:30]}...")
+        proxy_cfg = _parse_proxy_url(PROXY_URL)
+        browser_kwargs["proxy_config"] = proxy_cfg
+        logger.info(f"Proxy: {proxy_cfg['server']} (user: {proxy_cfg.get('username', 'N/A')})")
 
     browser_config = BrowserConfig(**browser_kwargs)
 
