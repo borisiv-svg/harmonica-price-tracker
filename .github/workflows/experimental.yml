@@ -67,6 +67,8 @@ jobs:
           crawl4ai-setup || true
       
       - name: ℹ️ Environment info
+        env:
+          PROXY_URL: ${{ secrets.PROXY_URL }}
         run: |
           echo "=========================================="
           echo "EXPERIMENTAL SCRAPER"
@@ -75,6 +77,8 @@ jobs:
           echo "Branch: $(git branch --show-current)"
           echo "Use Crawl4AI: ${{ github.event.inputs.use_crawl4ai || 'false' }}"
           echo "Date: $(date)"
+          echo "PROXY_URL set: $([ -n "$PROXY_URL" ] && echo 'YES (length: '${#PROXY_URL}')' || echo 'NO — secret missing!')"
+          echo "CAPSOLVER_API_KEY set: $([ -n "$CAPSOLVER_API_KEY" ] && echo 'YES' || echo 'NO')"
           echo "=========================================="
       
       - name: 🔬 Run Experimental Scraper
@@ -92,6 +96,7 @@ jobs:
           ALERT_EMAIL: "boris.iv@gmail.com"
         run: |
           echo "Starting experimental scraper..."
+          echo "PROXY_URL check: $([ -n "$PROXY_URL" ] && echo 'SET (length: '${#PROXY_URL}')' || echo 'EMPTY')"
 
           if [ -f "experimental/scraper_experimental.py" ]; then
             python experimental/scraper_experimental.py
