@@ -1,0 +1,64 @@
+[
+  {
+    "date": "2026-02-05 06:44",
+    "action": "initial_create",
+    "total_products": 79,
+    "added": 79,
+    "removed": 0
+  },
+  {
+    "date": "2026-02-05 06:59",
+    "action": "sync",
+    "total_products": 12,
+    "added": 0,
+    "removed": 67,
+    "price_changes": 0
+  },
+  {
+    "date": "2026-02-05 07:06",
+    "action": "sync",
+    "total_products": 12,
+    "added": 0,
+    "removed": 6,
+    "price_changes": 1
+  },
+  {
+    "date": "2026-02-05 07:48",
+    "action": "sync",
+    "total_products": 12,
+    "added": 0,
+    "removed": 6,
+    "price_changes": 1
+  },
+  {
+    "date": "2026-02-05 10:48",
+    "action": "initial_create",
+    "total_products": 65,
+    "added": 65,
+    "removed": 0
+  },
+  {
+    "date": "2026-02-06 07:44",
+    "action": "sync",
+    "total_products": 65,
+    "added": 0,
+    "removed": 0,
+    "price_changes": 0
+  },
+  {
+    "date": "2026-02-07 07:30",
+    "action": "sync",
+    "total_products": 65,
+    "added": 0,
+    "removed": 0,
+    "price_changes": 0
+  },
+  {
+    "date": "2026-02-08 07:37",
+    "action": "sync",
+    "total_products": 65,
+    "added": 0,
+    "removed": 0,
+    "price_changes": 0
+  }
+]

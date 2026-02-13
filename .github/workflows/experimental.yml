@@ -5,7 +5,8 @@ name: 🔬 Experimental Scraper
 
 on:
   schedule:
-    - cron: '0 7 * * *'
+    # Всеки понеделник в 05:00 UTC (07:00 българско зимно време)
+    - cron: '0 5 * * 1'
   workflow_dispatch:
     inputs:
       branch:
@@ -22,20 +23,21 @@ on:
 jobs:
   experimental-scrape:
     runs-on: ubuntu-latest
-    if: github.ref != 'refs/heads/main'
-    
+    # Позволяваме scheduled и ръчни стартирания (преди беше блокирано за main branch)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+
     steps:
       - name: 📥 Checkout experimental code
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch || github.ref }}
-      
+
       - name: 🐍 Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
-      
+
       - name: 📦 Cache Playwright browsers
         uses: actions/cache@v3
         with:
@@ -43,38 +45,45 @@ jobs:
           key: playwright-exp-${{ hashFiles('requirements.txt') }}
           restore-keys: |
             playwright-exp-
-      
+
       - name: 📚 Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          
-          # Инсталиране на Crawl4AI за експериментите
-          pip install crawl4ai
-          
+
+          # Инсталиране на Crawl4AI и curl_cffi за експериментите
+          pip install crawl4ai curl_cffi
+
           # Поправка за Ubuntu 24.04
           sudo apt-get update
           sudo apt-get install -y libasound2t64 libatk1.0-0 libcups2 libdbus-1-3 \
             libdrm2 libgbm1 libgtk-3-0 libnspr4 libnss3 libpango-1.0-0 \
             libxcomposite1 libxdamage1 libxfixes3 libxkbcommon0 libxrandr2 xvfb
-          
+
           # Инсталиране на браузъри
           playwright install chromium
-          
+
           # Инициализация на Crawl4AI
           crawl4ai-setup || true
-      
+
       - name: ℹ️ Environment info
+        env:
+          PROXY_URL: ${{ secrets.PROXY_URL }}
+          GLOVO_AUTH_TOKEN: ${{ secrets.GLOVO_AUTH_TOKEN }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
         run: |
           echo "=========================================="
-          echo "EXPERIMENTAL SCRAPER"
+          echo "EXPERIMENTAL SCRAPER v9.4.0"
           echo "=========================================="
           echo "Python: $(python --version)"
           echo "Branch: $(git branch --show-current)"
           echo "Use Crawl4AI: ${{ github.event.inputs.use_crawl4ai || 'false' }}"
           echo "Date: $(date)"
+          echo "PROXY_URL set: $([ -n "$PROXY_URL" ] && echo 'YES (length: '${#PROXY_URL}')' || echo 'NO')"
+          echo "FIRECRAWL_API_KEY set: $([ -n "$FIRECRAWL_API_KEY" ] && echo 'YES' || echo 'NO')"
+          echo "GLOVO_AUTH_TOKEN set: $([ -n "$GLOVO_AUTH_TOKEN" ] && echo 'YES' || echo 'NO')"
           echo "=========================================="
-      
+
       - name: 🔬 Run Experimental Scraper
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -82,27 +91,37 @@ jobs:
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          CAPSOLVER_API_KEY: ${{ secrets.CAPSOLVER_API_KEY }}
+          PROXY_URL: ${{ secrets.PROXY_URL }}
+          GLOVO_AUTH_TOKEN: ${{ secrets.GLOVO_AUTH_TOKEN }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
           EXPERIMENTAL_MODE: "true"
           USE_CRAWL4AI: ${{ github.event.inputs.use_crawl4ai || 'false' }}
           SHEET_TAB_SUFFIX: "_experimental"
           ALERT_EMAIL: "boris.iv@gmail.com"
         run: |
           echo "Starting experimental scraper..."
-          
-          if [ -f "scraper_experimental.py" ]; then
+          echo "PROXY_URL check: $([ -n "$PROXY_URL" ] && echo 'SET (length: '${#PROXY_URL}')' || echo 'EMPTY')"
+
+          if [ -f "experimental/scraper_experimental.py" ]; then
+            python experimental/scraper_experimental.py
+          elif [ -f "scraper_experimental.py" ]; then
             python scraper_experimental.py
           else
-            python scraper.py
+            echo "ERROR: scraper_experimental.py не е намерен!"
+            exit 1
           fi
-          
+
           echo "Experimental scraper completed!"
-      
+
       - name: 📋 Upload experiment artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: experimental-results-${{ github.run_number }}
           path: |
+            scraper_experimental.log
             *.log
             logs/
+          if-no-files-found: warn
           retention-days: 14

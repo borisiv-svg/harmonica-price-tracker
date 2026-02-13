@@ -15,6 +15,7 @@ import gc
 import time
 import smtplib
 import base64
+import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
@@ -22,13 +23,25 @@ from playwright.sync_api import sync_playwright
 import gspread
 from google.oauth2.service_account import Credentials
 
+# Logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%H:%M:%S',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('scraper.log', encoding='utf-8'),
+    ]
+)
+logger = logging.getLogger('harmonica')
+
 # Playwright Stealth за Cloudflare bypass
 try:
     from playwright_stealth import stealth_sync
     STEALTH_AVAILABLE = True
 except ImportError:
     STEALTH_AVAILABLE = False
-    print("  [WARN] playwright-stealth не е инсталиран, Cloudflare сайтове може да не работят")
+    logger.warning("  [WARN] playwright-stealth не е инсталиран, Cloudflare сайтове може да не работят")
 
 # Claude API
 try:
@@ -36,7 +49,7 @@ try:
     CLAUDE_AVAILABLE = True
 except ImportError:
     CLAUDE_AVAILABLE = False
-    print("⚠ Anthropic библиотеката не е налична")
+    logger.warning("Anthropic библиотеката не е налична")
 
 # =============================================================================
 # КОНФИГУРАЦИЯ
@@ -51,6 +64,7 @@ ALERT_THRESHOLD = 10
 BASE_CURRENCY = "BGN"
 
 # Suffix за worksheet името (за experimental branch)
+# Примери: "" (production), "_experimental" (тестове)
 SHEET_TAB_SUFFIX = os.environ.get("SHEET_TAB_SUFFIX", "")
 
 # Claude модели - хибриден подход за оптимална точност и скорост
@@ -526,7 +540,7 @@ def capture_product_screenshot(page, product_selector, index=0):
         return screenshot_base64
         
     except Exception as e:
-        print(f"      [VISION] Грешка при screenshot: {str(e)[:50]}")
+        logger.error(f"      [VISION] Грешка при screenshot: {str(e)[:50]}")
         return None
 
 
@@ -617,7 +631,7 @@ def verify_product_with_vision(client, screenshot_base64, text_name, text_price,
         return {"product_id": None, "confidence": "none", "reason": "Неуспешно парсване"}
         
     except Exception as e:
-        print(f"      [VISION] API грешка: {str(e)[:50]}")
+        logger.error(f"      [VISION] API грешка: {str(e)[:50]}")
         return {"product_id": None, "confidence": "none", "reason": str(e)[:50]}
 
 
@@ -685,7 +699,7 @@ def debug_page_elements(page, store_name):
             "div[class]"
         ]
         
-        print("      [DEBUG] Търсене на елементи за " + store_name + ":")
+        logger.debug("      [DEBUG] Търсене на елементи за " + store_name + ":")
         
         for sel in test_selectors:
             try:
@@ -696,12 +710,12 @@ def debug_page_elements(page, store_name):
                         "(sel) => document.querySelector(sel)?.className || 'no-class'",
                         sel
                     )
-                    print("        " + sel + ": " + str(len(elements)) + " елемента, class='" + str(first_class)[:50] + "'")
+                    logger.info("        " + sel + ": " + str(len(elements)) + " елемента, class='" + str(first_class)[:50] + "'")
             except:
                 continue
                 
     except Exception as e:
-        print("      [DEBUG] Грешка: " + str(e)[:50])
+        logger.debug("Грешка при debug_page_elements: " + str(e)[:50])
 
 
 def validate_visual_price(product_id, visual_price, tolerance_percent=50):
@@ -805,7 +819,7 @@ def visual_verify_products(page, client, store_name, text_products, max_verify=5
         return {}
     
     if not client:
-        print("      [VISION] Claude клиент не е наличен")
+        logger.info("      [VISION] Claude клиент не е наличен")
         return {}
     
     verified = {}
@@ -834,13 +848,13 @@ def visual_verify_products(page, client, store_name, text_products, max_verify=5
                 if valid_elements:
                     product_elements = valid_elements
                     used_selector = selector
-                    print("      [VISION] Намерени " + str(len(valid_elements)) + " валидни продуктови карти с '" + selector + "'")
+                    logger.info("      [VISION] Намерени " + str(len(valid_elements)) + " валидни продуктови карти с '" + selector + "'")
                     break
         except:
             continue
     
     if not product_elements:
-        print("      [VISION] Не са намерени продуктови карти за screenshot")
+        logger.info("      [VISION] Не са намерени продуктови карти за screenshot")
         debug_page_elements(page, store_name)
         return {}
     
@@ -902,12 +916,12 @@ def visual_verify_products(page, client, store_name, text_products, max_verify=5
                 # Показваме само първите няколко неразпознати за да не спамим лога
                 if i < 3:
                     reason = result.get('reason', 'няма причина')
-                    print("      [VISION] Неразпознат: " + product_name[:30] + " (" + str(price) + " лв) - " + reason[:40])
+                    logger.info("      [VISION] Неразпознат: " + product_name[:30] + " (" + str(price) + " лв) - " + reason[:40])
                 continue
             
             if result.get('confidence') not in ['high', 'medium']:
                 if i < 3:
-                    print("      [VISION] Ниска увереност за #" + str(result.get('product_id')) + ": " + result.get('confidence', 'none'))
+                    logger.info("      [VISION] Ниска увереност за #" + str(result.get('product_id')) + ": " + result.get('confidence', 'none'))
                 continue
             
             product_id = result['product_id']
@@ -916,13 +930,13 @@ def visual_verify_products(page, client, store_name, text_products, max_verify=5
             price_valid, price_reason = validate_visual_price(product_id, price)
             if not price_valid:
                 skipped_price += 1
-                print("      [VISION] Отхвърлен #" + str(product_id) + ": " + price_reason[:50])
+                logger.info("      [VISION] Отхвърлен #" + str(product_id) + ": " + price_reason[:50])
                 continue
             
             # ВАЛИДАЦИЯ 2: Проверка на ключови думи (поне 1 съвпадение)
             if not text_contains_product_keywords(element_text, product_id, min_matches=1):
                 skipped_keywords += 1
-                print("      [VISION] Отхвърлен #" + str(product_id) + ": липсват ключови думи в текста")
+                logger.info("      [VISION] Отхвърлен #" + str(product_id) + ": липсват ключови думи в текста")
                 continue
             
             # Всичко е OK - добавяме към верифицираните
@@ -933,12 +947,12 @@ def visual_verify_products(page, client, store_name, text_products, max_verify=5
                 'text_name': product_name[:50]
             }
             verified_count += 1
-            print("      [VISION] #" + str(product_id) + ": " + result.get('confidence', '') + " - " + result.get('reason', '')[:40])
+            logger.info("      [VISION] #" + str(product_id) + ": " + result.get('confidence', '') + " - " + result.get('reason', '')[:40])
         
         except Exception as e:
             continue
     
-    print("      [VISION] Верифицирани: " + str(len(verified)) + ", Отхвърлени (цена): " + str(skipped_price) + ", Отхвърлени (ключови думи): " + str(skipped_keywords))
+    logger.info("      [VISION] Верифицирани: " + str(len(verified)) + ", Отхвърлени (цена): " + str(skipped_price) + ", Отхвърлени (ключови думи): " + str(skipped_keywords))
     
     # Освобождаваме паметта след визуалната верификация
     gc.collect()
@@ -954,12 +968,12 @@ def get_claude_client():
     """Създава Claude API клиент."""
     api_key = os.environ.get('ANTHROPIC_API_KEY')
     if not api_key:
-        print("    [CLAUDE] API ключ не е зададен")
+        logger.error("    [CLAUDE] API ключ не е зададен")
         return None
     try:
         return anthropic.Anthropic(api_key=api_key)
     except Exception as e:
-        print(f"    [CLAUDE] Грешка при създаване на клиент: {str(e)[:50]}")
+        logger.error(f"    [CLAUDE] Грешка при създаване на клиент: {str(e)[:50]}")
         return None
 
 
@@ -1013,7 +1027,7 @@ def phase1_extract_all_products(client, page_text, store_name):
         )
         
         response_text = message.content[0].text.strip()
-        print(f"    [ФАЗА 1] Отговор: {response_text[:200]}...")
+        logger.info(f"    [ФАЗА 1] Отговор: {response_text[:200]}...")
         
         # Почистване
         cleaned = response_text
@@ -1036,7 +1050,7 @@ def phase1_extract_all_products(client, page_text, store_name):
         try:
             products = json.loads(cleaned)
         except json.JSONDecodeError as e:
-            print(f"    [ФАЗА 1] JSON грешка, опитваме поправка: {str(e)[:50]}")
+            logger.error(f"    [ФАЗА 1] JSON грешка, опитваме поправка: {str(e)[:50]}")
             # Опитваме да поправим single quotes
             try:
                 # Заменяме single quotes с double quotes (внимателно)
@@ -1045,7 +1059,7 @@ def phase1_extract_all_products(client, page_text, store_name):
                 products = json.loads(fixed)
             except:
                 # Последен опит - извличаме продукти с regex
-                print(f"    [ФАЗА 1] Използваме regex екстракция")
+                logger.info(f"    [ФАЗА 1] Използваме regex екстракция")
                 products = []
                 # Pattern 1: "price": число (без кавички)
                 pattern1 = r'"name"\s*:\s*"([^"]+)"\s*,\s*"price"\s*:\s*(\d+\.?\d*)'
@@ -1099,11 +1113,11 @@ def phase1_extract_all_products(client, page_text, store_name):
                 except:
                     pass
         
-        print(f"    [ФАЗА 1] Намерени: {len(valid_products)} продукта")
+        logger.info(f"    [ФАЗА 1] Намерени: {len(valid_products)} продукта")
         return valid_products
         
     except Exception as e:
-        print(f"    [ФАЗА 1] Грешка: {str(e)[:80]}")
+        logger.error(f"    [ФАЗА 1] Грешка: {str(e)[:80]}")
         return []
 
 
@@ -1117,7 +1131,7 @@ def phase2_match_products(client, extracted_products, store_name):
     """
     
     if not extracted_products:
-        print(f"    [ФАЗА 2] Няма продукти за съпоставяне")
+        logger.info(f"    [ФАЗА 2] Няма продукти за съпоставяне")
         return {}
     
     # Подготвяме списъка с нашите продукти - БЕЗ РЕФЕРЕНТНИ ЦЕНИ!
@@ -1193,7 +1207,7 @@ def phase2_match_products(client, extracted_products, store_name):
     except Exception as model_error:
         # Ако Sonnet не е наличен (404), използваме Haiku като резервен вариант
         if "404" in str(model_error) or "not_found" in str(model_error):
-            print(f"    [ФАЗА 2] Моделът {model_to_use} не е наличен, използваме Haiku...")
+            logger.info(f"    [ФАЗА 2] Моделът {model_to_use} не е наличен, използваме Haiku...")
             model_to_use = CLAUDE_MODEL_PHASE1  # Fallback към Haiku
             message = client.messages.create(
                 model=model_to_use,
@@ -1205,7 +1219,7 @@ def phase2_match_products(client, extracted_products, store_name):
     
     try:
         response_text = message.content[0].text.strip()
-        print(f"    [ФАЗА 2] Отговор: {response_text[:150]}...")
+        logger.info(f"    [ФАЗА 2] Отговор: {response_text[:150]}...")
         
         # Почистване
         cleaned = response_text
@@ -1254,15 +1268,15 @@ def phase2_match_products(client, extracted_products, store_name):
                     if min_valid <= price <= max_valid:
                         result[product['name']] = price
                     else:
-                        print(f"    [ФАЗА 2] Отхвърлена: #{product_id} цена {price:.2f} (валидно: {min_valid:.2f}-{max_valid:.2f})")
+                        logger.info(f"    [ФАЗА 2] Отхвърлена: #{product_id} цена {price:.2f} (валидно: {min_valid:.2f}-{max_valid:.2f})")
             except (ValueError, TypeError):
                 continue
         
-        print(f"    [ФАЗА 2] Съпоставени: {len(result)} продукта")
+        logger.info(f"    [ФАЗА 2] Съпоставени: {len(result)} продукта")
         return result
         
     except Exception as e:
-        print(f"    [ФАЗА 2] Грешка: {str(e)[:80]}")
+        logger.error(f"    [ФАЗА 2] Грешка: {str(e)[:80]}")
         return {}
 
 
@@ -1279,7 +1293,7 @@ def extract_prices_with_claude_two_phase(page_text, store_name):
     if not client:
         return {}
     
-    print(f"    [CLAUDE] Стартиране на двуфазен анализ...")
+    logger.info(f"    [CLAUDE] Стартиране на двуфазен анализ...")
     
     # Фаза 1: Груба екстракция
     extracted = phase1_extract_all_products(client, page_text, store_name)
@@ -1293,7 +1307,7 @@ def extract_prices_with_claude_two_phase(page_text, store_name):
     # Retry: Ако Sonnet върна празен резултат и имаме поне 5 извлечени продукта,
     # опитваме отново с Haiku като fallback
     if len(matched) == 0 and len(extracted) >= 5:
-        print(f"    [ФАЗА 2] Retry: Sonnet върна 0 резултата, опитваме с Haiku...")
+        logger.info(f"    [ФАЗА 2] Retry: Sonnet върна 0 резултата, опитваме с Haiku...")
         # Временно сменяме модела на Haiku
         original_model = globals().get('CLAUDE_MODEL_PHASE2')
         try:
@@ -1301,7 +1315,7 @@ def extract_prices_with_claude_two_phase(page_text, store_name):
             globals()['CLAUDE_MODEL_PHASE2'] = CLAUDE_MODEL_PHASE1
             matched = phase2_match_products(client, extracted, store_name)
             if len(matched) > 0:
-                print(f"    [ФАЗА 2] Retry успешен: {len(matched)} продукта с Haiku")
+                logger.info(f"    [ФАЗА 2] Retry успешен: {len(matched)} продукта с Haiku")
         finally:
             # Възстановяваме оригиналния модел
             globals()['CLAUDE_MODEL_PHASE2'] = original_model
@@ -1479,7 +1493,7 @@ def scroll_for_all_products(page, scroll_times):
             no_change_count += 1
             # Ако 4 пъти няма промяна, спираме (увеличено от 3)
             if no_change_count >= 4:
-                print("    Скролиране: спряно след " + str(i+1) + " опита (няма нови продукти)")
+                logger.info("    Скролиране: спряно след " + str(i+1) + " опита (няма нови продукти)")
                 break
         else:
             no_change_count = 0
@@ -1526,18 +1540,18 @@ def click_load_more_until_done(page, selector, max_clicks=20):
         if not button:
             # Няма повече бутон - готово!
             if clicks > 0:
-                print(f"    ✓ Заредени всички продукти след {clicks} клика")
+                logger.info(f"    ✓ Заредени всички продукти след {clicks} клика")
             else:
-                print(f"    Бутон 'покажи повече' не е намерен")
+                logger.info(f"    Бутон 'покажи повече' не е намерен")
             break
         
         try:
             button.click()
             clicks += 1
-            print(f"    Клик #{clicks} на 'покажи повече'...")
+            logger.info(f"    Клик #{clicks} на 'покажи повече'...")
             page.wait_for_timeout(2000)  # Изчакваме зареждане
         except Exception as e:
-            print(f"    Грешка при клик: {str(e)[:50]}")
+            logger.error(f"    Грешка при клик: {str(e)[:50]}")
             break
     
     # Връщаме се в началото
@@ -1558,9 +1572,9 @@ def scrape_store(page, store_key, store_config, vision_client=None):
     max_pages = store_config.get('max_pages', 1)
     all_body_text = ""
     
-    print(f"\n{'='*60}")
-    print(f"{store_name}: Зареждане")
-    print(f"{'='*60}")
+    logger.info(f"\n{'='*60}")
+    logger.info(f"{store_name}: Зареждане")
+    logger.info(f"{'='*60}")
     
     # Определяме колко страници да заредим
     pages_to_load = max_pages if has_pagination else 1
@@ -1579,7 +1593,7 @@ def scrape_store(page, store_key, store_config, vision_client=None):
                 current_url = f"{url}?page={page_num}"
         
         if pages_to_load > 1:
-            print(f"  Страница {page_num + 1}/{pages_to_load}...")
+            logger.info(f"  Страница {page_num + 1}/{pages_to_load}...")
         
         try:
             page.goto(current_url, timeout=60000, wait_until="domcontentloaded")
@@ -1602,7 +1616,7 @@ def scrape_store(page, store_key, store_config, vision_client=None):
                         if btn and btn.is_visible():
                             btn.click()
                             page.wait_for_timeout(1500)
-                            print(f"  ✓ Бисквитки приети")
+                            logger.info(f"  ✓ Бисквитки приети")
                             break
                     except:
                         pass
@@ -1610,30 +1624,30 @@ def scrape_store(page, store_key, store_config, vision_client=None):
             # Зареждане на всички продукти - зависи от типа на сайта
             if has_load_more and page_num == 0:
                 # eBag: кликаме "покажи повече" докато бутонът изчезне
-                print(f"  Кликане на 'покажи повече' за зареждане на всички продукти...")
+                logger.info(f"  Кликане на 'покажи повече' за зареждане на всички продукти...")
                 click_load_more_until_done(page, store_config.get('load_more_selector', ''))
             else:
                 # Стандартно скролиране
                 if page_num == 0:
-                    print(f"  Скролиране за зареждане на всички продукти...")
+                    logger.info(f"  Скролиране за зареждане на всички продукти...")
                 scroll_for_all_products(page, scroll_times)
             
             page_text = page.inner_text('body')
             
             # Проверяваме дали страницата съдържа продукти (за странициране)
             if page_num > 0 and len(page_text) < 1000:
-                print(f"    Страница {page_num + 1} е празна или няма повече продукти")
+                logger.info(f"    Страница {page_num + 1} е празна или няма повече продукти")
                 break
             
             all_body_text += "\n" + page_text
             
             if page_num == 0:
-                print(f"  Заредени {len(page_text)} символа")
+                logger.info(f"  Заредени {len(page_text)} символа")
             else:
-                print(f"    +{len(page_text)} символа от страница {page_num + 1}")
+                logger.info(f"    +{len(page_text)} символа от страница {page_num + 1}")
             
         except Exception as e:
-            print(f"  ✗ Грешка при зареждане на страница {page_num + 1}: {str(e)[:60]}")
+            logger.error(f"  ✗ Грешка при зареждане на страница {page_num + 1}: {str(e)[:60]}")
             if page_num == 0:
                 return prices  # Ако първата страница не се зареди, спираме
             # Ако е следваща страница, просто продължаваме
@@ -1641,38 +1655,38 @@ def scrape_store(page, store_key, store_config, vision_client=None):
     body_text = all_body_text.strip()
     
     if has_pagination and pages_to_load > 1:
-        print(f"  Общо заредени: {len(body_text)} символа от {pages_to_load} страници")
+        logger.info(f"  Общо заредени: {len(body_text)} символа от {pages_to_load} страници")
     
     # Debug: показваме малко от текста ако е твърде кратък
     if len(body_text) < 2000:
-        print(f"  [DEBUG] Малко текст! Първи 300 символа:")
-        print(f"  {body_text[:300]}")
+        logger.debug(f"  [DEBUG] Малко текст! Първи 300 символа:")
+        logger.info(f"  {body_text[:300]}")
     
     # Двуфазен Claude анализ
     try:
         claude_prices = extract_prices_with_claude_two_phase(body_text, store_name)
-        print(f"  Claude (двуфазен): {len(claude_prices)} продукта")
+        logger.info(f"  Claude (двуфазен): {len(claude_prices)} продукта")
         prices.update(claude_prices)
     except Exception as e:
-        print(f"  Claude грешка: {str(e)[:50]}")
+        logger.error(f"  Claude грешка: {str(e)[:50]}")
     
     # Fallback само за липсващи продукти
     try:
-        print(f"  Fallback търсене...")
+        logger.info(f"  Fallback търсене...")
         fallback_prices = extract_prices_with_fallback(body_text)
         added = 0
         for name, price in fallback_prices.items():
             if name not in prices:
                 prices[name] = price
                 added += 1
-        print(f"    Fallback добави: {added} продукта")
+        logger.info(f"    Fallback добави: {added} продукта")
     except Exception as e:
-        print(f"  Fallback грешка: {str(e)[:50]}")
+        logger.error(f"  Fallback грешка: {str(e)[:50]}")
     
     # Визуална верификация (ако е активирана и има клиент)
     if ENABLE_VISUAL_VERIFICATION and vision_client:
         try:
-            print(f"  [VISION] Стартиране на визуална верификация...")
+            logger.info(f"  [VISION] Стартиране на визуална верификация...")
             
             # Връщаме се на първата страница за screenshots
             page.goto(url, timeout=60000, wait_until="domcontentloaded")
@@ -1708,20 +1722,20 @@ def scrape_store(page, store_key, store_config, vision_client=None):
                             visual_confirmed += 1
                         else:
                             # Визуалната цена е различна - логваме за внимание
-                            print(f"      [VISION] Разлика за #{product_id}: текст={text_price:.2f}, визуално={visual_price:.2f}")
+                            logger.info(f"      [VISION] Разлика за #{product_id}: текст={text_price:.2f}, визуално={visual_price:.2f}")
                     elif visual_price and not text_price:
                         # Намерихме цена визуално, която липсваше от текста
                         prices[product_name] = visual_price
                         visual_corrected += 1
-                        print(f"      [VISION] Добавен #{product_id} {product_name}: {visual_price:.2f} лв")
+                        logger.info(f"      [VISION] Добавен #{product_id} {product_name}: {visual_price:.2f} лв")
             
             if visual_confirmed > 0 or visual_corrected > 0:
-                print(f"      [VISION] Потвърдени: {visual_confirmed}, Коригирани: {visual_corrected}")
+                logger.info(f"      [VISION] Потвърдени: {visual_confirmed}, Коригирани: {visual_corrected}")
                 
         except Exception as e:
-            print(f"  [VISION] Грешка: {str(e)[:50]}")
+            logger.error(f"  [VISION] Грешка: {str(e)[:50]}")
     
-    print(f"  Общо намерени: {len(prices)} продукта")
+    logger.info(f"  Общо намерени: {len(prices)} продукта")
     return prices
 
 
@@ -1779,13 +1793,13 @@ def collect_prices():
                 # Прилагаме stealth ако е наличен и необходим
                 if needs_stealth and STEALTH_AVAILABLE:
                     stealth_sync(page)
-                    print(f"  [STEALTH] Активиран за {store_name}")
+                    logger.info(f"  [STEALTH] Активиран за {store_name}")
                 
                 vision_client = None
                 if ENABLE_VISUAL_VERIFICATION and CLAUDE_AVAILABLE:
                     vision_client = get_claude_client()
                     if key == list(STORES.keys())[0]:  # Само за първия магазин
-                        print("  [VISION] Claude Vision активиран")
+                        logger.info("  [VISION] Claude Vision активиран")
                 
                 prices = scrape_store(page, key, config, vision_client)
                 
@@ -1796,10 +1810,10 @@ def collect_prices():
                     detected_currency = detect_currency_from_text(page_text)
                     if detected_currency:
                         store_currencies[key] = detected_currency
-                        print(f"  [ВАЛУТА] {store_name}: Детектирана {detected_currency}")
+                        logger.info(f"  [ВАЛУТА] {store_name}: Детектирана {detected_currency}")
                     else:
                         store_currencies[key] = config.get('expected_currency', 'BGN')
-                        print(f"  [ВАЛУТА] {store_name}: Приета {store_currencies[key]} (по подразбиране)")
+                        logger.info(f"  [ВАЛУТА] {store_name}: Приета {store_currencies[key]} (по подразбиране)")
                 except:
                     store_currencies[key] = config.get('expected_currency', 'BGN')
                 
@@ -1814,18 +1828,17 @@ def collect_prices():
             time.sleep(2)
                 
         except Exception as e:
-            print(f"\n{'='*60}")
-            print(f"{store_name}: Зареждане")
-            print(f"{'='*60}")
-            print(f"  ✗ Критична грешка: {str(e)[:80]}")
+            logger.info(f"\n{'='*60}")
+            logger.info(f"{store_name}: Зареждане")
+            logger.info(f"{'='*60}")
+            logger.error(f"  ✗ Критична грешка: {str(e)[:80]}")
             all_prices[key] = {}
             store_currencies[key] = config.get('expected_currency', 'BGN')
     
-    print("\n  [ВАЛУТА] Обобщение:")
+    logger.info("\n  [ВАЛУТА] Обобщение:")
     for store_key, currency in store_currencies.items():
         store_name = STORES[store_key]['name_in_sheet']
-        print(f"    • {store_name}: {currency}")
-    print()
+        logger.info(f"    • {store_name}: {currency}")
     
     # Обработка на резултатите - нормализация на ниво продукт
     # v9.0: Новата логика - средната цена се изчислява от реалните пазарни цени
@@ -1908,7 +1921,7 @@ def collect_prices():
         })
     
     # Показваме статистика за валутните корекции
-    print(f"  [ВАЛУТА] Корекции: {currency_corrections['EUR->BGN']} EUR→BGN, {currency_corrections['BGN']} BGN (без промяна)")
+    logger.info(f"  [ВАЛУТА] Корекции: {currency_corrections['EUR->BGN']} EUR→BGN, {currency_corrections['BGN']} BGN (без промяна)")
     
     return results
 
@@ -1937,7 +1950,7 @@ def update_google_sheets(results):
     """
     spreadsheet_id = os.environ.get('SPREADSHEET_ID')
     if not spreadsheet_id:
-        print("SPREADSHEET_ID не е зададен")
+        logger.error("SPREADSHEET_ID не е зададен")
         return
     
     try:
@@ -1952,7 +1965,7 @@ def update_google_sheets(results):
             sheet = spreadsheet.add_worksheet(main_tab_name, rows=30, cols=15)
         
         sheet.clear()
-        print("  Лист изчистен")
+        logger.info("  Лист изчистен")
         
         now = datetime.now().strftime("%d.%m.%Y %H:%M")
         store_names = [s['name_in_sheet'] for s in STORES.values()]
@@ -2002,7 +2015,7 @@ def update_google_sheets(results):
             all_data.append(row)
         
         sheet.update(values=all_data, range_name='A1')
-        print(f"  ✓ Записани {len(all_data)} реда")
+        logger.info(f"  ✓ Записани {len(all_data)} реда")
         
         # Форматиране v8.7 - 18 колони с 9 магазина
         # A=№, B=Продукт, C=Грамаж, D=Реф.BGN, E=Реф.EUR, F=eBag, G=Кашон, H=Balev, I=Metro, J=Zelen, K=Randi, L=Bio-Market, M=BeFit, N=Laika, O=Ср.BGN, P=Ср.EUR, Q=Откл.%, R=Статус
@@ -2379,10 +2392,10 @@ def update_google_sheets(results):
                 })
             
             spreadsheet.batch_update({"requests": format_requests})
-            print(f"  ✓ Форматиране приложено ({len(format_requests)} операции в 1 batch)")
+            logger.info(f"  ✓ Форматиране приложено ({len(format_requests)} операции в 1 batch)")
             
         except Exception as e:
-            print(f"  Форматиране предупреждение: {str(e)[:80]}")
+            logger.warning(f"  Форматиране предупреждение: {str(e)[:80]}")
         
         # История - годишни табове
         try:
@@ -2395,7 +2408,7 @@ def update_google_sheets(results):
                 hist = spreadsheet.add_worksheet(history_tab_name, rows=2000, cols=18)
                 hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Randi', 'Bio-Market', 'BeFit', 'Laika', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']], range_name='A1')
                 hist.freeze(rows=1)
-                print(f"  ✓ Създаден нов таб '{history_tab_name}'")
+                logger.info(f"  ✓ Създаден нов таб '{history_tab_name}'")
             
             date_str = datetime.now().strftime("%d.%m.%Y")
             time_str = datetime.now().strftime("%H:%M")
@@ -2421,14 +2434,14 @@ def update_google_sheets(results):
                 ])
             
             hist.append_rows(hist_rows, value_input_option='USER_ENTERED')
-            print(f"  ✓ {history_tab_name}: {len(hist_rows)} записа")
+            logger.info(f"  ✓ {history_tab_name}: {len(hist_rows)} записа")
         except Exception as e:
-            print(f"  История грешка: {str(e)[:50]}")
+            logger.error(f"  История грешка: {str(e)[:50]}")
         
-        print("\n✓ Google Sheets актуализиран")
+        logger.info("\n✓ Google Sheets актуализиран")
         
     except Exception as e:
-        print(f"\n✗ Грешка: {str(e)}")
+        logger.error(f"\n✗ Грешка: {str(e)}")
 
 
 # =============================================================================
@@ -2446,7 +2459,7 @@ def send_email_report(results, alerts):
     spreadsheet_id = os.environ.get('SPREADSHEET_ID', '')
     
     if not gmail_user or not gmail_pass:
-        print("Gmail credentials не са зададени")
+        logger.error("Gmail credentials не са зададени")
         return
     
     sheets_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}" if spreadsheet_id else ""
@@ -2639,9 +2652,9 @@ def send_email_report(results, alerts):
             server.login(gmail_user, gmail_pass)
             server.send_message(msg)
         
-        print(f"Имейл изпратен до {recipients}")
+        logger.info(f"Имейл изпратен до {recipients}")
     except Exception as e:
-        print(f"Имейл грешка: {str(e)[:50]}")
+        logger.error(f"Имейл грешка: {str(e)[:50]}")
 
 
 # =============================================================================
@@ -2649,20 +2662,20 @@ def send_email_report(results, alerts):
 # =============================================================================
 
 def main():
-    print("=" * 60)
-    print("HARMONICA PRICE TRACKER v9.1")
-    print("27 продукта, 9 магазина")
-    print("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
-    print("Продукти: " + str(len(PRODUCTS)))
-    print("Магазини: " + str(len(STORES)))
-    print("Базова валута: BGN")
-    print("Claude API: " + ("Наличен" if CLAUDE_AVAILABLE else "Не е наличен"))
+    logger.info("=" * 60)
+    logger.info("HARMONICA PRICE TRACKER v9.1")
+    logger.info("27 продукта, 9 магазина")
+    logger.info("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
+    logger.info("Продукти: " + str(len(PRODUCTS)))
+    logger.info("Магазини: " + str(len(STORES)))
+    logger.info("Базова валута: BGN")
+    logger.info("Claude API: " + ("Наличен" if CLAUDE_AVAILABLE else "Не е наличен"))
     if CLAUDE_AVAILABLE:
-        print(f"  Фаза 1: {CLAUDE_MODEL_PHASE1.split('-')[1].capitalize()}")
-        print(f"  Фаза 2: {CLAUDE_MODEL_PHASE2.split('-')[1].capitalize()} (с Haiku fallback)")
-    print("Vision: " + ("Активна" if ENABLE_VISUAL_VERIFICATION else "Изключена"))
-    print("Stealth: " + ("Наличен" if STEALTH_AVAILABLE else "Не е наличен"))
-    print("=" * 60)
+        logger.info(f"  Фаза 1: {CLAUDE_MODEL_PHASE1.split('-')[1].capitalize()}")
+        logger.info(f"  Фаза 2: {CLAUDE_MODEL_PHASE2.split('-')[1].capitalize()} (с Haiku fallback)")
+    logger.info("Vision: " + ("Активна" if ENABLE_VISUAL_VERIFICATION else "Изключена"))
+    logger.info("Stealth: " + ("Наличен" if STEALTH_AVAILABLE else "Не е наличен"))
+    logger.info("=" * 60)
     
     results = collect_prices()
     update_google_sheets(results)
@@ -2674,31 +2687,31 @@ def main():
     send_email_report(results, alerts)
     
     # Обобщение
-    print("\n" + "="*60)
-    print("ОБОБЩЕНИЕ")
-    print("="*60)
+    logger.info("\n" + "="*60)
+    logger.info("ОБОБЩЕНИЕ")
+    logger.info("="*60)
     
     for k, cfg in STORES.items():
         found_products = [r for r in results if r['prices'].get(k)]
         missing_products = [r for r in results if not r['prices'].get(k)]
         cnt = len(found_products)
-        print("  " + cfg['name_in_sheet'] + ": " + str(cnt) + "/" + str(len(results)) + " продукта")
+        logger.info("  " + cfg['name_in_sheet'] + ": " + str(cnt) + "/" + str(len(results)) + " продукта")
         
         # Показваме липсващите продукти ако има такива
         if missing_products and cnt < len(results):
             missing_names = [f"#{r['name'][:30]}" for r in missing_products[:5]]
-            print("    Липсват: " + ", ".join(missing_names))
+            logger.info("    Липсват: " + ", ".join(missing_names))
             if len(missing_products) > 5:
-                print(f"    ... и още {len(missing_products) - 5}")
+                logger.info(f"    ... и още {len(missing_products) - 5}")
     
     total = len([r for r in results if any(r['prices'].values())])
     ok_count = len([r for r in results if r['status'] == 'OK'])
     warning_count = len([r for r in results if r['status'] == 'ВНИМАНИЕ'])
     no_data = len([r for r in results if r['status'] == 'НЯМА ДАННИ'])
     
-    print("\nОбщо покритие: " + str(total) + "/" + str(len(results)) + " продукта")
-    print("Статус: " + str(ok_count) + " OK, " + str(warning_count) + " ВНИМАНИЕ, " + str(no_data) + " НЯМА ДАННИ")
-    print("\nГотово!")
+    logger.info("\nОбщо покритие: " + str(total) + "/" + str(len(results)) + " продукта")
+    logger.warning("Статус: " + str(ok_count) + " OK, " + str(warning_count) + " ВНИМАНИЕ, " + str(no_data) + " НЯМА ДАННИ")
+    logger.info("\nГотово!")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,71 @@
+name: Monthly Product Sync
+
+on:
+  schedule:
+    - cron: '0 7 1-7 * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: product-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync Products from Kashon
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install crawl4ai
+          crawl4ai-setup
+          playwright install chromium --with-deps
+      
+      - name: Run Product Sync
+        env:
+          SMTP_SERVER: smtp.gmail.com
+          SMTP_PORT: 587
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+        run: |
+          python scripts/monthly_product_sync.py
+      
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet data/products/; then
+            echo "No changes to commit"
+          else
+            git add data/products/
+            git commit -m "Product sync $(date +%Y-%m-%d)"
+            git push
+            echo "Changes committed and pushed"
+          fi
+      
+      - name: Summary
+        run: |
+          echo "## Product Sync Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f data/products/harmonica_products.json ]; then
+            TOTAL=$(jq '.total_products' data/products/harmonica_products.json)
+            LAST_SYNC=$(jq -r '.last_sync' data/products/harmonica_products.json)
+            echo "- **Total products:** $TOTAL" >> $GITHUB_STEP_SUMMARY
+            echo "- **Last sync:** $LAST_SYNC" >> $GITHUB_STEP_SUMMARY
+          fi
