@@ -1,24 +1,19 @@
 """
-EXP-003: Crawl4AI Experimental Scraper v9.3.0
+EXP-003: Crawl4AI Experimental Scraper v9.4.0
 ===============================================
+Промени спрямо v9.4.0:
+- 6 нови магазина: Metro, Zelen, Randi, BioMarket, BeFit, Laika
+- Claude fallback matching: keyword→Claude Haiku за несъвпаднали продукти
+- Подобрено matching: hard rejection за грамаж/процент + price tolerance ±50%
+- Randi: пагинация до 3 страници
+- BeFit: 70% price tolerance (фитнес промоции)
+- Общо 13 магазина + 4 Glovo = 17 източника
+
 Промени спрямо v9.3.0:
 - Кашон: филтрирани не-Harmonica продукти (Черноморски улов и др.)
 - Кашон EUR: fallback BGN→EUR конвертиране при липса на EUR цена
-- Средна EUR включва Кашон (преди — само external магазини)
+- Средна EUR включва Кашон
 - Ценови отклонения ±10%: червено ↑ / светлосиньо ↓ в таблицата
-- Ресет: бял фон за data клетки (изчистени стари остатъци)
-- Fix: row indexing off-by-one в форматирането
-
-Промени спрямо v9.0.4:
-- Lilly: Magento GraphQL + REST API чрез curl_cffi (Hyvä зарежда JS)
-- crawl_all(): Lilly добавен в curl_cffi паралелни задачи
-
-Промени спрямо v8.0:
-- VMV Supermarket, T-Market добавени (Crawl4AI)
-- DM Algolia API (curl_cffi) с CapSolver fallback
-- curl_cffi за TLS impersonation (Cloudflare bypass)
-- Proxy support (PROXY_URL env var)
-- Общо 7 магазина (Кашон + 6 external)
 """
 
 import asyncio
@@ -84,6 +79,13 @@ except ImportError:
     FIRECRAWL_AVAILABLE = False
     logger.warning("firecrawl not installed — Glovo JS rendering disabled")
 
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+    logger.warning("anthropic not installed — Claude matching fallback disabled")
+
 
 # =============================================================================
 # CONSTANTS
@@ -93,6 +95,11 @@ EUR_BGN_RATE = 1.9558  # Фиксиран курс
 PROXY_URL = os.environ.get("PROXY_URL")  # Optional: http://user:pass@host:port
 GLOVO_AUTH_TOKEN = os.environ.get("GLOVO_AUTH_TOKEN")  # Optional: Glovo Bearer token
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")  # Optional: Firecrawl API key
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")  # Optional: Claude matching fallback
+
+# Claude models за matching fallback
+CLAUDE_MODEL_FAST = "claude-haiku-4-5-20251001"
+CLAUDE_MODEL_SMART = "claude-sonnet-4-5-20250929"
 
 
 def _parse_proxy_url(proxy_url):
@@ -157,6 +164,42 @@ STORES = {
         "scroll_times": 8,
         "brand_page": True,
         "needs_captcha_solver": True,
+    },
+    "metro": {
+        "name": "Metro",
+        "url": "https://shop.metro.bg/shop/search?q=%D1%85%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
+        "scroll_times": 15,
+    },
+    "zelen": {
+        "name": "Zelen",
+        "url": "https://zelen.bg/brand/94/harmonica",
+        "scroll_times": 10,
+        "brand_page": True,
+    },
+    "randi": {
+        "name": "Randi",
+        "url": "https://randi.bg/search?search=harmonica",
+        "scroll_times": 10,
+        "max_pages": 3,
+    },
+    "biomarket": {
+        "name": "BioMarket",
+        "url": "https://bio-market.bg/brand/harmonica",
+        "scroll_times": 10,
+        "brand_page": True,
+    },
+    "befit": {
+        "name": "BeFit",
+        "url": "https://befit.bg/brands/harmonica",
+        "scroll_times": 10,
+        "brand_page": True,
+        "price_tolerance": 0.70,
+    },
+    "laika": {
+        "name": "Laika",
+        "url": "https://laika.bg/harmonica-bio-bulgaria-proizvodstvo-magi-maleeva-shoko-ghi-kefir-boza-koze-sirene-ovche-izvara-bulgarska-tzena-kade-da-kupia-magazin-online",
+        "scroll_times": 10,
+        "brand_page": True,
     },
 }
 
@@ -682,6 +725,289 @@ def extract_tmarket_products(markdown, html_text=None, brand_page=True):
                        f"preview: {markdown[:500]}")
     else:
         logger.info(f"T-Market: {len(products)} продукта извлечени")
+    return products
+
+
+# =============================================================================
+# METRO EXTRACTION
+# =============================================================================
+
+def extract_metro_products(markdown, html_text=None):
+    """
+    Извлича Harmonica продукти от Metro (shop.metro.bg).
+    Търсене по 'хармоника'. Цени в BGN.
+    """
+    products = []
+    seen = set()
+
+    link_pattern = r'\[([^\]]{5,120})\]\(((?:https?://[^\)]+|/[^\)]+))\)'
+    for match in re.finditer(link_pattern, markdown):
+        name = match.group(1).strip()
+        if name.startswith('!') or 'logo' in name.lower() or 'banner' in name.lower():
+            continue
+        if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
+            continue
+        if not is_food_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        idx = match.end()
+        context = markdown[max(0, idx - 150):idx + 400]
+        bgn = extract_bgn_price(context)
+        eur = extract_eur_price(context)
+
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+        if bgn or eur:
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    if not products:
+        products = _extract_generic_products(markdown, brand_page=False)
+
+    if not products:
+        logger.warning(f"Metro: 0 продукта, markdown len={len(markdown)}")
+    else:
+        logger.info(f"Metro: {len(products)} продукта извлечени")
+    return products
+
+
+# =============================================================================
+# ZELEN EXTRACTION
+# =============================================================================
+
+def extract_zelen_products(markdown, html_text=None):
+    """
+    Извлича Harmonica продукти от Zelen (zelen.bg/brand/94/harmonica).
+    Brand page — всички продукти са Harmonica. Цени в BGN, може и EUR.
+    """
+    products = []
+    seen = set()
+
+    link_pattern = r'\[([^\]]{5,120})\]\(((?:https?://[^\)]+|/[^\)]+))\)'
+    for match in re.finditer(link_pattern, markdown):
+        name = match.group(1).strip()
+        if name.startswith('!') or 'logo' in name.lower() or 'banner' in name.lower():
+            continue
+        if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
+            continue
+        if not is_food_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        idx = match.end()
+        context = markdown[max(0, idx - 150):idx + 400]
+        bgn = extract_bgn_price(context)
+        eur = extract_eur_price(context)
+
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+        if bgn or eur:
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    if not products:
+        products = _extract_generic_products(markdown, brand_page=True)
+
+    if not products:
+        logger.warning(f"Zelen: 0 продукта, markdown len={len(markdown)}")
+    else:
+        logger.info(f"Zelen: {len(products)} продукта извлечени")
+    return products
+
+
+# =============================================================================
+# RANDI EXTRACTION (с пагинация)
+# =============================================================================
+
+def extract_randi_products(markdown, html_text=None):
+    """
+    Извлича Harmonica продукти от Randi (randi.bg).
+    Търсене. Цени в BGN.
+    """
+    products = []
+    seen = set()
+
+    link_pattern = r'\[([^\]]{5,120})\]\(((?:https?://[^\)]+|/[^\)]+))\)'
+    for match in re.finditer(link_pattern, markdown):
+        name = match.group(1).strip()
+        if name.startswith('!') or 'logo' in name.lower() or 'banner' in name.lower():
+            continue
+        if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
+            continue
+        if not is_harmonica_product(name) and not is_food_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        idx = match.end()
+        context = markdown[max(0, idx - 150):idx + 400]
+        bgn = extract_bgn_price(context)
+        eur = extract_eur_price(context)
+
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+        if bgn or eur:
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    if not products:
+        products = _extract_generic_products(markdown, brand_page=False)
+
+    if not products:
+        logger.warning(f"Randi: 0 продукта, markdown len={len(markdown)}")
+    else:
+        logger.info(f"Randi: {len(products)} продукта извлечени")
+    return products
+
+
+# =============================================================================
+# BIOMARKET EXTRACTION
+# =============================================================================
+
+def extract_biomarket_products(markdown, html_text=None):
+    """
+    Извлича Harmonica продукти от BioMarket (bio-market.bg/brand/harmonica).
+    Brand page. Цени в BGN.
+    """
+    products = []
+    seen = set()
+
+    link_pattern = r'\[([^\]]{5,120})\]\(((?:https?://[^\)]+|/[^\)]+))\)'
+    for match in re.finditer(link_pattern, markdown):
+        name = match.group(1).strip()
+        if name.startswith('!') or 'logo' in name.lower() or 'banner' in name.lower():
+            continue
+        if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
+            continue
+        if not is_food_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        idx = match.end()
+        context = markdown[max(0, idx - 150):idx + 400]
+        bgn = extract_bgn_price(context)
+        eur = extract_eur_price(context)
+
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+        if bgn or eur:
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    if not products:
+        products = _extract_generic_products(markdown, brand_page=True)
+
+    if not products:
+        logger.warning(f"BioMarket: 0 продукта, markdown len={len(markdown)}")
+    else:
+        logger.info(f"BioMarket: {len(products)} продукта извлечени")
+    return products
+
+
+# =============================================================================
+# BEFIT EXTRACTION
+# =============================================================================
+
+def extract_befit_products(markdown, html_text=None):
+    """
+    Извлича Harmonica продукти от BeFit (befit.bg/brands/harmonica).
+    Brand page. BeFit е фитнес магазин с по-агресивни промоции.
+    Цени в BGN.
+    """
+    products = []
+    seen = set()
+
+    link_pattern = r'\[([^\]]{5,120})\]\(((?:https?://[^\)]+|/[^\)]+))\)'
+    for match in re.finditer(link_pattern, markdown):
+        name = match.group(1).strip()
+        if name.startswith('!') or 'logo' in name.lower() or 'banner' in name.lower():
+            continue
+        if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
+            continue
+        if not is_food_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        idx = match.end()
+        context = markdown[max(0, idx - 150):idx + 400]
+        bgn = extract_bgn_price(context)
+        eur = extract_eur_price(context)
+
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+        if bgn or eur:
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    if not products:
+        products = _extract_generic_products(markdown, brand_page=True)
+
+    if not products:
+        logger.warning(f"BeFit: 0 продукта, markdown len={len(markdown)}")
+    else:
+        logger.info(f"BeFit: {len(products)} продукта извлечени")
+    return products
+
+
+# =============================================================================
+# LAIKA EXTRACTION
+# =============================================================================
+
+def extract_laika_products(markdown, html_text=None):
+    """
+    Извлича Harmonica продукти от Laika (laika.bg).
+    Brand/SEO page. Цени в BGN.
+    """
+    products = []
+    seen = set()
+
+    link_pattern = r'\[([^\]]{5,120})\]\(((?:https?://[^\)]+|/[^\)]+))\)'
+    for match in re.finditer(link_pattern, markdown):
+        name = match.group(1).strip()
+        if name.startswith('!') or 'logo' in name.lower() or 'banner' in name.lower():
+            continue
+        if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
+            continue
+        if not is_food_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        idx = match.end()
+        context = markdown[max(0, idx - 150):idx + 400]
+        bgn = extract_bgn_price(context)
+        eur = extract_eur_price(context)
+
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+        if bgn or eur:
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    if not products:
+        products = _extract_generic_products(markdown, brand_page=True)
+
+    if not products:
+        logger.warning(f"Laika: 0 продукта, markdown len={len(markdown)}")
+    else:
+        logger.info(f"Laika: {len(products)} продукта извлечени")
     return products
 
 
@@ -2273,9 +2599,10 @@ def extract_weight_grams(name):
 def match_products(ref_products, store_products):
     """
     Подобрено съпоставяне с:
+    - Hard rejection при различен грамаж
+    - Hard rejection при различен процент (2% ≠ 3.6%)
+    - Price tolerance (±50% от Кашон цена)
     - Тежестен бонус за съвпадение на грамаж
-    - Процентен бонус (3.6% == 3.6%)
-    - Наказание за несъвпадение на тегло
     - Предотвратяване на дублиращи се съпоставяния
     """
     matches = {}
@@ -2284,6 +2611,8 @@ def match_products(ref_products, store_products):
     for ref in ref_products:
         ref_keywords = extract_keywords(ref["name"])
         ref_weight = extract_weight_grams(ref["name"])
+        ref_pct = re.findall(r'(\d+[.,]?\d*)\s*%', ref["name"])
+        ref_price_bgn = ref.get("bgn")
         best_match = None
         best_score = 0
         best_idx = -1
@@ -2300,20 +2629,37 @@ def match_products(ref_products, store_products):
 
             score = len(common)
 
-            # Тежестен бонус/наказание
+            # Hard rejection: грамаж не съвпада
             store_weight = extract_weight_grams(store_prod["name"])
             if ref_weight and store_weight:
                 if ref_weight == store_weight:
                     score += 3
                 else:
-                    score -= 2
+                    continue  # REJECT — различен грамаж
+            elif ref_weight and not store_weight:
+                pass  # Магазинът не показва грамаж — допускаме
 
-            # Процентен бонус (напр. 3,6% мастленост)
-            ref_pct = re.findall(r'(\d+[.,]?\d*)\s*%', ref["name"])
+            # Hard rejection: процент не съвпада (напр. 2% ≠ 3.6%)
             store_pct = re.findall(r'(\d+[.,]?\d*)\s*%', store_prod["name"])
-            if (ref_pct and store_pct and
-                    ref_pct[0].replace(',', '.') == store_pct[0].replace(',', '.')):
-                score += 2
+            if ref_pct and store_pct:
+                if ref_pct[0].replace(',', '.') == store_pct[0].replace(',', '.'):
+                    score += 2
+                else:
+                    continue  # REJECT — различен %
+            elif ref_pct and not store_pct:
+                pass  # Магазинът не показва % — допускаме
+
+            # Price tolerance: ±50% от Кашон цената
+            store_price = store_prod.get("bgn") or store_prod.get("eur")
+            if ref_price_bgn and store_price:
+                # Ако магазинът е EUR, конвертираме за сравнение
+                if not store_prod.get("bgn") and store_prod.get("eur"):
+                    store_price_bgn = store_prod["eur"] * EUR_BGN_RATE
+                else:
+                    store_price_bgn = store_price
+                deviation = abs(store_price_bgn - ref_price_bgn) / ref_price_bgn
+                if deviation > 0.50:
+                    continue  # REJECT — цената е >50% различна от Кашон
 
             if score >= 2 and score > best_score:
                 best_score = score
@@ -2325,6 +2671,148 @@ def match_products(ref_products, store_products):
             used_indices.add(best_idx)
 
     return matches
+
+
+def match_with_claude_fallback(ref_products, store_products, store_name, price_tolerance=0.50):
+    """
+    Claude fallback за несъвпаднали продукти.
+    1. Първо match_products() с keyword+hard rejection
+    2. За несъвпадналите — Claude Haiku извлича, Sonnet съпоставя
+    """
+    # Стъпка 1: keyword matching
+    keyword_matches = match_products(ref_products, store_products)
+    matched_count = len(keyword_matches)
+
+    # Ако всички са намерени или Claude не е наличен — връщаме
+    if matched_count == len(ref_products) or not ANTHROPIC_AVAILABLE or not ANTHROPIC_API_KEY:
+        return keyword_matches
+
+    # Стъпка 2: намираме несъпоставените store продукти
+    matched_store_names = {m["name"].lower()[:30] for m in keyword_matches.values()}
+    unmatched_store = [
+        p for p in store_products
+        if p["name"].lower()[:30] not in matched_store_names
+    ]
+    unmatched_ref = [
+        p for p in ref_products
+        if p["name"] not in keyword_matches
+    ]
+
+    if not unmatched_store or not unmatched_ref:
+        return keyword_matches
+
+    # Стъпка 3: Claude matching за несъпоставените
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        # Списък с референтни продукти (без цени — за да не халюцинира)
+        ref_list = "\n".join(
+            f"{i+1}. {p['name']}"
+            for i, p in enumerate(unmatched_ref)
+        )
+
+        # Списък с магазинни продукти
+        store_list = "\n".join(
+            f"- \"{p['name']}\" → {p.get('bgn', p.get('eur', '?'))} "
+            f"{'лв' if p.get('bgn') else '€'}"
+            for p in unmatched_store
+        )
+
+        prompt = f"""Съпостави продуктите от магазин "{store_name}" с нашия списък.
+
+НАШИЯТ СПИСЪК (Кашон — референтни):
+{ref_list}
+
+ПРОДУКТИ ОТ МАГАЗИНА (несъпоставени):
+{store_list}
+
+ПРАВИЛА:
+1. ГРАМАЖЪТ Е ЗАДЪЛЖИТЕЛЕН — "750мл" ≠ "500мл", "400г" ≠ "200г"
+2. ПРОЦЕНТЪТ Е ЗАДЪЛЖИТЕЛЕН — "2%" ≠ "3.6%"
+3. Ако не си 100% сигурен — ПРОПУСНИ
+4. Върни САМО JSON обект
+
+Формат: {{"1": "точно името от магазина", "3": "точно името от магазина"}}
+Числата са номерата от НАШИЯ СПИСЪК.
+Ако няма съвпадения: {{}}"""
+
+        message = client.messages.create(
+            model=CLAUDE_MODEL_FAST,
+            max_tokens=2000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        response_text = message.content[0].text.strip()
+        # Почистваме markdown
+        cleaned = response_text
+        if "```" in cleaned:
+            cleaned = re.sub(r'```(?:json)?\s*', '', cleaned)
+            cleaned = re.sub(r'\s*```', '', cleaned)
+        obj_match = re.search(r'\{[^{}]*\}', cleaned)
+        if obj_match:
+            cleaned = obj_match.group(0)
+
+        claude_matches = json.loads(cleaned)
+        claude_added = 0
+
+        for idx_str, store_name_matched in claude_matches.items():
+            try:
+                idx = int(idx_str) - 1
+                if idx < 0 or idx >= len(unmatched_ref):
+                    continue
+                ref_prod = unmatched_ref[idx]
+
+                # Намираме store продукта по име
+                store_prod = None
+                for sp in unmatched_store:
+                    if sp["name"] == store_name_matched:
+                        store_prod = sp
+                        break
+                if not store_prod:
+                    # Fuzzy: частично съвпадение
+                    for sp in unmatched_store:
+                        if store_name_matched.lower() in sp["name"].lower() or \
+                                sp["name"].lower() in store_name_matched.lower():
+                            store_prod = sp
+                            break
+                if not store_prod:
+                    continue
+
+                # Валидация: price tolerance
+                ref_price = ref_prod.get("bgn")
+                store_price = store_prod.get("bgn") or (
+                    store_prod.get("eur") * EUR_BGN_RATE if store_prod.get("eur") else None
+                )
+                if ref_price and store_price:
+                    deviation = abs(store_price - ref_price) / ref_price
+                    if deviation > price_tolerance:
+                        logger.info(f"  Claude rejected: {ref_prod['name']} → "
+                                    f"{store_prod['name']} (price dev {deviation:.0%})")
+                        continue
+
+                # Валидация: грамаж
+                ref_weight = extract_weight_grams(ref_prod["name"])
+                store_weight = extract_weight_grams(store_prod["name"])
+                if ref_weight and store_weight and ref_weight != store_weight:
+                    logger.info(f"  Claude rejected: weight mismatch "
+                                f"{ref_prod['name']} ({ref_weight}g) vs "
+                                f"{store_prod['name']} ({store_weight}g)")
+                    continue
+
+                keyword_matches[ref_prod["name"]] = store_prod
+                claude_added += 1
+
+            except (ValueError, TypeError):
+                continue
+
+        if claude_added:
+            logger.info(f"  Claude fallback: +{claude_added} допълнителни съвпадения "
+                        f"за {store_name}")
+
+    except Exception as e:
+        logger.warning(f"Claude fallback error за {store_name}: {e}")
+
+    return keyword_matches
 
 
 # =============================================================================
@@ -2396,6 +2884,80 @@ async def crawl_store(crawler, store_key, store_config):
     }
 
 
+async def crawl_store_paginated(crawler, store_key, store_config):
+    """Сканира магазин с пагинация (напр. Randi — до max_pages)."""
+    store_name = store_config["name"]
+    base_url = store_config["url"]
+    max_pages = store_config.get("max_pages", 1)
+    scroll_times = store_config.get("scroll_times", 5)
+    scroll_delay = store_config.get("scroll_delay", 1500)
+
+    all_markdown = ""
+    all_html = ""
+    start = time.time()
+
+    for page_num in range(max_pages):
+        if page_num == 0:
+            url = base_url
+        else:
+            if '?' in base_url:
+                url = f"{base_url}&page={page_num + 1}"
+            else:
+                url = f"{base_url}?page={page_num + 1}"
+
+        logger.info(f"CRAWLING: {store_name} (page {page_num + 1}/{max_pages})")
+
+        scroll_js = f"""
+        async function scrollPage() {{
+            const step = window.innerHeight || 800;
+            for (let i = 0; i < {scroll_times}; i++) {{
+                window.scrollBy(0, step);
+                await new Promise(r => setTimeout(r, {scroll_delay}));
+            }}
+            window.scrollTo(0, document.body.scrollHeight);
+            await new Promise(r => setTimeout(r, {scroll_delay}));
+        }}
+        await scrollPage();
+        """
+
+        config = CrawlerRunConfig(
+            page_timeout=90000,
+            remove_overlay_elements=True,
+            js_code=scroll_js,
+        )
+
+        try:
+            result = await crawler.arun(url=url, config=config)
+            if result.success:
+                all_markdown += "\n\n" + result.markdown
+                if getattr(result, 'html', None):
+                    all_html += "\n" + result.html
+                logger.info(f"  {store_name} page {page_num + 1}: "
+                            f"{len(result.markdown)} chars")
+            else:
+                logger.warning(f"  {store_name} page {page_num + 1}: "
+                               f"FAILED — {result.error_message}")
+                if page_num == 0:
+                    return {"success": False, "error": result.error_message}
+                break
+        except Exception as e:
+            logger.warning(f"  {store_name} page {page_num + 1}: error — {e}")
+            if page_num == 0:
+                return {"success": False, "error": str(e)}
+            break
+
+    elapsed = time.time() - start
+    logger.info(f"{store_name}: OK {elapsed:.1f}s, {len(all_markdown)} chars total")
+
+    return {
+        "success": True,
+        "store_key": store_key,
+        "elapsed": elapsed,
+        "markdown": all_markdown,
+        "html": all_html or None,
+    }
+
+
 async def crawl_all():
     """Сканира всички магазини паралелно с asyncio.gather."""
     browser_kwargs = {
@@ -2433,6 +2995,8 @@ async def crawl_all():
                 continue
             if cfg.get("needs_captcha_solver"):
                 tasks[key] = crawl_with_captcha_solver(crawler, key, cfg)
+            elif cfg.get("max_pages", 1) > 1:
+                tasks[key] = crawl_store_paginated(crawler, key, cfg)
             else:
                 tasks[key] = crawl_store(crawler, key, cfg)
 
@@ -2559,7 +3123,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер (EXP-003 v9.3.0)'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер (EXP-003 v9.4.0)'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(STORES) + len(GLOVO_STORES)}']
@@ -2840,7 +3404,7 @@ def write_to_sheets(final_products, stats):
 async def main():
     logger.info("=" * 60)
     total_stores = len(STORES) + len(GLOVO_STORES)
-    logger.info(f"EXP-003: CRAWL4AI v9.3.0 — {total_stores} магазина + GraphQL/curl_cffi/Glovo")
+    logger.info(f"EXP-003: CRAWL4AI v9.4.0 — {total_stores} магазина + GraphQL/curl_cffi/Glovo")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}, "
@@ -2853,6 +3417,10 @@ async def main():
         logger.info(f"Glovo auth: YES (token length: {len(GLOVO_AUTH_TOKEN)})")
     if not FIRECRAWL_API_KEY and not GLOVO_AUTH_TOKEN:
         logger.info("Glovo: нито Firecrawl, нито auth — Glovo магазините ще се пропуснат")
+    if ANTHROPIC_API_KEY and ANTHROPIC_AVAILABLE:
+        logger.info(f"Claude fallback: YES (key: {ANTHROPIC_API_KEY[:8]}...)")
+    else:
+        logger.info("Claude fallback: NO — само keyword matching")
 
     if not CRAWL4AI_AVAILABLE:
         logger.error("Crawl4AI not available!")
@@ -2958,6 +3526,66 @@ async def main():
     elif tmarket_data.get("error"):
         logger.warning(f"T-Market: {tmarket_data['error']}")
 
+    # Metro
+    metro_products = []
+    if crawl_results.get("metro", {}).get("success"):
+        metro_data = crawl_results["metro"]
+        metro_products = extract_metro_products(
+            metro_data["markdown"], html_text=metro_data.get("html"))
+        logger.info(f"Metro: {len(metro_products)} Harmonica products")
+    elif crawl_results.get("metro", {}).get("error"):
+        logger.warning(f"Metro: {crawl_results['metro']['error']}")
+
+    # Zelen
+    zelen_products = []
+    if crawl_results.get("zelen", {}).get("success"):
+        zelen_data = crawl_results["zelen"]
+        zelen_products = extract_zelen_products(
+            zelen_data["markdown"], html_text=zelen_data.get("html"))
+        logger.info(f"Zelen: {len(zelen_products)} Harmonica products")
+    elif crawl_results.get("zelen", {}).get("error"):
+        logger.warning(f"Zelen: {crawl_results['zelen']['error']}")
+
+    # Randi
+    randi_products = []
+    if crawl_results.get("randi", {}).get("success"):
+        randi_data = crawl_results["randi"]
+        randi_products = extract_randi_products(
+            randi_data["markdown"], html_text=randi_data.get("html"))
+        logger.info(f"Randi: {len(randi_products)} Harmonica products")
+    elif crawl_results.get("randi", {}).get("error"):
+        logger.warning(f"Randi: {crawl_results['randi']['error']}")
+
+    # BioMarket
+    biomarket_products = []
+    if crawl_results.get("biomarket", {}).get("success"):
+        biomarket_data = crawl_results["biomarket"]
+        biomarket_products = extract_biomarket_products(
+            biomarket_data["markdown"], html_text=biomarket_data.get("html"))
+        logger.info(f"BioMarket: {len(biomarket_products)} Harmonica products")
+    elif crawl_results.get("biomarket", {}).get("error"):
+        logger.warning(f"BioMarket: {crawl_results['biomarket']['error']}")
+
+    # BeFit
+    befit_products = []
+    if crawl_results.get("befit", {}).get("success"):
+        befit_data = crawl_results["befit"]
+        befit_products = extract_befit_products(
+            befit_data["markdown"], html_text=befit_data.get("html"))
+        logger.info(f"BeFit: {len(befit_products)} Harmonica products")
+    elif crawl_results.get("befit", {}).get("error"):
+        logger.warning(f"BeFit: {crawl_results['befit']['error']}")
+
+    # Laika
+    laika_products = []
+    if crawl_results.get("laika", {}).get("success"):
+        laika_data = crawl_results["laika"]
+        laika_products = extract_laika_products(
+            laika_data["markdown"], html_text=laika_data.get("html"))
+        logger.info(f"Laika: {len(laika_products)} Harmonica products")
+    elif crawl_results.get("laika", {}).get("error"):
+        logger.warning(f"Laika: {crawl_results['laika']['error']}")
+
     # Glovo магазини — продуктите са вече извлечени от fetch_all_glovo_products()
     glovo_all_products = {}
     for gkey, gconfig in GLOVO_STORES.items():
@@ -2995,6 +3623,12 @@ async def main():
         "dm": dm_products,
         "vmv": vmv_products,
         "tmarket": tmarket_products,
+        "metro": metro_products,
+        "zelen": zelen_products,
+        "randi": randi_products,
+        "biomarket": biomarket_products,
+        "befit": befit_products,
+        "laika": laika_products,
     }
     # Добавяме Glovo магазините
     all_store_products.update(glovo_all_products)
@@ -3002,7 +3636,11 @@ async def main():
     for store_key, store_prods in all_store_products.items():
         if not store_prods:
             continue
-        matches = match_products(kashon_products, store_prods)
+        store_cfg = STORES.get(store_key, {})
+        price_tolerance = store_cfg.get("price_tolerance", 0.50)
+        store_display = store_cfg.get("name", store_key)
+        matches = match_with_claude_fallback(
+            kashon_products, store_prods, store_display, price_tolerance)
         for product in final_products:
             if product["name"] in matches:
                 m = matches[product["name"]]
@@ -3063,7 +3701,7 @@ async def main():
     json_stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
 
     output = {
-        "experiment": "EXP-003-v9.3.0",
+        "experiment": "EXP-003-v9.4.0",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stores": len(STORES) + len(GLOVO_STORES),
