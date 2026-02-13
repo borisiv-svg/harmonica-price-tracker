@@ -1,11 +1,13 @@
 """
-EXP-003: Crawl4AI Experimental Scraper v9.2.0
+EXP-003: Crawl4AI Experimental Scraper v9.3.0
 ===============================================
-Промени спрямо v9.2.0:
-- Glovo: Firecrawl actions (search box interaction) вместо URL patterns
-- Glovo URL: sofia/stores/ (канонична форма)
-- Кашон: премахнат #content anchor, scroll_delay=2000ms
-- crawl_all: Glovo работи и само с Firecrawl (без CURL_CFFI)
+Промени спрямо v9.3.0:
+- Кашон: филтрирани не-Harmonica продукти (Черноморски улов и др.)
+- Кашон EUR: fallback BGN→EUR конвертиране при липса на EUR цена
+- Средна EUR включва Кашон (преди — само external магазини)
+- Ценови отклонения ±10%: червено ↑ / светлосиньо ↓ в таблицата
+- Ресет: бял фон за data клетки (изчистени стари остатъци)
+- Fix: row indexing off-by-one в форматирането
 
 Промени спрямо v9.0.4:
 - Lilly: Magento GraphQL + REST API чрез curl_cffi (Hyvä зарежда JS)
@@ -203,6 +205,12 @@ FOOD_KEYWORDS = [
 NON_FOOD_KEYWORDS = [
     "потник", "тениска", "блуза", "дреха", "шапка", "чанта", "раница",
     "козметика", "крем", "шампоан", "сапун", "гел", "лосион",
+    "загадки", "книга", "игра", "пъзел", "играчка",
+]
+
+# Продукти на Кашон страницата, които не са Harmonica бранд
+KASHON_BRAND_BLACKLIST = [
+    "черноморски улов",
 ]
 
 
@@ -310,11 +318,19 @@ def extract_kashon_products(markdown):
         if not is_food_product(name):
             continue
 
+        # Филтрираме не-Harmonica брандове от Кашон страницата
+        if any(bl in name.lower() for bl in KASHON_BRAND_BLACKLIST):
+            continue
+
         idx = match.end()
         context = markdown[idx:idx+300]
 
         eur = extract_eur_price(context)
         bgn = extract_bgn_price(context)
+
+        # Fallback: ако няма EUR цена, конвертираме от BGN
+        if not eur and bgn:
+            eur = round(bgn / EUR_BGN_RATE, 2)
 
         if eur or bgn:
             seen.add(name_key)
@@ -2532,8 +2548,7 @@ def write_to_sheets(final_products, stats):
 
     # --- Изграждане на данните ---
     # Колони: №(0) | Продукт(1) | Грамаж(2) | Кашон BGN(3) | Кашон EUR(4) | Store1(5) | ... | Ср.EUR | Статус
-    HEADER_ROW = 4
-    DATA_START_ROW = 5
+    HEADER_ROW = 4           # 1-indexed sheet row (0-indexed: 3)
     KASHON_COL_START = 3     # Кашон BGN
     STORE_COL_START = 5      # Първи external store
 
@@ -2544,7 +2559,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер (EXP-003 v9.2.0)'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер (EXP-003 v9.3.0)'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(STORES) + len(GLOVO_STORES)}']
@@ -2555,6 +2570,8 @@ def write_to_sheets(final_products, stats):
     all_data.append(headers)
 
     out_of_stock_cells = []
+    deviation_cells_high = []   # (row, col) — цена >10% над средната
+    deviation_cells_low = []    # (row, col) — цена >10% под средната
 
     for i, product in enumerate(final_products, 1):
         kashon = product.get("kashon") or {}
@@ -2569,37 +2586,79 @@ def write_to_sheets(final_products, stats):
             kashon_eur if kashon_eur else '',
         ]
 
-        store_prices_eur = []
+        # Събираме всички EUR цени (включително Кашон) за средната
+        all_prices_eur = []
+        if kashon_eur:
+            all_prices_eur.append(kashon_eur)
+
+        store_prices_info = []  # [(col_index, price_eur)] за deviation check
+
+        # 0-indexed sheet row за текущия продукт
+        row_0idx = HEADER_ROW + i - 1
 
         for col_offset, store_key in enumerate(store_columns):
             store_data = product.get(store_key)
             col_index = STORE_COL_START + col_offset
-            row_index = DATA_START_ROW - 1 + i
 
             if store_data:
                 price_eur = store_data.get("eur")
                 row.append(price_eur if price_eur else '')
 
                 if price_eur:
-                    store_prices_eur.append(price_eur)
+                    all_prices_eur.append(price_eur)
+                    store_prices_info.append((col_index, price_eur))
 
                 if not store_data.get("in_stock", True):
-                    out_of_stock_cells.append((row_index, col_index))
+                    out_of_stock_cells.append((row_0idx, col_index))
             else:
                 row.append('')
 
-        # Средна EUR (от external магазини, без Кашон)
-        if store_prices_eur:
-            avg_eur = round(sum(store_prices_eur) / len(store_prices_eur), 2)
+        # Средна EUR (от ВСИЧКИ магазини, включително Кашон)
+        if all_prices_eur:
+            avg_eur = round(sum(all_prices_eur) / len(all_prices_eur), 2)
             row.append(avg_eur)
         else:
+            avg_eur = None
             row.append('')
+
+        # Deviation check: маркираме клетки с >10% отклонение от средната
+        if avg_eur and len(all_prices_eur) >= 2:
+            threshold_high = avg_eur * 1.10
+            threshold_low = avg_eur * 0.90
+
+            # Проверяваме Кашон EUR (col 4)
+            if kashon_eur:
+                if kashon_eur > threshold_high:
+                    deviation_cells_high.append((row_0idx, 4))
+                elif kashon_eur < threshold_low:
+                    deviation_cells_low.append((row_0idx, 4))
+
+            # Проверяваме external магазини
+            for col_idx, price in store_prices_info:
+                if price > threshold_high:
+                    deviation_cells_high.append((row_0idx, col_idx))
+                elif price < threshold_low:
+                    deviation_cells_low.append((row_0idx, col_idx))
 
         # Статус: в колко магазина е намерен
         matched_count = sum(1 for s in store_columns if product.get(s))
         row.append(f"{matched_count}/{len(store_columns)}")
 
         all_data.append(row)
+
+    # Добавяме стрелки (↑/↓) в клетките с отклонение
+    # row_idx е 0-indexed sheet row, който съвпада с индекса в all_data
+    for row_idx, col_idx in deviation_cells_high:
+        if HEADER_ROW <= row_idx < len(all_data):
+            val = all_data[row_idx][col_idx]
+            if val and val != '':
+                all_data[row_idx][col_idx] = f"{val} ↑"
+
+    for row_idx, col_idx in deviation_cells_low:
+        if HEADER_ROW <= row_idx < len(all_data):
+            val = all_data[row_idx][col_idx]
+            if val and val != '':
+                all_data[row_idx][col_idx] = f"{val} ↓"
 
     try:
         sheet.clear()
@@ -2669,19 +2728,21 @@ def write_to_sheets(final_products, stats):
             }
         })
 
-        # Числов формат за ценови колони
-        price_start = KASHON_COL_START
-        price_end = STORE_COL_START + len(store_columns) + 1  # +1 за Ср.EUR
+        # Ресет: бял фон + черен текст за всички data клетки (изчистваме остатъци)
         if last_row > HEADER_ROW:
             format_requests.append({
                 "repeatCell": {
                     "range": {"sheetId": sheet.id,
                               "startRowIndex": HEADER_ROW, "endRowIndex": last_row,
-                              "startColumnIndex": price_start, "endColumnIndex": price_end},
+                              "startColumnIndex": 0, "endColumnIndex": last_col},
                     "cell": {"userEnteredFormat": {
-                        "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"}
+                        "backgroundColor": {"red": 1, "green": 1, "blue": 1},
+                        "textFormat": {
+                            "foregroundColor": {"red": 0, "green": 0, "blue": 0},
+                            "bold": False, "italic": False, "fontSize": 10,
+                        }
                     }},
-                    "fields": "userEnteredFormat.numberFormat"
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
                 }
             })
 
@@ -2704,7 +2765,7 @@ def write_to_sheets(final_products, stats):
                 }
             })
 
-        # Сиво форматиране за изчерпани
+        # Сиво форматиране за изчерпани (OOS)
         for row_idx, col_idx in out_of_stock_cells:
             format_requests.append({
                 "repeatCell": {
@@ -2713,12 +2774,46 @@ def write_to_sheets(final_products, stats):
                               "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
                     "cell": {"userEnteredFormat": {
                         "textFormat": {
-                            "foregroundColorStyle": {
-                                "rgbColor": {"red": 0.6, "green": 0.6, "blue": 0.6}
-                            }
+                            "foregroundColor": {"red": 0.6, "green": 0.6, "blue": 0.6}
                         }
                     }},
-                    "fields": "userEnteredFormat.textFormat.foregroundColorStyle"
+                    "fields": "userEnteredFormat.textFormat.foregroundColor"
+                }
+            })
+
+        # Червено (↑) за цени >10% над средната
+        for row_idx, col_idx in deviation_cells_high:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": row_idx, "endRowIndex": row_idx + 1,
+                              "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
+                    "cell": {"userEnteredFormat": {
+                        "backgroundColor": {"red": 0.96, "green": 0.80, "blue": 0.80},
+                        "textFormat": {
+                            "foregroundColor": {"red": 0.7, "green": 0.0, "blue": 0.0},
+                            "bold": True,
+                        }
+                    }},
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                }
+            })
+
+        # Светлосиньо (↓) за цени >10% под средната
+        for row_idx, col_idx in deviation_cells_low:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": row_idx, "endRowIndex": row_idx + 1,
+                              "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
+                    "cell": {"userEnteredFormat": {
+                        "backgroundColor": {"red": 0.82, "green": 0.91, "blue": 0.98},
+                        "textFormat": {
+                            "foregroundColor": {"red": 0.0, "green": 0.3, "blue": 0.6},
+                            "bold": True,
+                        }
+                    }},
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
                 }
             })
 
@@ -2727,6 +2822,9 @@ def write_to_sheets(final_products, stats):
             logger.info(f"Форматиране: {len(format_requests)} заявки")
             if out_of_stock_cells:
                 logger.info(f"Сиво форматиране: {len(out_of_stock_cells)} изчерпани клетки")
+            if deviation_cells_high or deviation_cells_low:
+                logger.info(f"Отклонения: {len(deviation_cells_high)} ↑ червени, "
+                            f"{len(deviation_cells_low)} ↓ сини")
 
         return True
 
@@ -2742,7 +2840,7 @@ def write_to_sheets(final_products, stats):
 async def main():
     logger.info("=" * 60)
     total_stores = len(STORES) + len(GLOVO_STORES)
-    logger.info(f"EXP-003: CRAWL4AI v9.2.0 — {total_stores} магазина + GraphQL/curl_cffi/Glovo")
+    logger.info(f"EXP-003: CRAWL4AI v9.3.0 — {total_stores} магазина + GraphQL/curl_cffi/Glovo")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}, "
@@ -2965,7 +3063,7 @@ async def main():
     json_stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
 
     output = {
-        "experiment": "EXP-003-v9.2.0",
+        "experiment": "EXP-003-v9.3.0",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stores": len(STORES) + len(GLOVO_STORES),
