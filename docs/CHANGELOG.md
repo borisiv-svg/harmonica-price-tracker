@@ -5,6 +5,34 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v10.0.1 - 2026-02-14
+
+### Поправено
+- **Firecrawl import** — `from firecrawl import Firecrawl` е грешно; класът се казва `FirecrawlApp`. Тихо `ImportError` → `FIRECRAWL_AVAILABLE = False`, което блокираше DM, Randi и всички 4 Glovo магазина
+- **Firecrawl API промяна** — `.scrape()` е премахнат в по-новите версии на `firecrawl-py`; правилният метод е `.scrape_url(url, params={...})`. DM и Glovo ползваха стария API, Randi вече беше на новия
+- **Generic extractor за Laika** — block-based разделяне по `\n{2,}` не работеше за сайтове с единични нови редове между продуктите. Цялата страница ставаше един блок → само 1 продукт. Нов `_extract_generic_line_by_line()` fallback решава проблема
+- **Claude валидация JSON truncation** — фиксиран `max_tokens=2000` беше недостатъчен при 38+ съмнителни цени (повече магазини = повече outlier-и). JSON-ът се отрязваше → `JSONDecodeError` → валидацията се пропускаше изцяло
+- **Startup диагностика** — `Firecrawl: YES` проверяваше само `FIRECRAWL_API_KEY`, не `FIRECRAWL_AVAILABLE`. Сега предупреждава ако ключът е зададен, но import-ът е неуспешен
+
+### Променено
+- `max_tokens` за Claude валидация е динамичен: `max(2000, len(suspicious) * 150 + 500)`
+- JSON repair fallback: ако Sonnet върне truncated JSON, парсва частичните verdict-и вместо да пропуска всичко
+- Generic extractor е рефакториран в три функции: `_extract_generic_products()` (orchestrator), `_extract_generic_block_based()`, `_extract_generic_line_by_line()`
+- Context window за line-by-line price extraction стеснен от ±3-8 на ±2-5 реда
+
+### Резултати (преди → след)
+| Магазин | Преди | След |
+|---------|-------|------|
+| DM | 0/88 (0%) | 11/88 (12%) |
+| BeFit | 0/88 (timeout) | 43/88 (49%) |
+| Laika | 0/88 (0%) | 20/88 (23%) |
+| Glovo Kaufland | 0 | 18/88 (20%) |
+| Glovo Billa | 0 | 7/88 (8%) |
+| Glovo CBA | 0 | 11/88 (12%) |
+| Glovo Fantastico | 0 | 49/88 (56%) |
+| Claude валидация | JSON грешка | 16 премахнати, 10 флагнати, 12 OK |
+
+---
 ## v9.6.0 - 2026-02-14
 
 ### Добавено
