@@ -148,7 +148,7 @@ STORES = {
     },
     "dm": {
         "name": "DM",
-        "url": "https://www.dm.bg/search?query=harmonica&searchType=product",
+        "url": "https://www.dm-drogeriemarkt.bg/search?query=harmonica&searchType=product",
         "scroll_times": 5,
         "needs_captcha_solver": True,
         "algolia_enabled": True,
@@ -1458,7 +1458,7 @@ def _fetch_dm_via_firecrawl(query="harmonica"):
         return None
 
     start = time.time()
-    url = f"https://www.dm.bg/search?query={query}&searchType=product"
+    url = f"https://www.dm-drogeriemarkt.bg/search?query={query}&searchType=product"
 
     try:
         app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
@@ -1550,7 +1550,7 @@ async def fetch_dm_via_algolia(query="harmonica"):
             # Стъпка 1: Fetch dm.bg за Algolia config
             logger.info("DM Algolia: извличане на конфигурация от dm.bg...")
             resp = await session.get(
-                "https://www.dm.bg/search?query=harmonica&searchType=product",
+                "https://www.dm-drogeriemarkt.bg/search?query=harmonica&searchType=product",
                 proxy=proxy,
                 timeout=30,
                 headers={
@@ -1576,7 +1576,7 @@ async def fetch_dm_via_algolia(query="harmonica"):
                 )
                 for js_url in js_urls[:5]:
                     if not js_url.startswith('http'):
-                        js_url = f"https://www.dm.bg{js_url}"
+                        js_url = f"https://www.dm-drogeriemarkt.bg{js_url}"
                     try:
                         js_resp = await session.get(js_url, proxy=proxy, timeout=15)
                         if js_resp.status_code == 200:
@@ -2714,7 +2714,7 @@ def write_to_sheets(final_products, stats):
         # Добавяме разделител при нова категория
         if cat_name != current_category:
             current_category = cat_name
-            separator_row = [f'--- {cat_name} ---'] + [''] * (len(headers) - 1)
+            separator_row = ['', cat_name] + [''] * (len(headers) - 2)
             all_data.append(separator_row)
             category_separator_rows.append(len(all_data) - 1)  # 0-indexed
 
