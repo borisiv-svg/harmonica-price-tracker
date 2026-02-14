@@ -684,8 +684,8 @@ def _extract_generic_line_by_line(markdown, brand_page=False):
         if deduplicate_check(name, seen):
             continue
 
-        # Търсим цена в контекст ±5 реда
-        context = '\n'.join(lines[max(0, i - 3):i + 8])
+        # Търсим цена в контекст ±3 реда (по-тесен за brand pages с гъсти продукти)
+        context = '\n'.join(lines[max(0, i - 2):i + 5])
         bgn = extract_bgn_price(context)
         if not bgn:
             bgn = extract_price_fallback(context)
@@ -1609,15 +1609,18 @@ def _fetch_dm_via_firecrawl(query="harmonica"):
         app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
 
         # Firecrawl scrape с wait за JS rendering
-        result = app.scrape(
-            url, formats=["markdown", "html"],
-            actions=[
-                {"type": "wait", "milliseconds": 5000},
-                {"type": "scroll", "direction": "down"},
-                {"type": "wait", "milliseconds": 2000},
-                {"type": "scrape"},
-            ],
-            timeout=60000,
+        result = app.scrape_url(
+            url,
+            params={
+                "formats": ["markdown", "html"],
+                "actions": [
+                    {"type": "wait", "milliseconds": 5000},
+                    {"type": "scroll", "direction": "down"},
+                    {"type": "wait", "milliseconds": 2000},
+                    {"type": "scrape"},
+                ],
+                "timeout": 60000,
+            },
         )
         elapsed = time.time() - start
 
@@ -2267,9 +2270,13 @@ def _fetch_glovo_via_firecrawl(slug, store_name, query="harmonica"):
         ]
 
         try:
-            result = app.scrape(
-                store_url, formats=["markdown"],
-                actions=search_actions, timeout=60000,
+            result = app.scrape_url(
+                store_url,
+                params={
+                    "formats": ["markdown"],
+                    "actions": search_actions,
+                    "timeout": 60000,
+                },
             )
             elapsed = time.time() - start
 
