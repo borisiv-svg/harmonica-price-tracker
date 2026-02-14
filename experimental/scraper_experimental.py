@@ -1,6 +1,13 @@
 """
-EXP-003: Crawl4AI Experimental Scraper v9.5.0
+EXP-003: Crawl4AI Experimental Scraper v9.6.0
 ===============================================
+Промени спрямо v9.5.0:
+- Claude Sonnet 4.5 ценова валидация: автоматично открива outlier цени (>50% от медианата)
+- Изпраща съмнителни цени към Claude API за оценка (ГРЕШНА/ВЯРНА/СЪМНИТЕЛНА)
+- Грешни цени се премахват автоматично преди запис в Google Sheets
+- ANTHROPIC_API_KEY env var (опционално — ако липсва, валидацията се пропуска)
+- validation_log в JSON output за одит
+
 Промени спрямо v9.4.0:
 - VMV премахнат (1/88 покритие, не работи)
 - DM: Firecrawl като primary метод (proxy 502 tunnel fail с curl_cffi)
@@ -91,6 +98,13 @@ except ImportError:
     FIRECRAWL_AVAILABLE = False
     logger.warning("firecrawl not installed — Glovo JS rendering disabled")
 
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+    logger.warning("anthropic not installed — Claude price validation disabled")
+
 
 # =============================================================================
 # CONSTANTS
@@ -100,6 +114,9 @@ EUR_BGN_RATE = 1.9558  # Фиксиран курс
 PROXY_URL = os.environ.get("PROXY_URL")  # Optional: http://user:pass@host:port
 GLOVO_AUTH_TOKEN = os.environ.get("GLOVO_AUTH_TOKEN")  # Optional: Glovo Bearer token
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")  # Optional: Firecrawl API key
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")  # Optional: Claude API key за валидация
+
+CLAUDE_MODEL = "claude-sonnet-4-5-20250929"  # Sonnet 4.5 за ценова валидация
 
 
 def _parse_proxy_url(proxy_url):
@@ -2653,6 +2670,177 @@ def match_products(ref_products, store_products):
 
 
 # =============================================================================
+# CLAUDE PRICE VALIDATION — Sonnet 4.5 за проверка на съмнителни цени
+# =============================================================================
+
+def validate_prices_with_claude(final_products, all_store_keys):
+    """
+    Използва Claude Sonnet за валидация на съмнителни цени.
+    Открива outlier-и (>50% отклонение от медианата) и ги изпраща за оценка.
+    Връща final_products с добавени полета 'flagged' и 'claude_note'.
+    """
+    if not ANTHROPIC_AVAILABLE or not ANTHROPIC_API_KEY:
+        logger.warning("Claude валидация пропусната — липсва API ключ или anthropic модул")
+        return final_products, {}
+
+    # 1. Намираме съмнителни цени
+    suspicious = []
+    for product in final_products:
+        bgn_prices = {}
+        for sk in ["kashon"] + list(all_store_keys):
+            data = product.get(sk)
+            if data and data.get("bgn") and data["bgn"] > 0:
+                bgn_prices[sk] = data["bgn"]
+
+        if len(bgn_prices) < 3:
+            continue
+
+        values = sorted(bgn_prices.values())
+        median = values[len(values) // 2]
+
+        for store, price in bgn_prices.items():
+            if store == "kashon":
+                continue
+            deviation = abs(price - median) / median * 100
+            if deviation > 50:
+                suspicious.append({
+                    "product": product["name"],
+                    "store": store,
+                    "price_bgn": price,
+                    "median_bgn": round(median, 2),
+                    "deviation_pct": round(deviation, 1),
+                    "all_prices": {k: round(v, 2) for k, v in bgn_prices.items()},
+                })
+
+    if not suspicious:
+        logger.info("Claude валидация: няма съмнителни цени (всички в ±50% от медианата)")
+        return final_products, {}
+
+    logger.info(f"Claude валидация: {len(suspicious)} съмнителни цени открити, изпращаме към Sonnet...")
+
+    # 2. Изпращаме batch към Claude Sonnet
+    price_lines = []
+    for i, s in enumerate(suspicious, 1):
+        prices_str = ", ".join(f"{k}={v:.2f}лв" for k, v in s["all_prices"].items())
+        price_lines.append(
+            f"{i}. Продукт: \"{s['product']}\"\n"
+            f"   Магазин: {s['store']} → {s['price_bgn']:.2f} лв (медиана: {s['median_bgn']:.2f} лв, "
+            f"отклонение: {s['deviation_pct']:.0f}%)\n"
+            f"   Всички цени: {prices_str}"
+        )
+
+    prompt = f"""Ти си експерт по цените на био храни и напитки в България от марката Хармоника (Harmonica).
+
+Анализирай следните съмнителни цени. За всяка реши:
+- "ГРЕШНА" — цената е очевидно грешна (грешен match, грешно извлечена цена, цена за друг продукт или друг грамаж)
+- "ВЯРНА" — цената е реална, макар и различна (промоция, по-висока цена в определен магазин)
+- "СЪМНИТЕЛНА" — не можеш да прецениш със сигурност
+
+Контекст за типични цени в България (2024-2026):
+- Кисело мляко 400г: 2.50-3.50 лв
+- Кисело мляко 2кг: 8.00-12.00 лв (затова 8-9 лв за 2кг е нормално!)
+- Вафла 30г: 0.90-1.50 лв
+- Сирене краве 400г: 10.00-15.00 лв
+- Айран 500мл: 1.50-2.50 лв
+- Масло 125г: 3.00-5.00 лв
+- Тахан 250г: 5.00-8.00 лв
+
+ВАЖНО: Внимавай за грамажа! Ако едни магазини продават 400г, а съмнителната цена може да е за 2кг версия — тя може да е вярна.
+
+Съмнителни цени:
+{chr(10).join(price_lines)}
+
+Отговори САМО в JSON формат (без markdown):
+[
+  {{"index": 1, "verdict": "ГРЕШНА|ВЯРНА|СЪМНИТЕЛНА", "reason": "кратко обяснение", "action": "remove|keep|flag"}},
+  ...
+]"""
+
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        start_t = time.time()
+        message = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=2000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        elapsed = time.time() - start_t
+        response_text = message.content[0].text.strip()
+        logger.info(f"Claude Sonnet отговори за {elapsed:.1f}s ({message.usage.input_tokens} in, "
+                    f"{message.usage.output_tokens} out)")
+
+        # Парсваме JSON
+        # Отстраняваме markdown wrapper ако има
+        if response_text.startswith("```"):
+            response_text = re.sub(r'^```(?:json)?\s*', '', response_text)
+            response_text = re.sub(r'\s*```$', '', response_text)
+        verdicts = json.loads(response_text)
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Claude JSON грешка: {e}")
+        logger.error(f"Отговор: {response_text[:500]}")
+        return final_products, {}
+    except Exception as e:
+        logger.error(f"Claude API грешка: {e}")
+        return final_products, {}
+
+    # 3. Прилагаме решенията
+    removed_count = 0
+    flagged_count = 0
+    kept_count = 0
+    validation_log = {}
+
+    for verdict in verdicts:
+        idx = verdict.get("index", 0) - 1
+        if idx < 0 or idx >= len(suspicious):
+            continue
+
+        s = suspicious[idx]
+        action = verdict.get("action", "flag")
+        reason = verdict.get("reason", "")
+        verdict_text = verdict.get("verdict", "?")
+
+        log_key = f"{s['product']}|{s['store']}"
+        validation_log[log_key] = {
+            "verdict": verdict_text,
+            "action": action,
+            "reason": reason,
+            "price": s["price_bgn"],
+            "median": s["median_bgn"],
+        }
+
+        if action == "remove":
+            # Нулираме грешната цена
+            for product in final_products:
+                if product["name"] == s["product"] and product.get(s["store"]):
+                    product[s["store"]] = None
+                    removed_count += 1
+                    logger.info(f"  ✗ ПРЕМАХНАТА: {s['store']} {s['product'][:40]} "
+                                f"({s['price_bgn']:.2f}лв) — {reason}")
+                    break
+        elif action == "flag":
+            # Маркираме за ръчна проверка
+            for product in final_products:
+                if product["name"] == s["product"] and product.get(s["store"]):
+                    if not product.get("_flags"):
+                        product["_flags"] = []
+                    product["_flags"].append(f"{s['store']}: {reason}")
+                    flagged_count += 1
+                    logger.info(f"  ⚠ ФЛАГ: {s['store']} {s['product'][:40]} "
+                                f"({s['price_bgn']:.2f}лв) — {reason}")
+                    break
+        else:
+            kept_count += 1
+            logger.info(f"  ✓ OK: {s['store']} {s['product'][:40]} "
+                        f"({s['price_bgn']:.2f}лв) — {reason}")
+
+    logger.info(f"Claude валидация: {removed_count} премахнати, {flagged_count} флагнати, "
+                f"{kept_count} потвърдени")
+
+    return final_products, validation_log
+
+
+# =============================================================================
 # CRAWLING — с retry и паралелно изпълнение
 # =============================================================================
 
@@ -3419,7 +3607,7 @@ def send_email_report(final_products, stats):
 async def main():
     logger.info("=" * 60)
     total_stores = len(STORES) + len(GLOVO_STORES)
-    logger.info(f"EXP-003: CRAWL4AI v9.5.0 — {total_stores} магазина + GraphQL/curl_cffi/Firecrawl/Glovo")
+    logger.info(f"EXP-003: CRAWL4AI v9.6.0 — {total_stores} магазина + GraphQL/curl_cffi/Firecrawl/Glovo/Claude")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}, "
@@ -3432,6 +3620,10 @@ async def main():
         logger.info(f"Glovo auth: YES (token length: {len(GLOVO_AUTH_TOKEN)})")
     if not FIRECRAWL_API_KEY and not GLOVO_AUTH_TOKEN:
         logger.info("Glovo: нито Firecrawl, нито auth — Glovo магазините ще се пропуснат")
+    if ANTHROPIC_AVAILABLE and ANTHROPIC_API_KEY:
+        logger.info(f"Claude: YES ({CLAUDE_MODEL})")
+    else:
+        logger.info("Claude: НЕ — ценова валидация изключена")
 
     if not CRAWL4AI_AVAILABLE:
         logger.error("Crawl4AI not available!")
@@ -3628,6 +3820,10 @@ async def main():
                     entry["in_stock"] = m["in_stock"]
                 product[store_key] = entry
 
+    # 3.5. Claude Sonnet ценова валидация
+    logger.info("=" * 40 + " CLAUDE VALIDATION " + "=" * 40)
+    final_products, validation_log = validate_prices_with_claude(final_products, all_keys)
+
     # 4. Statistics
     logger.info("=" * 40 + " STATISTICS " + "=" * 40)
     kashon_count = len([p for p in final_products if p.get("kashon")])
@@ -3682,13 +3878,20 @@ async def main():
         json_stats[f"{sk}_matches"] = store_counts.get(sk, 0)
     json_stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
 
+    # Почистваме _flags от final_products за JSON (вътрешни полета)
+    products_for_json = []
+    for p in final_products:
+        clean = {k: v for k, v in p.items() if not k.startswith("_")}
+        products_for_json.append(clean)
+
     output = {
-        "experiment": "EXP-003-v9.5.0",
+        "experiment": "EXP-003-v9.6.0",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stores": len(STORES) + len(GLOVO_STORES),
         "stats": json_stats,
-        "products": final_products,
+        "claude_validation": validation_log if validation_log else None,
+        "products": products_for_json,
     }
 
     try:
