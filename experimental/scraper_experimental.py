@@ -32,7 +32,10 @@ import json
 import os
 import re
 import logging
+import smtplib
 from datetime import datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 # Logging setup
 logging.basicConfig(
@@ -240,6 +243,46 @@ NON_FOOD_KEYWORDS = [
     "козметика", "крем", "шампоан", "сапун", "гел", "лосион",
     "загадки", "книга", "игра", "пъзел", "играчка",
 ]
+
+# Категории за групиране на продуктите в таблицата
+PRODUCT_CATEGORIES = [
+    ("Млечни продукти", [
+        "мляко", "айран", "кефир", "сирене", "кашкавал", "масло", "сметана",
+        "извара", "йогурт", "крема", "кисело",
+    ]),
+    ("Вафли и сладки", [
+        "вафла", "бисквит", "шоколад", "бонбон", "сладко", "халва",
+        "локум", "мармалад", "smiles", "топчета",
+    ]),
+    ("Тахани, ядки и бобови", [
+        "тахан", "фъстъчено", "лешник", "бадем", "орех",
+        "хумус", "нахут", "леща", "киноа", "боб", "мунг",
+    ]),
+    ("Зеленчукови и сосове", [
+        "домат", "кетчуп", "лютеница", "пюре",
+    ]),
+    ("Напитки", [
+        "сок", "лимонада", "боза", "сироп", "чай",
+    ]),
+    ("Хляб, тесто и зърнени", [
+        "кори", "хляб", "паста", "ориз",
+    ]),
+    ("Други", [
+        "олио", "оцет", "зехтин", "мед", "яйца",
+        "претцел", "солет", "крекер", "соленки",
+    ]),
+]
+
+
+def categorize_product(name):
+    """Определя категорията на продукт по име. Връща (индекс, име на категория)."""
+    name_lower = name.lower()
+    for idx, (cat_name, keywords) in enumerate(PRODUCT_CATEGORIES):
+        for kw in keywords:
+            if kw in name_lower:
+                return (idx, cat_name)
+    return (len(PRODUCT_CATEGORIES), "Други")
+
 
 # Продукти на Кашон страницата, които не са Harmonica бранд
 KASHON_BRAND_BLACKLIST = [
@@ -2630,7 +2673,7 @@ def write_to_sheets(final_products, stats):
         return False
 
     # --- Изграждане на данните ---
-    # Колони: №(0) | Продукт(1) | Грамаж(2) | Кашон BGN(3) | Кашон EUR(4) | Store1(5) | ... | Ср.EUR | Статус
+    # Колони: №(0) | Продукт(1) | Грамаж(2) | Кашон BGN(3) | Кашон EUR(4) | Store1(5) | ... | Ср.EUR | Статус | Откл.%
     HEADER_ROW = 4           # 1-indexed sheet row (0-indexed: 3)
     KASHON_COL_START = 3     # Кашон BGN
     STORE_COL_START = 5      # Първи external store
@@ -2638,7 +2681,9 @@ def write_to_sheets(final_products, stats):
     headers = ['№', 'Продукт', 'Грамаж', 'Кашон BGN', 'Кашон EUR']
     for store_key in store_columns:
         headers.append(store_display_names[store_key])
-    headers.extend(['Ср.EUR', 'Статус'])
+    headers.extend(['Ср.EUR', 'Статус', 'Откл.%'])
+
+    DEVIATION_COL = len(headers) - 1  # Последната колона
 
     all_data = []
 
@@ -2652,17 +2697,34 @@ def write_to_sheets(final_products, stats):
     all_data.append([''] * len(headers))
     all_data.append(headers)
 
+    # --- Сортиране по категории ---
+    sorted_products = sorted(final_products, key=lambda p: categorize_product(p["name"]))
+
     out_of_stock_cells = []
     deviation_cells_high = []   # (row, col) — цена >10% над средната
     deviation_cells_low = []    # (row, col) — цена >10% под средната
+    category_separator_rows = []  # row indices за форматиране на разделителите
 
-    for i, product in enumerate(final_products, 1):
+    current_category = None
+    product_num = 0
+
+    for product in sorted_products:
+        cat_idx, cat_name = categorize_product(product["name"])
+
+        # Добавяме разделител при нова категория
+        if cat_name != current_category:
+            current_category = cat_name
+            separator_row = [f'--- {cat_name} ---'] + [''] * (len(headers) - 1)
+            all_data.append(separator_row)
+            category_separator_rows.append(len(all_data) - 1)  # 0-indexed
+
+        product_num += 1
         kashon = product.get("kashon") or {}
         kashon_bgn = kashon.get("bgn")
         kashon_eur = kashon.get("eur")
 
         row = [
-            i,
+            product_num,
             product["name"],
             extract_weight(product["name"]),
             kashon_bgn if kashon_bgn else '',
@@ -2677,7 +2739,7 @@ def write_to_sheets(final_products, stats):
         store_prices_info = []  # [(col_index, price_eur)] за deviation check
 
         # 0-indexed sheet row за текущия продукт
-        row_0idx = HEADER_ROW + i - 1
+        row_0idx = len(all_data)
 
         for col_offset, store_key in enumerate(store_columns):
             store_data = product.get(store_key)
@@ -2704,13 +2766,22 @@ def write_to_sheets(final_products, stats):
             avg_eur = None
             row.append('')
 
-        # Deviation check: маркираме клетки с >10% отклонение от средната
+        # Статус: в колко магазина е намерен
+        matched_count = sum(1 for s in store_columns if product.get(s))
+        row.append(f"{matched_count}/{len(store_columns)}")
+
+        # Откл.%: максимално процентно отклонение от средната в този ред
+        max_deviation_pct = None
         if avg_eur and len(all_prices_eur) >= 2:
             threshold_high = avg_eur * 1.10
             threshold_low = avg_eur * 0.90
 
+            all_deviations = []
+
             # Проверяваме Кашон EUR (col 4)
             if kashon_eur:
+                dev_pct = ((kashon_eur - avg_eur) / avg_eur) * 100
+                all_deviations.append(dev_pct)
                 if kashon_eur > threshold_high:
                     deviation_cells_high.append((row_0idx, 4))
                 elif kashon_eur < threshold_low:
@@ -2718,19 +2789,27 @@ def write_to_sheets(final_products, stats):
 
             # Проверяваме external магазини
             for col_idx, price in store_prices_info:
+                dev_pct = ((price - avg_eur) / avg_eur) * 100
+                all_deviations.append(dev_pct)
                 if price > threshold_high:
                     deviation_cells_high.append((row_0idx, col_idx))
                 elif price < threshold_low:
                     deviation_cells_low.append((row_0idx, col_idx))
 
-        # Статус: в колко магазина е намерен
-        matched_count = sum(1 for s in store_columns if product.get(s))
-        row.append(f"{matched_count}/{len(store_columns)}")
+            # Намираме макс. отклонение по абсолютна стойност
+            if all_deviations:
+                max_dev = max(all_deviations, key=abs)
+                max_deviation_pct = round(max_dev, 1)
+
+        if max_deviation_pct is not None:
+            sign = "+" if max_deviation_pct > 0 else ""
+            row.append(f"{sign}{max_deviation_pct}%")
+        else:
+            row.append('')
 
         all_data.append(row)
 
     # Добавяме стрелки (↑/↓) в клетките с отклонение
-    # row_idx е 0-indexed sheet row, който съвпада с индекса в all_data
     for row_idx, col_idx in deviation_cells_high:
         if HEADER_ROW <= row_idx < len(all_data):
             val = all_data[row_idx][col_idx]
@@ -2753,7 +2832,7 @@ def write_to_sheets(final_products, stats):
 
     # --- Форматиране ---
     try:
-        last_row = HEADER_ROW + len(final_products)
+        last_row = len(all_data)
         last_col = len(headers)
         format_requests = []
 
@@ -2829,6 +2908,22 @@ def write_to_sheets(final_products, stats):
                 }
             })
 
+        # Категорийни разделители — тъмнозелен фон с бял bold текст
+        for sep_row_idx in category_separator_rows:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": sep_row_idx, "endRowIndex": sep_row_idx + 1,
+                              "startColumnIndex": 0, "endColumnIndex": last_col},
+                    "cell": {"userEnteredFormat": {
+                        "backgroundColor": {"red": 0.18, "green": 0.49, "blue": 0.20},
+                        "textFormat": {"bold": True, "fontSize": 10,
+                                       "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+                    }},
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                }
+            })
+
         # Ширини
         col_widths = {0: 35, 1: 250, 2: 55, 3: 80, 4: 80}  # №, Продукт, Грамаж, Кашон BGN/EUR
         for offset in range(len(store_columns)):
@@ -2836,6 +2931,7 @@ def write_to_sheets(final_products, stats):
         avg_col = STORE_COL_START + len(store_columns)
         col_widths[avg_col] = 75       # Ср.EUR
         col_widths[avg_col + 1] = 55   # Статус
+        col_widths[DEVIATION_COL] = 65  # Откл.%
 
         for col_idx, width in col_widths.items():
             format_requests.append({
@@ -2903,6 +2999,8 @@ def write_to_sheets(final_products, stats):
         if format_requests:
             sheet.spreadsheet.batch_update({"requests": format_requests})
             logger.info(f"Форматиране: {len(format_requests)} заявки")
+            if category_separator_rows:
+                logger.info(f"Категории: {len(category_separator_rows)} разделителни реда")
             if out_of_stock_cells:
                 logger.info(f"Сиво форматиране: {len(out_of_stock_cells)} изчерпани клетки")
             if deviation_cells_high or deviation_cells_low:
@@ -2914,6 +3012,148 @@ def write_to_sheets(final_products, stats):
     except Exception as e:
         logger.warning(f"Форматиране пропуснато (данните са записани): {e}")
         return True
+
+
+# =============================================================================
+# EMAIL REPORT
+# =============================================================================
+
+def send_email_report(final_products, stats):
+    """
+    Изпраща HTML имейл с обобщение на резултатите от experimental scraper.
+    """
+    gmail_user = os.environ.get('GMAIL_USER')
+    gmail_pass = os.environ.get('GMAIL_APP_PASSWORD')
+    recipients = os.environ.get('ALERT_EMAIL', gmail_user)
+    spreadsheet_id = os.environ.get('SPREADSHEET_ID', '')
+
+    if not gmail_user or not gmail_pass:
+        logger.warning("Gmail credentials не са зададени — пропускане на имейл")
+        return
+
+    if not recipients:
+        logger.warning("ALERT_EMAIL не е зададен — пропускане на имейл")
+        return
+
+    sheets_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}" if spreadsheet_id else ""
+    date_str = datetime.now().strftime("%d.%m.%Y")
+    time_str = datetime.now().strftime("%H:%M")
+
+    # Статистики
+    total_products = len(final_products)
+    store_keys = [key for key, cfg in STORES.items() if not cfg.get("is_master")]
+    store_keys += list(GLOVO_STORES.keys())
+
+    # Покритие по магазини
+    store_coverage = {}
+    all_display = {}
+    all_display.update({k: cfg["name"] for k, cfg in STORES.items()})
+    all_display.update({k: f"Glovo {cfg['name']}" for k, cfg in GLOVO_STORES.items()})
+
+    for sk in store_keys:
+        count = len([p for p in final_products if p.get(sk)])
+        store_coverage[all_display.get(sk, sk)] = count
+
+    # Продукти с отклонение >10%
+    alerts = []
+    for p in final_products:
+        all_prices = []
+        kashon = p.get("kashon") or {}
+        if kashon.get("eur"):
+            all_prices.append(kashon["eur"])
+        for sk in store_keys:
+            sd = p.get(sk)
+            if sd and sd.get("eur"):
+                all_prices.append(sd["eur"])
+        if len(all_prices) >= 2:
+            avg = sum(all_prices) / len(all_prices)
+            max_dev = max(((pr - avg) / avg) * 100 for pr in all_prices)
+            min_dev = min(((pr - avg) / avg) * 100 for pr in all_prices)
+            extreme = max_dev if abs(max_dev) >= abs(min_dev) else min_dev
+            if abs(extreme) > 10:
+                alerts.append({"name": p["name"], "deviation": round(extreme, 1)})
+
+    warning_count = len(alerts)
+    ok_count = total_products - warning_count
+
+    if warning_count > 0:
+        subject = f"[EXP] Harmonica: {warning_count} продукта с отклонение >10%"
+    else:
+        subject = f"[EXP] Harmonica: Всички цени в норма ({total_products} продукта)"
+
+    html = f"""<html><head><style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+        .header {{ background: #2e7d32; color: white; padding: 20px; text-align: center; }}
+        .header h1 {{ margin: 0; font-size: 22px; }}
+        .header p {{ margin: 5px 0 0; font-size: 13px; opacity: 0.9; }}
+        .summary {{ background: #f5f5f5; padding: 15px; margin: 20px; border-radius: 5px; }}
+        .stats {{ display: flex; justify-content: space-around; text-align: center; }}
+        .stat-box {{ padding: 10px; }}
+        .stat-number {{ font-size: 28px; font-weight: bold; }}
+        .stat-label {{ font-size: 12px; color: #666; }}
+        .ok {{ color: #2e7d32; }}
+        .warning {{ color: #d32f2f; }}
+        .alert-section {{ background: #ffebee; border-left: 4px solid #d32f2f; padding: 15px; margin: 20px; }}
+        .coverage {{ margin: 20px; }}
+        .bar-bg {{ background: #e0e0e0; height: 18px; border-radius: 9px; margin: 4px 0; overflow: hidden; }}
+        .bar-fill {{ background: #4caf50; height: 100%; }}
+        .footer {{ background: #f5f5f5; padding: 15px; text-align: center; font-size: 12px; color: #666; }}
+        .button {{ display: inline-block; background: #2e7d32; color: white; padding: 10px 20px;
+                   text-decoration: none; border-radius: 5px; margin: 10px; }}
+    </style></head><body>
+    <div class="header">
+        <h1>HARMONICA Price Tracker (Experimental)</h1>
+        <p>Отчет за {date_str} в {time_str} ч.</p>
+    </div>
+    <div class="summary">
+        <h2 style="color:#2e7d32; margin-top:0;">Обобщение</h2>
+        <div class="stats">
+            <div class="stat-box"><div class="stat-number">{total_products}</div><div class="stat-label">Продукта</div></div>
+            <div class="stat-box"><div class="stat-number ok">{ok_count}</div><div class="stat-label">В норма</div></div>
+            <div class="stat-box"><div class="stat-number warning">{warning_count}</div><div class="stat-label">С отклонение</div></div>
+            <div class="stat-box"><div class="stat-number">{len(STORES)+len(GLOVO_STORES)}</div><div class="stat-label">Магазина</div></div>
+        </div>
+    </div>"""
+
+    if alerts:
+        html += f'<div class="alert-section"><h2 style="color:#d32f2f;margin-top:0;">Отклонения &gt;10%</h2>'
+        for a in alerts[:15]:
+            arrow = "↑" if a["deviation"] > 0 else "↓"
+            color = "#d32f2f" if a["deviation"] > 0 else "#1565c0"
+            html += f'<p><strong>{a["name"]}</strong>: <span style="color:{color}">{arrow} {abs(a["deviation"]):.1f}%</span></p>'
+        if len(alerts) > 15:
+            html += f'<p><em>... и още {len(alerts)-15} продукта</em></p>'
+        html += '</div>'
+    else:
+        html += '<div class="summary" style="background:#e8f5e9;border-left:4px solid #2e7d32;margin:20px;"><h2 style="color:#2e7d32;margin-top:0;">Всички цени са в норма</h2></div>'
+
+    html += '<div class="coverage"><h2 style="color:#2e7d32;">Покритие по магазини</h2>'
+    for store_name, count in store_coverage.items():
+        pct = (count / total_products * 100) if total_products else 0
+        html += f'<div style="font-size:13px;color:#666;"><strong>{store_name}</strong>: {count}/{total_products} ({pct:.0f}%)</div>'
+        html += f'<div class="bar-bg"><div class="bar-fill" style="width:{pct}%"></div></div>'
+    html += '</div>'
+
+    if sheets_url:
+        html += f'<div style="text-align:center;margin:20px;"><a href="{sheets_url}" class="button">Отвори в Google Sheets</a></div>'
+
+    html += f'<div class="footer"><p><strong>Harmonica Price Tracker EXP-003 v9.5.0</strong></p><p>Автоматично генерирано на {date_str} в {time_str} ч.</p></div></body></html>'
+
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['From'] = gmail_user
+        msg['To'] = recipients
+        msg['Subject'] = subject
+        msg.attach(MIMEText(html, 'html', 'utf-8'))
+
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls()
+            server.login(gmail_user, gmail_pass)
+            server.send_message(msg)
+
+        logger.info(f"Имейл изпратен до {recipients}")
+    except Exception as e:
+        logger.error(f"Имейл грешка: {str(e)[:80]}")
 
 
 # =============================================================================
@@ -3148,7 +3388,10 @@ async def main():
     stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
     write_to_sheets(final_products, stats)
 
-    # 6. Save JSON
+    # 6. Email report
+    send_email_report(final_products, stats)
+
+    # 7. Save JSON
     json_stats = {"kashon_products": kashon_count}
     for sk, prods in all_store_products.items():
         json_stats[f"{sk}_products"] = len(prods)
