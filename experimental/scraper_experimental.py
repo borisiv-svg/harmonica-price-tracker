@@ -157,6 +157,40 @@ STORES = {
         "brand_page": True,
         "needs_captcha_solver": True,
     },
+    "metro": {
+        "name": "Metro",
+        "url": "https://shop.metro.bg/shop/search?q=%D1%85%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
+        "scroll_times": 15,
+    },
+    "zelen": {
+        "name": "Zelen",
+        "url": "https://zelen.bg/brand/94/harmonica",
+        "scroll_times": 10,
+        "brand_page": True,
+    },
+    "randi": {
+        "name": "Randi",
+        "url": "https://randi.bg/search?search=harmonica",
+        "scroll_times": 10,
+    },
+    "biomarket": {
+        "name": "Bio-Market",
+        "url": "https://bio-market.bg/brand/harmonica",
+        "scroll_times": 10,
+        "brand_page": True,
+    },
+    "befit": {
+        "name": "BeFit",
+        "url": "https://befit.bg/brands/harmonica",
+        "scroll_times": 10,
+        "brand_page": True,
+    },
+    "laika": {
+        "name": "Laika",
+        "url": "https://laika.bg/harmonica-bio-bulgaria-proizvodstvo-magi-maleeva-shoko-ghi-kefir-boza-koze-sirene-ovche-izvara-bulgarska-tzena-kade-da-kupia-magazin-online",
+        "scroll_times": 10,
+        "brand_page": True,
+    },
 }
 
 # Glovo магазини в София — ще се сканират чрез Glovo API
@@ -198,7 +232,7 @@ FOOD_KEYWORDS = [
     "домат", "кетчуп", "лютеница", "пюре", "паста", "хляб", "кори",
     "олио", "оцет", "зехтин", "мед", "чай", "smiles", "топчета",
     "нахут", "хумус", "яйца", "тахан", "фъстъчено",
-    "мармалад",
+    "мармалад", "леща", "киноа", "боб", "мунг", "ориз",
 ]
 
 NON_FOOD_KEYWORDS = [
@@ -2532,8 +2566,8 @@ async def crawl_all():
 # =============================================================================
 
 def extract_weight(name):
-    """Извлича грамаж от име на продукт. Напр. 'Био вафли 40г' → '40г'"""
-    match = re.search(r'(\d+)\s*(г|мл|ml|g|kg|л|l)\b', name, re.IGNORECASE)
+    """Извлича грамаж от име на продукт. Напр. 'Био вафли 40г' → '40г', '1.7 kg' → '1.7kg'"""
+    match = re.search(r'(\d+[.,]?\d*)\s*(г|мл|ml|g|kg|кг|л|l)\b', name, re.IGNORECASE)
     if match:
         return f"{match.group(1)}{match.group(2)}"
     return ""
@@ -2608,7 +2642,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер (EXP-003 v9.3.0)'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер (EXP-003 v9.5.0)'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(STORES) + len(GLOVO_STORES)}']
@@ -2995,6 +3029,26 @@ async def main():
     elif tmarket_data.get("error"):
         logger.warning(f"T-Market: {tmarket_data['error']}")
 
+    # Нови магазини (Metro, Zelen, Randi, BioMarket, BeFit, Laika) — generic extraction
+    generic_stores = {
+        "metro": {"products": [], "brand_page": False},
+        "zelen": {"products": [], "brand_page": True},
+        "randi": {"products": [], "brand_page": False},
+        "biomarket": {"products": [], "brand_page": True},
+        "befit": {"products": [], "brand_page": True},
+        "laika": {"products": [], "brand_page": True},
+    }
+    for store_key, store_info in generic_stores.items():
+        store_data = crawl_results.get(store_key, {})
+        if store_data.get("success") and store_data.get("markdown"):
+            store_info["products"] = _extract_generic_products(
+                store_data["markdown"],
+                brand_page=store_info["brand_page"],
+            )
+            logger.info(f"{STORES[store_key]['name']}: {len(store_info['products'])} Harmonica products")
+        elif store_data.get("error"):
+            logger.warning(f"{STORES[store_key]['name']}: {store_data['error']}")
+
     # Glovo магазини — продуктите са вече извлечени от fetch_all_glovo_products()
     glovo_all_products = {}
     for gkey, gconfig in GLOVO_STORES.items():
@@ -3032,6 +3086,9 @@ async def main():
         "dm": dm_products,
         "tmarket": tmarket_products,
     }
+    # Добавяме новите магазини
+    for store_key, store_info in generic_stores.items():
+        all_store_products[store_key] = store_info["products"]
     # Добавяме Glovo магазините
     all_store_products.update(glovo_all_products)
 
@@ -3099,7 +3156,7 @@ async def main():
     json_stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
 
     output = {
-        "experiment": "EXP-003-v9.3.0",
+        "experiment": "EXP-003-v9.5.0",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stores": len(STORES) + len(GLOVO_STORES),
