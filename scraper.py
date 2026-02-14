@@ -51,6 +51,20 @@ except ImportError:
     CLAUDE_AVAILABLE = False
     logger.warning("Anthropic библиотеката не е налична")
 
+# Firecrawl интеграция (v10.0)
+try:
+    from firecrawl_scraper import (
+        is_firecrawl_available,
+        scrape_all_stores_firecrawl,
+        scrape_store_with_extraction,
+        get_firecrawl_client,
+        extract_products_from_markdown,
+    )
+    FIRECRAWL_MODULE_AVAILABLE = True
+except ImportError:
+    FIRECRAWL_MODULE_AVAILABLE = False
+    logger.info("  Firecrawl модулът не е наличен, ще се използва Playwright")
+
 # =============================================================================
 # КОНФИГУРАЦИЯ
 # =============================================================================
@@ -1739,19 +1753,174 @@ def scrape_store(page, store_key, store_config, vision_client=None):
     return prices
 
 
+def collect_prices_firecrawl():
+    """
+    Събира цени от всички магазини чрез Firecrawl API (v10.0).
+
+    Процес:
+    1. Firecrawl скрейпва всеки магазин и връща markdown
+    2. Claude Phase 1 (Haiku) извлича продукти от markdown (по-малко токени)
+    3. Claude Phase 2 (Sonnet) съпоставя с нашия списък
+    4. Fallback regex екстракция за липсващи продукти
+
+    Предимства спрямо Playwright:
+    - Без локален browser (по-бързо, по-надеждно)
+    - Markdown вместо HTML = 3-5x по-малко токени
+    - Firecrawl управлява JS rendering, proxy-та, anti-bot
+    """
+    all_prices = {}
+    store_currencies = {}
+
+    # Скрейпваме всички магазини с Firecrawl
+    firecrawl_results = scrape_all_stores_firecrawl(STORES)
+
+    if not firecrawl_results:
+        logger.error("  [FIRECRAWL] Не са получени резултати, fallback към Playwright")
+        return None  # Сигнализираме за fallback
+
+    # Обработваме резултатите за всеки магазин
+    for store_key, config in STORES.items():
+        store_name = config['name_in_sheet']
+        fc_result = firecrawl_results.get(store_key, {})
+
+        if not fc_result.get('success'):
+            logger.warning(f"  [FIRECRAWL] {store_name}: Неуспешно скрейпване")
+            all_prices[store_key] = {}
+            store_currencies[store_key] = config.get('expected_currency', 'BGN')
+            continue
+
+        markdown_text = fc_result.get('markdown', '')
+
+        # Детектиране на валута от markdown текста
+        detected_currency = detect_currency_from_text(markdown_text)
+        if detected_currency:
+            store_currencies[store_key] = detected_currency
+            logger.info(f"  [ВАЛУТА] {store_name}: Детектирана {detected_currency}")
+        else:
+            store_currencies[store_key] = config.get('expected_currency', 'BGN')
+            logger.info(f"  [ВАЛУТА] {store_name}: Приета {store_currencies[store_key]} (по подразбиране)")
+
+        # Извличаме цени с Claude двуфазен анализ върху markdown
+        # Markdown е 3-5x по-малък от HTML = по-евтин Claude анализ
+        prices = {}
+
+        if CLAUDE_AVAILABLE and markdown_text:
+            try:
+                claude_prices = extract_prices_with_claude_two_phase(markdown_text, store_name)
+                logger.info(f"  Claude (markdown): {len(claude_prices)} продукта")
+                prices.update(claude_prices)
+            except Exception as e:
+                logger.error(f"  Claude грешка: {str(e)[:50]}")
+
+        # Fallback: regex екстракция от markdown
+        if len(prices) < 5 and markdown_text:
+            try:
+                fallback_prices = extract_prices_with_fallback(markdown_text)
+                added = 0
+                for name, price in fallback_prices.items():
+                    if name not in prices:
+                        prices[name] = price
+                        added += 1
+                if added > 0:
+                    logger.info(f"    Fallback добави: {added} продукта")
+            except Exception as e:
+                logger.error(f"  Fallback грешка: {str(e)[:50]}")
+
+        all_prices[store_key] = prices
+        logger.info(f"  {store_name}: Общо {len(prices)} продукта")
+
+    logger.info("\n  [ВАЛУТА] Обобщение:")
+    for store_key, currency in store_currencies.items():
+        store_name = STORES[store_key]['name_in_sheet']
+        logger.info(f"    - {store_name}: {currency}")
+
+    # Обработка на резултатите (същата логика като collect_prices)
+    results = []
+    currency_corrections = {"EUR->BGN": 0, "BGN": 0}
+
+    for product in PRODUCTS:
+        name = product['name']
+        ref_bgn = product['ref_price_bgn']
+        ref_eur = product['ref_price_eur']
+
+        normalized_prices = {}
+        for store_key in STORES:
+            raw_price = all_prices.get(store_key, {}).get(name)
+            if raw_price is not None:
+                detected = detect_currency_by_reference(raw_price, ref_bgn)
+                if detected == "EUR":
+                    normalized_prices[store_key] = round(raw_price * EUR_BGN_RATE, 2)
+                    currency_corrections["EUR->BGN"] += 1
+                else:
+                    normalized_prices[store_key] = round(raw_price, 2)
+                    currency_corrections["BGN"] += 1
+            else:
+                normalized_prices[store_key] = None
+
+        valid_prices = [p for p in normalized_prices.values() if p is not None]
+
+        store_deviations = {}
+        max_deviation = None
+        max_deviation_store = None
+        has_anomaly = False
+
+        if valid_prices:
+            avg_bgn = sum(valid_prices) / len(valid_prices)
+            avg_eur = avg_bgn / EUR_BGN_RATE
+
+            for store_key in STORES:
+                store_price = normalized_prices.get(store_key)
+                if store_price is not None:
+                    deviation_pct = ((store_price - avg_bgn) / avg_bgn) * 100
+                    store_deviations[store_key] = round(deviation_pct, 1)
+
+                    if abs(deviation_pct) > ALERT_THRESHOLD:
+                        has_anomaly = True
+
+                    if max_deviation is None or abs(deviation_pct) > abs(max_deviation):
+                        max_deviation = deviation_pct
+                        max_deviation_store = store_key
+                else:
+                    store_deviations[store_key] = None
+
+            status = "ВНИМАНИЕ" if has_anomaly else "OK"
+        else:
+            avg_bgn = avg_eur = max_deviation = None
+            status = "НЯМА ДАННИ"
+
+        results.append({
+            "name": name,
+            "weight": product['weight'],
+            "ref_bgn": ref_bgn,
+            "ref_eur": ref_eur,
+            "prices": normalized_prices,
+            "store_deviations": store_deviations,
+            "avg_bgn": round(avg_bgn, 2) if avg_bgn else None,
+            "avg_eur": round(avg_eur, 2) if avg_eur else None,
+            "max_deviation": round(max_deviation, 1) if max_deviation is not None else None,
+            "max_deviation_store": max_deviation_store,
+            "has_anomaly": has_anomaly,
+            "status": status
+        })
+
+    logger.info(f"  [ВАЛУТА] Корекции: {currency_corrections['EUR->BGN']} EUR->BGN, {currency_corrections['BGN']} BGN (без промяна)")
+
+    return results
+
+
 def collect_prices():
     """
     Събира цени от всички магазини с интелигентна валутна детекция.
-    
+
     Процес:
     1. Скрейпва всеки магазин и запазва суровите цени
     2. Детектира валутата на всеки магазин от текста
     3. Нормализира всички цени към BGN (за преходния период)
     4. Изчислява средни стойности и отклонения спрямо BGN референцията
-    
+
     ВАЖНО: Браузърът се рестартира между магазините за да освобождава памет
     и да предотврати "Page crashed" грешки при дълги сесии.
-    
+
     За магазини с Cloudflare защита се използва playwright-stealth.
     """
     all_prices = {}
@@ -2662,9 +2831,19 @@ def send_email_report(results, alerts):
 # =============================================================================
 
 def main():
+    # Определяме режима на работа
+    use_firecrawl = (
+        FIRECRAWL_MODULE_AVAILABLE
+        and is_firecrawl_available()
+        and os.environ.get('SCRAPER_MODE', 'auto') != 'playwright'
+    )
+    mode_name = "Firecrawl" if use_firecrawl else "Playwright"
+    version = "v10.0" if use_firecrawl else "v9.1"
+
     logger.info("=" * 60)
-    logger.info("HARMONICA PRICE TRACKER v9.1")
+    logger.info(f"HARMONICA PRICE TRACKER {version}")
     logger.info("27 продукта, 9 магазина")
+    logger.info(f"Режим: {mode_name}")
     logger.info("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
     logger.info("Продукти: " + str(len(PRODUCTS)))
     logger.info("Магазини: " + str(len(STORES)))
@@ -2673,42 +2852,60 @@ def main():
     if CLAUDE_AVAILABLE:
         logger.info(f"  Фаза 1: {CLAUDE_MODEL_PHASE1.split('-')[1].capitalize()}")
         logger.info(f"  Фаза 2: {CLAUDE_MODEL_PHASE2.split('-')[1].capitalize()} (с Haiku fallback)")
-    logger.info("Vision: " + ("Активна" if ENABLE_VISUAL_VERIFICATION else "Изключена"))
-    logger.info("Stealth: " + ("Наличен" if STEALTH_AVAILABLE else "Не е наличен"))
+    if use_firecrawl:
+        logger.info("Firecrawl: Активен (markdown + Claude анализ)")
+    else:
+        logger.info("Vision: " + ("Активна" if ENABLE_VISUAL_VERIFICATION else "Изключена"))
+        logger.info("Stealth: " + ("Наличен" if STEALTH_AVAILABLE else "Не е наличен"))
     logger.info("=" * 60)
-    
-    results = collect_prices()
+
+    results = None
+
+    # Опитваме Firecrawl първо
+    if use_firecrawl:
+        logger.info("\n  [MODE] Използваме Firecrawl API за скрейпване...")
+        results = collect_prices_firecrawl()
+
+        if results is None:
+            logger.warning("  [MODE] Firecrawl не успя, fallback към Playwright...")
+            use_firecrawl = False
+
+    # Fallback към Playwright
+    if results is None:
+        logger.info("\n  [MODE] Използваме Playwright за скрейпване...")
+        results = collect_prices()
+
     update_google_sheets(results)
-    
+
     # v9.0: Използваме has_anomaly вместо deviation
     alerts = [r for r in results if r.get('has_anomaly', False)]
-    
+
     # Винаги изпращаме имейл отчет
     send_email_report(results, alerts)
-    
+
     # Обобщение
     logger.info("\n" + "="*60)
-    logger.info("ОБОБЩЕНИЕ")
+    logger.info(f"ОБОБЩЕНИЕ (режим: {mode_name})")
     logger.info("="*60)
-    
+
     for k, cfg in STORES.items():
         found_products = [r for r in results if r['prices'].get(k)]
         missing_products = [r for r in results if not r['prices'].get(k)]
         cnt = len(found_products)
         logger.info("  " + cfg['name_in_sheet'] + ": " + str(cnt) + "/" + str(len(results)) + " продукта")
-        
+
         # Показваме липсващите продукти ако има такива
         if missing_products and cnt < len(results):
             missing_names = [f"#{r['name'][:30]}" for r in missing_products[:5]]
             logger.info("    Липсват: " + ", ".join(missing_names))
             if len(missing_products) > 5:
                 logger.info(f"    ... и още {len(missing_products) - 5}")
-    
+
     total = len([r for r in results if any(r['prices'].values())])
     ok_count = len([r for r in results if r['status'] == 'OK'])
     warning_count = len([r for r in results if r['status'] == 'ВНИМАНИЕ'])
     no_data = len([r for r in results if r['status'] == 'НЯМА ДАННИ'])
-    
+
     logger.info("\nОбщо покритие: " + str(total) + "/" + str(len(results)) + " продукта")
     logger.warning("Статус: " + str(ok_count) + " OK, " + str(warning_count) + " ВНИМАНИЕ, " + str(no_data) + " НЯМА ДАННИ")
     logger.info("\nГотово!")
