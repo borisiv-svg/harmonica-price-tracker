@@ -514,9 +514,24 @@ def extract_balev_products(markdown):
         if not is_food_product(name):
             continue
 
-        context = '\n'.join(lines[max(0,i-2):i+5])
+        # Разширен контекстен прозорец — Balev поставя цените по-далеч
+        context = '\n'.join(lines[max(0, i - 3):i + 10])
         eur = extract_eur_price(context)
         bgn = extract_bgn_price(context)
+
+        # Fallback: цена без "лв" суфикс (напр. "2.99" самостоятелно на ред)
+        if not bgn and not eur:
+            price_match = re.search(r'(?:^|\s)(\d+)[,.](\d{2})(?:\s|$)', context, re.MULTILINE)
+            if price_match:
+                try:
+                    price = float(f"{price_match.group(1)}.{price_match.group(2)}")
+                    if 0.50 <= price <= 100:
+                        bgn = round(price, 2)
+                except ValueError:
+                    pass
+
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
 
         if eur or bgn:
             seen.add(name_key)
@@ -609,6 +624,84 @@ def _extract_generic_products(markdown, brand_page=False):
 
         seen.add(name_key)
         products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    return products
+
+
+# =============================================================================
+# METRO EXTRACTION
+# =============================================================================
+
+def extract_metro_products(markdown):
+    """
+    Извлича продукти от Metro markdown.
+
+    Metro формат: продуктите са line-by-line, често с формат:
+    - Линк или текст с име + грамаж
+    - Цена X,XX лв на близък ред (понякога на същия ред)
+    Блоковете не са разделени с двоен нов ред (generic extractor не работи).
+    """
+    products = []
+    seen = set()
+
+    lines = markdown.split('\n')
+
+    for i, line in enumerate(lines):
+        line_stripped = line.strip()
+        if not line_stripped:
+            continue
+
+        # Търсим линкове с продуктови имена
+        link_match = re.search(r'(?<!!)\[([^\]]{5,120})\]\(([^\)]+)\)', line_stripped)
+        name = None
+
+        if link_match:
+            candidate = link_match.group(1).strip()
+            if is_food_product(candidate) and len(candidate) >= 8:
+                name = candidate
+        else:
+            # Пробваме текстов ред с грамаж
+            if re.search(r'\d+\s*(?:г|мл|ml|g)\b', line_stripped, re.IGNORECASE):
+                candidate = re.sub(r'^\s*[\-\*\#\|\>]+\s*', '', line_stripped)
+                candidate = re.sub(r'\*\*([^\*]+)\*\*', r'\1', candidate)
+                candidate = re.sub(r'\s+', ' ', candidate).strip()
+                if is_food_product(candidate) and 8 <= len(candidate) <= 120:
+                    name = candidate
+
+        if not name:
+            continue
+
+        # Проверка за harmonica
+        if not is_harmonica_product(name):
+            context_lines = '\n'.join(lines[max(0, i - 5):i + 5])
+            if 'harmonica' not in context_lines.lower() and 'хармоника' not in context_lines.lower():
+                continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        # Търсим цена в по-широк контекст (±8 реда) — Metro поставя цените
+        # на отделни редове, понякога с допълнителен текст между тях
+        context = '\n'.join(lines[max(0, i - 3):i + 10])
+        bgn = extract_bgn_price(context)
+        if not bgn:
+            # Опит: цена без "лв" (напр. "2.99" или "2,99" самостоятелно)
+            price_match = re.search(r'(?:^|\s)(\d+)[,.](\d{2})(?:\s|$)', context, re.MULTILINE)
+            if price_match:
+                try:
+                    price = float(f"{price_match.group(1)}.{price_match.group(2)}")
+                    if 0.50 <= price <= 100:
+                        bgn = round(price, 2)
+                except ValueError:
+                    pass
+        eur = extract_eur_price(context)
+
+        if bgn or eur:
+            if bgn and not eur:
+                eur = round(bgn / EUR_BGN_RATE, 2)
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
 
     return products
 
@@ -1523,6 +1616,143 @@ def _fetch_dm_via_firecrawl(query="harmonica"):
         elapsed = time.time() - start
         logger.warning(f"DM Firecrawl грешка: {e} ({elapsed:.1f}s)")
         return None
+
+
+# =============================================================================
+# RANDI FIRECRAWL FETCH
+# =============================================================================
+
+def _fetch_randi_via_firecrawl():
+    """
+    Firecrawl: рендерира Randi.bg search page с headless browser.
+    Randi.bg зарежда продуктите с JS — Crawl4AI не улавя всичко.
+    Синхронна функция — ще се изпълнява в thread pool.
+    """
+    if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
+        return None
+
+    start = time.time()
+    url = "https://randi.bg/search?search=harmonica"
+
+    try:
+        app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
+
+        result = app.scrape_url(
+            url,
+            params={
+                "formats": ["markdown"],
+                "actions": [
+                    {"type": "wait", "milliseconds": 3000},
+                    {"type": "scroll", "direction": "down", "amount": 8},
+                    {"type": "wait", "milliseconds": 2000},
+                    {"type": "scrape"},
+                ],
+                "timeout": 60000,
+            },
+        )
+        elapsed = time.time() - start
+
+        markdown = ""
+        if isinstance(result, dict):
+            markdown = result.get("markdown", "")
+        elif hasattr(result, "markdown"):
+            markdown = result.markdown or ""
+
+        if not markdown:
+            logger.info(f"Randi Firecrawl: празен резултат ({elapsed:.1f}s)")
+            return None
+
+        products = extract_randi_products(markdown)
+        logger.info(f"Randi Firecrawl: {len(products)} продукта ({elapsed:.1f}s)")
+
+        if products:
+            return {
+                "success": True,
+                "method": "firecrawl",
+                "products": products,
+                "elapsed": elapsed,
+                "markdown": markdown,
+            }
+
+        harmonica_refs = len(re.findall(r'(?i)harmonica|хармоника', markdown))
+        logger.info(f"Randi Firecrawl: 0 парсирани, {harmonica_refs} refs в markdown ({elapsed:.1f}s)")
+        return {
+            "success": True,
+            "method": "firecrawl",
+            "products": [],
+            "markdown": markdown,
+            "elapsed": elapsed,
+        }
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.warning(f"Randi Firecrawl грешка: {e} ({elapsed:.1f}s)")
+        return None
+
+
+# =============================================================================
+# RANDI EXTRACTION
+# =============================================================================
+
+def extract_randi_products(markdown):
+    """
+    Извлича продукти от Randi.bg markdown.
+
+    Randi формат: продуктовите блокове съдържат линк с име + цена X,XX лв
+    на отделен ред. Блоковете са разделени визуално.
+    """
+    products = []
+    seen = set()
+
+    lines = markdown.split('\n')
+
+    for i, line in enumerate(lines):
+        line_stripped = line.strip()
+
+        # Търсим линкове с продуктови имена
+        link_match = re.search(r'(?<!!)\[([^\]]{5,120})\]\(([^\)]+)\)', line_stripped)
+        if not link_match:
+            continue
+
+        name = link_match.group(1).strip()
+
+        # Филтрираме навигационни линкове
+        if not is_food_product(name):
+            continue
+        if len(name) < 8:
+            continue
+        if not is_harmonica_product(name):
+            # Проверяваме контекста за harmonica
+            context_lines = '\n'.join(lines[max(0, i - 3):i + 5])
+            if 'harmonica' not in context_lines.lower() and 'хармоника' not in context_lines.lower():
+                continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        # Търсим цена в контекст от ±5 реда
+        context = '\n'.join(lines[max(0, i - 3):i + 8])
+        bgn = extract_bgn_price(context)
+        if not bgn:
+            # Опит: цена без "лв" суфикс (напр. "2.99" или "2,99")
+            price_match = re.search(r'(\d+)[,.](\d{2})\b', context)
+            if price_match:
+                try:
+                    price = float(f"{price_match.group(1)}.{price_match.group(2)}")
+                    if 0.50 <= price <= 100:
+                        bgn = round(price, 2)
+                except ValueError:
+                    pass
+        eur = extract_eur_price(context)
+
+        if bgn or eur:
+            if bgn and not eur:
+                eur = round(bgn / EUR_BGN_RATE, 2)
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    return products
 
 
 async def fetch_dm_via_algolia(query="harmonica"):
@@ -2514,6 +2744,12 @@ async def crawl_all():
         loop = asyncio.get_event_loop()
         dm_firecrawl_future = loop.run_in_executor(None, _fetch_dm_via_firecrawl, "harmonica")
 
+    # Randi: Firecrawl (primary) в thread pool — Crawl4AI не улавя JS
+    randi_firecrawl_future = None
+    if "randi" in STORES and FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY:
+        loop = asyncio.get_event_loop()
+        randi_firecrawl_future = loop.run_in_executor(None, _fetch_randi_via_firecrawl)
+
     # curl_cffi паралелни задачи (DM Algolia fallback, Lilly GraphQL, T-Market)
     curl_tasks = {}
 
@@ -2534,6 +2770,8 @@ async def crawl_all():
             if key in curl_tasks:
                 continue
             if key == "dm" and dm_firecrawl_future:
+                continue
+            if key == "randi" and randi_firecrawl_future:
                 continue
             if cfg.get("needs_captcha_solver"):
                 tasks[key] = crawl_with_captcha_solver(crawler, key, cfg)
@@ -2593,6 +2831,24 @@ async def crawl_all():
             logger.error(f"DM Firecrawl грешка: {e}")
             if "dm" not in results:
                 results["dm"] = {"success": False, "error": str(e)}
+
+    # Randi Firecrawl резултат с fallback към Crawl4AI
+    if randi_firecrawl_future:
+        try:
+            randi_fc_result = await randi_firecrawl_future
+            if randi_fc_result and randi_fc_result.get("success") and randi_fc_result.get("products"):
+                results["randi"] = randi_fc_result
+                logger.info(f"Randi: Firecrawl успех — {len(randi_fc_result['products'])} продукта")
+            else:
+                logger.warning("Randi: Firecrawl без продукти — fallback към Crawl4AI")
+                if "randi" not in results:
+                    async with AsyncWebCrawler(config=browser_config) as crawler:
+                        results["randi"] = await crawl_store(crawler, "randi", STORES["randi"])
+        except Exception as e:
+            logger.error(f"Randi Firecrawl грешка: {e}")
+            if "randi" not in results:
+                async with AsyncWebCrawler(config=browser_config) as crawler:
+                    results["randi"] = await crawl_store(crawler, "randi", STORES["randi"])
 
     # Glovo магазини (паралелно, отделен pipeline)
     has_glovo_method = (FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY) or \
@@ -3269,11 +3525,37 @@ async def main():
     elif tmarket_data.get("error"):
         logger.warning(f"T-Market: {tmarket_data['error']}")
 
-    # Нови магазини (Metro, Zelen, Randi, BioMarket, BeFit, Laika) — generic extraction
+    # Metro — специализиран extractor
+    metro_products = []
+    metro_data = crawl_results.get("metro", {})
+    if metro_data.get("success") and metro_data.get("markdown"):
+        metro_products = extract_metro_products(metro_data["markdown"])
+        if not metro_products:
+            # Fallback към generic
+            metro_products = _extract_generic_products(metro_data["markdown"], brand_page=False)
+        logger.info(f"Metro: {len(metro_products)} Harmonica products")
+    elif metro_data.get("error"):
+        logger.warning(f"Metro: {metro_data['error']}")
+
+    # Randi — специализиран extractor (с Firecrawl или Crawl4AI markdown)
+    randi_products = []
+    randi_data = crawl_results.get("randi", {})
+    if randi_data.get("success"):
+        if randi_data.get("products"):
+            # Firecrawl — продуктите са вече извлечени
+            randi_products = randi_data["products"]
+        elif randi_data.get("markdown"):
+            randi_products = extract_randi_products(randi_data["markdown"])
+            if not randi_products:
+                randi_products = _extract_generic_products(randi_data["markdown"], brand_page=False)
+        method = randi_data.get("method", "crawl4ai")
+        logger.info(f"Randi: {len(randi_products)} Harmonica products (method: {method})")
+    elif randi_data.get("error"):
+        logger.warning(f"Randi: {randi_data['error']}")
+
+    # Останали нови магазини (Zelen, BioMarket, BeFit, Laika) — generic extraction
     generic_stores = {
-        "metro": {"products": [], "brand_page": False},
         "zelen": {"products": [], "brand_page": True},
-        "randi": {"products": [], "brand_page": False},
         "biomarket": {"products": [], "brand_page": True},
         "befit": {"products": [], "brand_page": True},
         "laika": {"products": [], "brand_page": True},
@@ -3325,8 +3607,10 @@ async def main():
         "lilly": lilly_products,
         "dm": dm_products,
         "tmarket": tmarket_products,
+        "metro": metro_products,
+        "randi": randi_products,
     }
-    # Добавяме новите магазини
+    # Добавяме останалите generic магазини
     for store_key, store_info in generic_stores.items():
         all_store_products[store_key] = store_info["products"]
     # Добавяме Glovo магазините
