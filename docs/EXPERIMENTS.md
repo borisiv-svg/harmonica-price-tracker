@@ -279,26 +279,126 @@ EXP-002 е успешно завършен. Digital Lab инфраструкту
 
 ---
 
-## EXP-003: New Stores Integration (ПЛАНИРАН)
+## EXP-003: New Stores Integration
 
-**Статус:** 📋 ПЛАНИРАН
-**Зависимост:** EXP-002
+**Статус:** ✅ ЗАВЪРШЕН (16 магазина активни)
+**Период:** февруари 2026
+**Зависимост:** EXP-001, EXP-002
 
-### Магазини за добавяне
-| Магазин | Сложност | Статус |
-|---------|----------|--------|
-| Lilly Drogerie | Ниска | Имплементиран в experimental (v6.3+) |
-| DM България | Средна | Отложен — 403 anti-bot защита |
-| ХИТ Хипермаркет | Средна | Планиран |
+### Магазини — финален статус
 
-**Промени v9.6.0 (14.02.2026):**
-- **Claude Sonnet 4.5 ценова валидация** — автоматично откриване на outlier цени (>50% от медианата) и изпращане към Claude API за оценка
-- Три вердикта: ГРЕШНА (премахва се), ВЯРНА (запазва се), СЪМНИТЕЛНА (флагва се)
+| Магазин | Метод | Покритие | Статус |
+|---------|-------|----------|--------|
+| Кашон (reference) | Crawl4AI | 88 продукта | ✅ Master list |
+| eBag | Crawl4AI | 34/88 (39%) | ✅ Стабилен |
+| Balev Bio | Crawl4AI + BS4 | 11/88 (12%) | ⚠️ Грешни цени (виж изводи) |
+| Lilly Drogerie | curl_cffi GraphQL | 8/88 (9%) | ✅ Стабилен (всички изчерпани) |
+| DM България | Firecrawl (JS rendering) | 11/88 (12%) | ✅ Работи след bugfix v10.0.1 |
+| T-Market | curl_cffi директен | 11/88 (12%) | ✅ Стабилен |
+| Metro | Crawl4AI + line-by-line | 8/88 (9%) | ⚠️ Грешни цени при някои продукти |
+| Randi | Firecrawl | 10/88 (11%) | ✅ Стабилен |
+| Zelen | Crawl4AI generic | 1/88 (1%) | ⚠️ Много ниско покритие |
+| Bio-Market | Crawl4AI generic | 17/88 (19%) | ✅ Стабилен |
+| BeFit | Crawl4AI generic | 43/88 (49%) | ✅ Високо покритие |
+| Laika | Crawl4AI generic (line-by-line) | 20/88 (23%) | ✅ Работи след bugfix v10.0.1 |
+| Glovo Kaufland | Firecrawl (search actions) | 18/88 (20%) | ✅ Работи след bugfix v10.0.1 |
+| Glovo Billa | Firecrawl (search actions) | 7/88 (8%) | ✅ Работи след bugfix v10.0.1 |
+| Glovo CBA | Firecrawl (search actions) | 11/88 (12%) | ✅ Работи след bugfix v10.0.1 |
+| Glovo Fantastico | Firecrawl (search actions) | 49/88 (56%) | ✅ Високо покритие |
+
+### Архитектура по методи на scraping
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    SCRAPER v10.0                         │
+├─────────────┬──────────────┬──────────────┬─────────────┤
+│  Crawl4AI   │  curl_cffi   │  Firecrawl   │  Claude     │
+│  (headless) │  (TLS spoof) │  (JS render) │  (validate) │
+├─────────────┼──────────────┼──────────────┼─────────────┤
+│ Кашон       │ Lilly (GQL)  │ DM           │ Outlier     │
+│ eBag        │ T-Market     │ Randi        │ detection   │
+│ Balev       │              │ Glovo ×4     │ (Sonnet)    │
+│ Metro       │              │              │             │
+│ Zelen       │              │              │             │
+│ Bio-Market  │              │              │             │
+│ BeFit       │              │              │             │
+│ Laika       │              │              │             │
+└─────────────┴──────────────┴──────────────┴─────────────┘
+```
+
+### Ключови bugfix-ове (v10.0.1, 14.02.2026)
+
+Четири бъга бяха открити и поправени в една сесия. Всички бяха свързани помежду си:
+
+**Bug 1: Firecrawl import (root cause)**
+- `from firecrawl import Firecrawl` → грешно, класът е `FirecrawlApp`
+- Тих `ImportError` → `FIRECRAWL_AVAILABLE = False`
+- Засегнати: DM, Randi*, Glovo ×4 (*Randi работеше заради различен code path)
+- Startup логът казваше `Firecrawl: YES` защото проверяваше само API key
+
+**Bug 2: Firecrawl API промяна**
+- `.scrape()` → `.scrape_url()` в по-новите версии на firecrawl-py
+- DM и Glovo ползваха стария API; Randi вече беше мигриран
+- Грешка: `'FirecrawlApp' object has no attribute 'scrape'`
+
+**Bug 3: Generic extractor block splitting**
+- `re.split(r'\n{2,}', markdown)` не работи за сайтове с единични нови редове
+- Laika: 33880 chars → 1 гигантски блок → 1 продукт
+- Решение: `_extract_generic_line_by_line()` fallback (като Metro extractor-а)
+
+**Bug 4: Claude max_tokens limit**
+- `max_tokens=2000` → Sonnet truncation при 38 suspicious prices
+- Truncated JSON → `JSONDecodeError` → валидацията пропусната → грешни цени в таблицата
+- Решение: динамичен `max_tokens` + JSON repair fallback
+
+### Изводи и поуки
+
+**1. Silent failures са най-опасни**
+Firecrawl import грешката не хвърляше видима грешка — `except ImportError` я поглъщаше тихо. Startup логът `Firecrawl: YES` маскираше проблема допълнително. **Поука:** Startup диагностиката трябва да валидира и наличност на модула, и API ключ, и работоспособност на метода.
+
+**2. API versioning между callsite-ове**
+Randi ползваше `.scrape_url()` (добавен по-късно), DM и Glovo — `.scrape()` (по-стар код). Когато един callsite работи, а друг не — търси API промяна. **Поука:** При upgrade на библиотека, проверявай ВСИЧКИ callsite-ове, не само последно добавения.
+
+**3. Generic extractors се нуждаят от множество стратегии**
+Block-based splitting (`\n{2,}`) работи за сайтове с ясно разделени продуктови карти, но се проваля за плътен layout. **Поука:** Винаги имай fallback стратегия. Line-by-line подходът е универсален backup за произволен markdown.
+
+**4. LLM output лимити трябва да скалират с входните данни**
+Фиксиран `max_tokens=2000` работеше с 10 магазина и ~29 suspicious prices. Добавянето на 7 нови магазина вдигна числото до 38, което надхвърли лимита. **Поука:** `max_tokens` трябва да е функция от `len(input)`, не константа.
+
+**5. Defensive JSON parsing за LLM output**
+Дори с правилен `max_tokens`, LLM може да върне malformed JSON. JSON repair (намиране на последния валиден обект + затваряне на масива) спасява частични резултати. **Поука:** Никога не приемай, че LLM output е валиден — винаги имай repair/fallback.
+
+### Предложения за следващи подобрения
+
+**Висок приоритет:**
+1. **Balev Bio extraction** — консистентно дава грешни цени (9.00лв за 400г кисело мляко вместо ~2.70лв). `_extract_balev_bs4()` вероятно хваща цени от грешни HTML елементи. Нужен е анализ на актуалната DOM структура
+2. **Metro price matching** — outlier цени (15.82лв за вафла 30г, 2.62лв за сироп 750мл). `extract_metro_products()` свързва имена с цени от съседни продукти. Контекстният прозорец може да е прекалено широк
+3. **Zelen покритие** — само 1/88 (1%). Нужна е инспекция на markdown структурата и вероятно dedicated extractor
+
+**Среден приоритет:**
+4. **Firecrawl version pinning** — `firecrawl-py>=1.0.0,<2.0.0` е прекалено широк. Pin-ване до конкретна minor версия ще предотврати бъдещи API breakages
+5. **Smoke test за imports** — добавяне на CI стъпка, която валидира всички imports преди пълното изпълнение. Би хванала Firecrawl бъга веднага
+6. **Glovo Fantastico дедупликация** — 88 extracted products (= Kashon!) е подозрително. Вероятно има дублирани или non-Harmonica продукти
+
+**Нисък приоритет:**
+7. **Laika closest-price logic** — вместо "първата цена в ±5 реда", да се търси "най-близката цена по брой редове". Би намалило false matches на гъсти brand pages
+8. **ХИТ Хипермаркет** — все още не е интегриран. Трябва анализ на сайтовата структура
+
+### Хронология на промените
+
+**v9.6.0 (14.02.2026):**
+- Claude Sonnet 4.5 ценова валидация — outlier detection + AI оценка
 - `validate_prices_with_claude()` — batch анализ с контекст за типични BG цени
 - `ANTHROPIC_API_KEY` env var, graceful fallback ако липсва
-- `validation_log` в JSON output за одит
 
-**Промени v7.0 (10.02.2026):**
+**v10.0.1 (14.02.2026):**
+- Firecrawl import fix (`Firecrawl` → `FirecrawlApp`)
+- Firecrawl API fix (`.scrape()` → `.scrape_url()`)
+- Generic line-by-line extractor за Laika и подобни сайтове
+- Claude `max_tokens` динамичен + JSON repair fallback
+- Startup диагностика: проверка на `FIRECRAWL_AVAILABLE` + `FIRECRAWL_API_KEY`
+
+**v7.0 (10.02.2026):**
 - `asyncio.gather` за паралелно краулване на всички магазини
 - BeautifulSoup за Lilly парсване (с regex fallback)
 - Подобрено product matching: нормализация, тежестен бонус, процентен бонус
@@ -307,7 +407,6 @@ EXP-002 е успешно завършен. Digital Lab инфраструкту
 
 **Премахнати:**
 - ~~Zoya.bg~~ — вече не продава продукти Harmonica (февруари 2026)
-- ~~DM България~~ — сайтът dm.bg връща 403 при automated requests
 
 ---
 
@@ -315,6 +414,7 @@ EXP-002 е успешно завършен. Digital Lab инфраструкту
 
 | Дата | Експеримент | Промяна |
 |------|-------------|---------|
+| 2026-02-14 | EXP-003 | v10.0.1: Firecrawl import/API fix, generic line-by-line, Claude max_tokens fix |
 | 2026-02-14 | EXP-003 | v9.6.0: Claude Sonnet 4.5 ценова валидация — outlier detection + AI оценка |
 | 2026-02-10 | EXP-003 | v7.0: logging, asyncio.gather, BS4, подобрен matching, retry |
 | 2026-02-10 | Всички | Седмичен график: понеделник 05:00 UTC. Zoya.bg премахнат |
