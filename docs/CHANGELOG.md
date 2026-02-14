@@ -5,6 +5,31 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v9.6.0 - 2026-02-14
+
+### Добавено
+- **Claude Sonnet 4.5 ценова валидация** в experimental scraper — автоматично откриване и оценка на съмнителни цени преди записване в Google Sheets
+- Нова функция `validate_prices_with_claude()` — изпраща batch от outlier цени (>50% отклонение от медианата) към Claude Sonnet за оценка
+- Три типа вердикти: **ГРЕШНА** (автоматично премахната), **ВЯРНА** (запазена), **СЪМНИТЕЛНА** (флагната за ръчна проверка)
+- `ANTHROPIC_API_KEY` environment variable — опционално, без ключ валидацията се пропуска gracefully
+- `CLAUDE_MODEL` константа (`claude-sonnet-4-5-20250929`)
+- `validation_log` в JSON output (`experimental/pilot_results.json`) за одит на всяко решение
+- Anthropic SDK import с graceful fallback (`ANTHROPIC_AVAILABLE` флаг)
+- Claude наличност се логва при стартиране
+
+### Променено
+- Версия обновена от v9.5.0 на v9.6.0
+- JSON output включва `claude_validation` поле
+- Вътрешни `_flags` полета се почистват преди JSON запис
+
+### Технически детайли
+- Валидацията се изпълнява между стъпка 3 (matching) и стъпка 4 (statistics) в `main()`
+- Prompt-ът включва контекст за типични цени на Harmonica продукти в България (2024-2026)
+- Claude оценява дали цената е за правилен грамаж, правилен продукт, или е грешно парсната
+- Грешни цени се нулират (`product[store] = None`) преди statistics и sheets write
+- `anthropic==0.40.0` вече е в requirements.txt (бе неизползван до сега)
+
+---
 ## v9.5.0 - 2026-02-10
 
 ### Добавено
