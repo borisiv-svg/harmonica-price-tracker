@@ -68,7 +68,7 @@ except ImportError:
     logger.warning("curl_cffi not installed — TLS impersonation disabled")
 
 try:
-    from firecrawl import Firecrawl as FirecrawlApp
+    from firecrawl import FirecrawlApp
     FIRECRAWL_AVAILABLE = True
 except ImportError:
     FIRECRAWL_AVAILABLE = False
@@ -577,19 +577,30 @@ def _extract_generic_products(markdown, brand_page=False):
     2. Търси блокове с BGN цена (X,XX лв)
     3. Извлича най-подходящия текст като име на продукт
     4. Ако brand_page=True, не проверява за "harmonica" в името
+    5. Ако block-based подход извлече < 3 продукта, пробва line-by-line
     """
+    products = _extract_generic_block_based(markdown, brand_page)
+
+    # Ако block-based намери малко, пробваме line-by-line (като Metro)
+    if len(products) < 3:
+        line_products = _extract_generic_line_by_line(markdown, brand_page)
+        if len(line_products) > len(products):
+            products = line_products
+
+    return products
+
+
+def _extract_generic_block_based(markdown, brand_page=False):
+    """Block-based extraction: разделя по двоен нов ред."""
     products = []
     seen = set()
 
-    # Разделяме на блокове
     blocks = re.split(r'\n{2,}', markdown)
 
     for block in blocks:
-        # Проверка за harmonica (освен ако е brand page)
         if not brand_page and not is_harmonica_product(block):
             continue
 
-        # Търсим цена
         bgn = extract_bgn_price(block)
         eur = extract_eur_price(block)
         if not bgn and not eur:
@@ -600,17 +611,14 @@ def _extract_generic_products(markdown, brand_page=False):
         if bgn and not eur:
             eur = round(bgn / EUR_BGN_RATE, 2)
 
-        # Извличаме продуктово име
         name = None
 
-        # Опит 1: Link текст
         link_match = re.search(r'(?<!!)\[([^\]]{5,100})\]\([^\)]+\)', block)
         if link_match:
             candidate = link_match.group(1).strip()
             if len(candidate) > 5 and is_food_product(candidate):
                 name = candidate
 
-        # Опит 2: Heading
         if not name:
             heading_match = re.search(r'#+\s*(.{5,80})', block)
             if heading_match:
@@ -618,7 +626,6 @@ def _extract_generic_products(markdown, brand_page=False):
                 if is_food_product(candidate):
                     name = candidate
 
-        # Опит 3: Най-дълъг текстов ред
         if not name:
             for line in block.split('\n'):
                 line = clean_product_name(line)
@@ -634,6 +641,60 @@ def _extract_generic_products(markdown, brand_page=False):
             continue
 
         products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    return products
+
+
+def _extract_generic_line_by_line(markdown, brand_page=False):
+    """Line-by-line extraction: сканира ред по ред (за сайтове без двойни нови редове)."""
+    products = []
+    seen = set()
+    lines = markdown.split('\n')
+
+    for i, line in enumerate(lines):
+        line_stripped = line.strip()
+        if not line_stripped or len(line_stripped) < 5:
+            continue
+
+        name = None
+
+        # Опит 1: Link текст
+        link_match = re.search(r'(?<!!)\[([^\]]{5,120})\]\(([^\)]+)\)', line_stripped)
+        if link_match:
+            candidate = link_match.group(1).strip()
+            if is_food_product(candidate) and len(candidate) >= 8:
+                name = candidate
+        else:
+            # Опит 2: Текстов ред с грамаж (признак за продукт)
+            if re.search(r'\d+\s*(?:г|мл|ml|g|kg|кг|л)\b', line_stripped, re.IGNORECASE):
+                candidate = clean_product_name(line_stripped)
+                if is_food_product(candidate) and 8 <= len(candidate) <= 150:
+                    name = candidate
+
+        if not name:
+            continue
+
+        # Проверка за harmonica (освен при brand_page)
+        if not brand_page:
+            if not is_harmonica_product(name):
+                context_lines = '\n'.join(lines[max(0, i - 5):i + 5])
+                if not is_harmonica_product(context_lines):
+                    continue
+
+        if deduplicate_check(name, seen):
+            continue
+
+        # Търсим цена в контекст ±5 реда
+        context = '\n'.join(lines[max(0, i - 3):i + 8])
+        bgn = extract_bgn_price(context)
+        if not bgn:
+            bgn = extract_price_fallback(context)
+        eur = extract_eur_price(context)
+
+        if bgn or eur:
+            if bgn and not eur:
+                eur = round(bgn / EUR_BGN_RATE, 2)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
 
     return products
 
@@ -3611,8 +3672,10 @@ async def main():
                 f"CapSolver: {CAPSOLVER_AVAILABLE}, curl_cffi: {CURL_CFFI_AVAILABLE}")
     if PROXY_URL:
         logger.info(f"Proxy: {PROXY_URL[:30]}...")
-    if FIRECRAWL_API_KEY:
+    if FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY:
         logger.info(f"Firecrawl: YES (key: {FIRECRAWL_API_KEY[:8]}...)")
+    elif FIRECRAWL_API_KEY and not FIRECRAWL_AVAILABLE:
+        logger.warning(f"Firecrawl: KEY SET but import FAILED — DM/Randi/Glovo Firecrawl disabled")
     if GLOVO_AUTH_TOKEN:
         logger.info(f"Glovo auth: YES (token length: {len(GLOVO_AUTH_TOKEN)})")
     if not FIRECRAWL_API_KEY and not GLOVO_AUTH_TOKEN:
