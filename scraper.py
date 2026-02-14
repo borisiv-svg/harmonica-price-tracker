@@ -2929,28 +2929,42 @@ async def crawl_all():
         curl_tasks["tmarket"] = asyncio.create_task(fetch_tmarket_via_curl())
 
     # Crawl4AI задачи (пропускаме stores с curl_cffi/firecrawl path)
-    async with AsyncWebCrawler(config=browser_config) as crawler:
-        tasks = {}
+    crawl4ai_ok = False
+    try:
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            crawl4ai_ok = True
+            tasks = {}
+            for key, cfg in STORES.items():
+                if key in curl_tasks:
+                    continue
+                if key == "dm" and dm_firecrawl_future:
+                    continue
+                if key == "randi" and randi_firecrawl_future:
+                    continue
+                if cfg.get("needs_captcha_solver"):
+                    tasks[key] = crawl_with_captcha_solver(crawler, key, cfg)
+                else:
+                    tasks[key] = crawl_store(crawler, key, cfg)
+
+            task_results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+
+            for key, result in zip(tasks.keys(), task_results):
+                if isinstance(result, Exception):
+                    logger.error(f"{key}: Неочаквана грешка — {result}")
+                    results[key] = {"success": False, "error": str(result)}
+                else:
+                    results[key] = result
+    except Exception as e:
+        logger.error(f"Crawl4AI browser launch failed: {e}")
+        logger.warning("Continuing with curl_cffi/Firecrawl stores only")
+        # Mark all Crawl4AI-only stores as failed
         for key, cfg in STORES.items():
-            if key in curl_tasks:
-                continue
-            if key == "dm" and dm_firecrawl_future:
-                continue
-            if key == "randi" and randi_firecrawl_future:
-                continue
-            if cfg.get("needs_captcha_solver"):
-                tasks[key] = crawl_with_captcha_solver(crawler, key, cfg)
-            else:
-                tasks[key] = crawl_store(crawler, key, cfg)
-
-        task_results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-
-        for key, result in zip(tasks.keys(), task_results):
-            if isinstance(result, Exception):
-                logger.error(f"{key}: Неочаквана грешка — {result}")
-                results[key] = {"success": False, "error": str(result)}
-            else:
-                results[key] = result
+            if key not in results and key not in curl_tasks:
+                if key == "dm" and dm_firecrawl_future:
+                    continue
+                if key == "randi" and randi_firecrawl_future:
+                    continue
+                results[key] = {"success": False, "error": f"Crawl4AI unavailable: {e}"}
 
     # curl_cffi резултати с fallback към Crawl4AI
     for store_key, task in curl_tasks.items():
@@ -2962,15 +2976,19 @@ async def crawl_all():
                             f"(method: {curl_result.get('method')})")
             else:
                 logger.warning(f"{STORES[store_key]['name']}: curl_cffi failed: "
-                               f"{curl_result.get('error')} — fallback Crawl4AI")
-                async with AsyncWebCrawler(config=browser_config) as crawler:
-                    cfg = STORES[store_key]
-                    if cfg.get("needs_captcha_solver"):
-                        results[store_key] = await crawl_with_captcha_solver(
-                            crawler, store_key, cfg)
-                    else:
-                        results[store_key] = await crawl_store(
-                            crawler, store_key, cfg)
+                               f"{curl_result.get('error')}")
+                if crawl4ai_ok:
+                    logger.info(f"{STORES[store_key]['name']}: fallback към Crawl4AI")
+                    async with AsyncWebCrawler(config=browser_config) as crawler:
+                        cfg = STORES[store_key]
+                        if cfg.get("needs_captcha_solver"):
+                            results[store_key] = await crawl_with_captcha_solver(
+                                crawler, store_key, cfg)
+                        else:
+                            results[store_key] = await crawl_store(
+                                crawler, store_key, cfg)
+                else:
+                    results[store_key] = curl_result
         except Exception as e:
             logger.error(f"{STORES[store_key]['name']}: curl_cffi грешка: {e}")
             results[store_key] = {"success": False, "error": str(e)}
@@ -3002,15 +3020,20 @@ async def crawl_all():
                 results["randi"] = randi_fc_result
                 logger.info(f"Randi: Firecrawl успех — {len(randi_fc_result['products'])} продукта")
             else:
-                logger.warning("Randi: Firecrawl без продукти — fallback към Crawl4AI")
-                if "randi" not in results:
+                logger.warning("Randi: Firecrawl без продукти")
+                if "randi" not in results and crawl4ai_ok:
+                    logger.info("Randi: fallback към Crawl4AI")
                     async with AsyncWebCrawler(config=browser_config) as crawler:
                         results["randi"] = await crawl_store(crawler, "randi", STORES["randi"])
+                elif "randi" not in results:
+                    results["randi"] = {"success": False, "error": "Firecrawl failed, Crawl4AI unavailable"}
         except Exception as e:
             logger.error(f"Randi Firecrawl грешка: {e}")
-            if "randi" not in results:
+            if "randi" not in results and crawl4ai_ok:
                 async with AsyncWebCrawler(config=browser_config) as crawler:
                     results["randi"] = await crawl_store(crawler, "randi", STORES["randi"])
+            elif "randi" not in results:
+                results["randi"] = {"success": False, "error": str(e)}
 
     # Glovo магазини (паралелно, отделен pipeline)
     has_glovo_method = (FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY) or \
