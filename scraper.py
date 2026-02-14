@@ -2804,9 +2804,11 @@ def validate_prices_with_claude(final_products, all_store_keys):
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         start_t = time.time()
+        # ~150 tokens per verdict + buffer; minimum 2000
+        needed_tokens = max(2000, len(suspicious) * 150 + 500)
         message = client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=2000,
+            max_tokens=needed_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
         elapsed = time.time() - start_t
@@ -2819,12 +2821,31 @@ def validate_prices_with_claude(final_products, all_store_keys):
         if response_text.startswith("```"):
             response_text = re.sub(r'^```(?:json)?\s*', '', response_text)
             response_text = re.sub(r'\s*```$', '', response_text)
-        verdicts = json.loads(response_text)
 
-    except json.JSONDecodeError as e:
-        logger.error(f"Claude JSON грешка: {e}")
-        logger.error(f"Отговор: {response_text[:500]}")
-        return final_products, {}
+        try:
+            verdicts = json.loads(response_text)
+        except json.JSONDecodeError:
+            # Truncated JSON — опитваме да спасим валидните verdict-и
+            logger.warning("Claude JSON truncated — опит за частично парсване...")
+            # Намираме последния пълен обект (завършващ на })
+            last_brace = response_text.rfind('}')
+            if last_brace > 0:
+                truncated = response_text[:last_brace + 1]
+                # Затваряме масива
+                if not truncated.rstrip().endswith(']'):
+                    truncated = truncated.rstrip().rstrip(',') + '\n]'
+                try:
+                    verdicts = json.loads(truncated)
+                    logger.info(f"  Спасени {len(verdicts)}/{len(suspicious)} verdict-и от truncated JSON")
+                except json.JSONDecodeError as e2:
+                    logger.error(f"Claude JSON repair неуспешен: {e2}")
+                    logger.error(f"Отговор: {response_text[:500]}")
+                    return final_products, {}
+            else:
+                logger.error(f"Claude JSON грешка: няма валидни verdict-и")
+                logger.error(f"Отговор: {response_text[:500]}")
+                return final_products, {}
+
     except Exception as e:
         logger.error(f"Claude API грешка: {e}")
         return final_products, {}
