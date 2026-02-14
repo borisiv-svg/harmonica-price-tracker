@@ -108,10 +108,15 @@ jobs:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+          # Firecrawl API (v10.0) - primary scraping engine
+          # Ако ключът е зададен, скрейперът използва Firecrawl вместо Playwright
+          # Ако не е зададен, автоматично използва Playwright като fallback
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
           # Флаг, който кодът може да използва за различно поведение
           PRODUCTION_MODE: "true"
         run: |
           echo "Starting production scraper at $(date)"
+          echo "Firecrawl: $([ -n "$FIRECRAWL_API_KEY" ] && echo 'ENABLED' || echo 'DISABLED (using Playwright fallback)')"
           python scraper.py
           echo "Production scraper completed at $(date)"
       
