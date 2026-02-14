@@ -3,16 +3,17 @@ gspread==6.1.0
 google-auth==2.27.0
 google-auth-oauthlib==1.2.0
 python-dotenv==1.0.0
-anthropic==0.40.0
+anthropic>=0.40.0,<1.0.0
 beautifulsoup4==4.12.3
 
-# Firecrawl - primary scraping engine (v10.0)
-firecrawl-py>=1.0.0
+# Primary scraping engine (async, parallel)
+crawl4ai>=0.4.0,<1.0.0
 
-# Playwright - fallback scraping engine (used when Firecrawl unavailable)
-playwright==1.40.0
-playwright-stealth==1.0.6
+# TLS impersonation for Cloudflare bypass
+curl_cffi>=0.7.0,<1.0.0
 
-# Experimental dependencies
-capsolver>=1.0.0
-curl_cffi>=0.7.0
+# Firecrawl — JS rendering for DM, Randi, Glovo
+firecrawl-py>=1.0.0,<2.0.0
+
+# Anti-bot (optional)
+capsolver>=1.0.0,<2.0.0
