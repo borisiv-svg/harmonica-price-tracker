@@ -1,6 +1,11 @@
 """
-EXP-003: Crawl4AI Experimental Scraper v9.3.0
+EXP-003: Crawl4AI Experimental Scraper v9.5.0
 ===============================================
+Промени спрямо v9.4.0:
+- VMV премахнат (1/88 покритие, не работи)
+- DM: Firecrawl като primary метод (proxy 502 tunnel fail с curl_cffi)
+- DM: Algolia/curl_cffi запазен като fallback
+
 Промени спрямо v9.3.0:
 - Кашон: филтрирани не-Harmonica продукти (Черноморски улов и др.)
 - Кашон EUR: fallback BGN→EUR конвертиране при липса на EUR цена
@@ -14,11 +19,10 @@ EXP-003: Crawl4AI Experimental Scraper v9.3.0
 - crawl_all(): Lilly добавен в curl_cffi паралелни задачи
 
 Промени спрямо v8.0:
-- VMV Supermarket, T-Market добавени (Crawl4AI)
+- T-Market добавен (Crawl4AI)
 - DM Algolia API (curl_cffi) с CapSolver fallback
 - curl_cffi за TLS impersonation (Cloudflare bypass)
 - Proxy support (PROXY_URL env var)
-- Общо 7 магазина (Кашон + 6 external)
 """
 
 import asyncio
@@ -145,11 +149,6 @@ STORES = {
         "scroll_times": 5,
         "needs_captcha_solver": True,
         "algolia_enabled": True,
-    },
-    "vmv": {
-        "name": "VMV",
-        "url": "https://vmv.bg/search?q=harmonica",
-        "scroll_times": 5,
     },
     "tmarket": {
         "name": "T-Market",
@@ -534,65 +533,6 @@ def _extract_generic_products(markdown, brand_page=False):
         seen.add(name_key)
         products.append({"name": name, "eur": eur, "bgn": bgn})
 
-    return products
-
-
-# =============================================================================
-# VMV SUPERMARKET EXTRACTION
-# =============================================================================
-
-def extract_vmv_products(markdown, html_text=None, brand_page=True):
-    """
-    Извлича Harmonica продукти от VMV Supermarket.
-
-    VMV.bg е онлайн супермаркет. Brand page: vmv.bg/brands/harmonica
-    На brand page всички продукти са Harmonica → skip harmonica name check.
-    Цени в BGN (лева).
-    """
-    products = []
-    seen = set()
-
-    # Pattern 1: Links — на brand page всички продукти са Harmonica
-    link_pattern = r'\[([^\]]{5,100})\]\(((?:https?://[^\)]+|/[^\)]+))\)'
-    for match in re.finditer(link_pattern, markdown):
-        name = match.group(1).strip()
-        url = match.group(2)
-
-        if name.startswith('!') or 'logo' in name.lower() or 'banner' in name.lower():
-            continue
-        if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
-            continue
-        # На brand page не проверяваме за harmonica в името
-        if not brand_page and not is_harmonica_product(name):
-            continue
-
-        name_key = name.lower()[:30]
-        if name_key in seen:
-            continue
-        if not is_food_product(name):
-            continue
-
-        idx = match.end()
-        context = markdown[max(0, idx - 100):idx + 400]
-
-        bgn = extract_bgn_price(context)
-        eur = extract_eur_price(context)
-
-        if bgn and not eur:
-            eur = round(bgn / EUR_BGN_RATE, 2)
-
-        if bgn or eur:
-            seen.add(name_key)
-            products.append({"name": name, "eur": eur, "bgn": bgn})
-
-    # Pattern 2: Текстови блокове с цена (без link)
-    if not products:
-        products = _extract_generic_products(markdown, brand_page=brand_page)
-
-    if not products:
-        logger.warning(f"VMV: 0 продукта, markdown preview: {markdown[:500]}")
-    else:
-        logger.info(f"VMV: {len(products)} продукта извлечени")
     return products
 
 
@@ -1428,6 +1368,84 @@ async def extract_algolia_config(html_text):
         return config
 
     return None
+
+
+def _fetch_dm_via_firecrawl(query="harmonica"):
+    """
+    Firecrawl: рендерира DM.bg search page с headless browser.
+    DM.bg има силна Cloudflare защита, която блокира proxy + curl_cffi.
+    Firecrawl използва собствена инфраструктура и може да bypass-не.
+    Синхронна функция — ще се изпълнява в thread pool.
+    """
+    if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
+        return None
+
+    start = time.time()
+    url = f"https://www.dm.bg/search?query={query}&searchType=product"
+
+    try:
+        app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
+
+        # Firecrawl scrape с wait за JS rendering
+        result = app.scrape(
+            url, formats=["markdown", "html"],
+            actions=[
+                {"type": "wait", "milliseconds": 5000},
+                {"type": "scroll", "direction": "down"},
+                {"type": "wait", "milliseconds": 2000},
+                {"type": "scrape"},
+            ],
+            timeout=60000,
+        )
+        elapsed = time.time() - start
+
+        markdown = ""
+        html = ""
+        if isinstance(result, dict):
+            markdown = result.get("markdown", "")
+            html = result.get("html", "")
+        elif hasattr(result, "markdown"):
+            markdown = result.markdown or ""
+            html = getattr(result, "html", "") or ""
+
+        if not markdown and not html:
+            logger.info(f"DM Firecrawl: празен резултат ({elapsed:.1f}s)")
+            return None
+
+        # Парсване на продукти от HTML/markdown
+        products = []
+        if html:
+            products = extract_dm_from_curl_html(html)
+        if not products and markdown:
+            products = extract_dm_products(markdown, html_text=html)
+
+        logger.info(f"DM Firecrawl: {len(products)} продукта ({elapsed:.1f}s)")
+
+        if products:
+            return {
+                "success": True,
+                "method": "firecrawl",
+                "products": products,
+                "elapsed": elapsed,
+                "html": html,
+            }
+
+        # Firecrawl успя, но не можахме да парснем продукти
+        harmonica_refs = len(re.findall(r'(?i)harmonica|хармоника', markdown))
+        logger.info(f"DM Firecrawl: 0 парсирани, {harmonica_refs} refs в markdown ({elapsed:.1f}s)")
+        return {
+            "success": True,
+            "method": "firecrawl",
+            "products": [],
+            "html": html,
+            "markdown": markdown,
+            "elapsed": elapsed,
+        }
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.warning(f"DM Firecrawl грешка: {e} ({elapsed:.1f}s)")
+        return None
 
 
 async def fetch_dm_via_algolia(query="harmonica"):
@@ -2412,11 +2430,18 @@ async def crawl_all():
 
     results = {}
 
-    # curl_cffi паралелни задачи (DM Algolia, Lilly GraphQL, T-Market)
+    # DM: Firecrawl (primary) в thread pool — стартираме рано
+    dm_firecrawl_future = None
+    dm_config = STORES.get("dm", {})
+    if dm_config and FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY:
+        loop = asyncio.get_event_loop()
+        dm_firecrawl_future = loop.run_in_executor(None, _fetch_dm_via_firecrawl, "harmonica")
+
+    # curl_cffi паралелни задачи (DM Algolia fallback, Lilly GraphQL, T-Market)
     curl_tasks = {}
 
-    dm_config = STORES.get("dm", {})
-    if dm_config.get("algolia_enabled") and CURL_CFFI_AVAILABLE:
+    # DM Algolia само ако нямаме Firecrawl
+    if not dm_firecrawl_future and dm_config.get("algolia_enabled") and CURL_CFFI_AVAILABLE:
         curl_tasks["dm"] = asyncio.create_task(fetch_dm_via_algolia("harmonica"))
 
     if CURL_CFFI_AVAILABLE and "lilly" in STORES:
@@ -2425,11 +2450,13 @@ async def crawl_all():
     if CURL_CFFI_AVAILABLE and "tmarket" in STORES:
         curl_tasks["tmarket"] = asyncio.create_task(fetch_tmarket_via_curl())
 
-    # Crawl4AI задачи (пропускаме stores с curl_cffi path)
+    # Crawl4AI задачи (пропускаме stores с curl_cffi/firecrawl path)
     async with AsyncWebCrawler(config=browser_config) as crawler:
         tasks = {}
         for key, cfg in STORES.items():
             if key in curl_tasks:
+                continue
+            if key == "dm" and dm_firecrawl_future:
                 continue
             if cfg.get("needs_captcha_solver"):
                 tasks[key] = crawl_with_captcha_solver(crawler, key, cfg)
@@ -2467,6 +2494,28 @@ async def crawl_all():
         except Exception as e:
             logger.error(f"{STORES[store_key]['name']}: curl_cffi грешка: {e}")
             results[store_key] = {"success": False, "error": str(e)}
+
+    # DM Firecrawl резултат с fallback към Algolia/curl_cffi
+    if dm_firecrawl_future:
+        try:
+            dm_fc_result = await dm_firecrawl_future
+            if dm_fc_result and dm_fc_result.get("success") and dm_fc_result.get("products"):
+                results["dm"] = dm_fc_result
+                logger.info(f"DM: Firecrawl успех — {len(dm_fc_result['products'])} продукта")
+            else:
+                logger.warning("DM: Firecrawl без продукти — fallback към Algolia/curl_cffi")
+                if dm_config.get("algolia_enabled") and CURL_CFFI_AVAILABLE:
+                    algolia_result = await fetch_dm_via_algolia("harmonica")
+                    if algolia_result.get("success"):
+                        results["dm"] = algolia_result
+                    else:
+                        results["dm"] = algolia_result
+                elif "dm" not in results:
+                    results["dm"] = {"success": False, "error": "Firecrawl failed, no fallback"}
+        except Exception as e:
+            logger.error(f"DM Firecrawl грешка: {e}")
+            if "dm" not in results:
+                results["dm"] = {"success": False, "error": str(e)}
 
     # Glovo магазини (паралелно, отделен pipeline)
     has_glovo_method = (FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY) or \
@@ -2840,7 +2889,7 @@ def write_to_sheets(final_products, stats):
 async def main():
     logger.info("=" * 60)
     total_stores = len(STORES) + len(GLOVO_STORES)
-    logger.info(f"EXP-003: CRAWL4AI v9.3.0 — {total_stores} магазина + GraphQL/curl_cffi/Glovo")
+    logger.info(f"EXP-003: CRAWL4AI v9.5.0 — {total_stores} магазина + GraphQL/curl_cffi/Firecrawl/Glovo")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}, "
@@ -2926,18 +2975,6 @@ async def main():
     elif dm_data.get("error"):
         logger.warning(f"DM: {dm_data['error']}")
 
-    # VMV Supermarket
-    vmv_products = []
-    if crawl_results.get("vmv", {}).get("success"):
-        vmv_data = crawl_results["vmv"]
-        vmv_products = extract_vmv_products(
-            vmv_data["markdown"],
-            html_text=vmv_data.get("html"),
-            brand_page=STORES["vmv"].get("brand_page", False),
-        )
-    elif crawl_results.get("vmv", {}).get("error"):
-        logger.warning(f"VMV: {crawl_results['vmv']['error']}")
-
     # T-Market
     tmarket_products = []
     tmarket_data = crawl_results.get("tmarket", {})
@@ -2993,7 +3030,6 @@ async def main():
         "balev": balev_products,
         "lilly": lilly_products,
         "dm": dm_products,
-        "vmv": vmv_products,
         "tmarket": tmarket_products,
     }
     # Добавяме Glovo магазините
