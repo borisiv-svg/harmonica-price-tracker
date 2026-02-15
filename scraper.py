@@ -320,6 +320,12 @@ STORES = {
             document.querySelectorAll('[class*="acsb"], [class*="accessibility"], [id*="acsb"]')
                 .forEach(el => el.remove());
         """,
+        # Firecrawl: затваряне на accessibility overlay преди scroll
+        "firecrawl_pre_actions": [
+            {"type": "click", "selector": ".acsb-close"},
+            {"type": "click", "selector": "[aria-label='Close']"},
+            {"type": "wait", "milliseconds": 1000},
+        ],
     },
     "laika": {
         "name": "Laika",
@@ -1835,6 +1841,7 @@ def _fetch_dm_via_firecrawl(query="harmonica"):
         app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
 
         # Firecrawl scrape с wait за JS rendering
+        # DM е тежък JS сайт (Cloudflare + SPA) — 90s timeout
         result = app.scrape_url(
             url,
             params={
@@ -1842,10 +1849,12 @@ def _fetch_dm_via_firecrawl(query="harmonica"):
                 "actions": [
                     {"type": "wait", "milliseconds": 5000},
                     {"type": "scroll", "direction": "down"},
+                    {"type": "wait", "milliseconds": 3000},
+                    {"type": "scroll", "direction": "down"},
                     {"type": "wait", "milliseconds": 2000},
                     {"type": "scrape"},
                 ],
-                "timeout": 60000,
+                "timeout": 90000,
             },
         )
         elapsed = time.time() - start
@@ -1923,12 +1932,12 @@ def _fetch_randi_via_firecrawl():
             params={
                 "formats": ["markdown"],
                 "actions": [
-                    {"type": "wait", "milliseconds": 3000},
+                    {"type": "wait", "milliseconds": 4000},
                     {"type": "scroll", "direction": "down", "amount": 8},
-                    {"type": "wait", "milliseconds": 2000},
+                    {"type": "wait", "milliseconds": 3000},
                     {"type": "scrape"},
                 ],
-                "timeout": 60000,
+                "timeout": 90000,
             },
         )
         elapsed = time.time() - start
@@ -2007,6 +2016,9 @@ def _fetch_store_via_firecrawl(store_key, store_config):
         actions = [
             {"type": "wait", "milliseconds": initial_wait},
         ]
+        # Pre-actions (напр. затваряне на overlay/popup) — ако са зададени
+        pre_actions = store_config.get("firecrawl_pre_actions", [])
+        actions.extend(pre_actions)
         for _ in range(firecrawl_scrolls):
             actions.append({"type": "scroll", "direction": "down"})
             actions.append({"type": "wait", "milliseconds": scroll_wait})
@@ -3461,8 +3473,21 @@ async def crawl_all():
         logger.info(f"Crawl4AI fallback за {len(crawl4ai_needed)} магазина: "
                     f"{', '.join(STORES[s]['name'] for s in crawl4ai_needed)}")
 
-        # Пробваме първо с proxy, после без ако tunnel-ът пропадне
-        proxy_attempts = [True, False] if PROXY_URL else [False]
+        # Бърза proxy проверка — ако proxy-то не работи, не губим време
+        proxy_attempts = [False]  # default: без proxy
+        if PROXY_URL:
+            try:
+                import socket
+                from urllib.parse import urlparse as _urlparse
+                _pp = _urlparse(PROXY_URL)
+                _sock = socket.create_connection(
+                    (_pp.hostname, _pp.port or 12321), timeout=5)
+                _sock.close()
+                proxy_attempts = [True, False]
+                logger.info(f"Proxy health check: OK ({_pp.hostname}:{_pp.port})")
+            except Exception as _e:
+                logger.warning(f"Proxy health check: FAILED ({_e}) — пропускаме proxy")
+                proxy_attempts = [False]
 
         partial_set = set(partial_stores)
         for use_proxy in proxy_attempts:
@@ -3549,12 +3574,45 @@ async def crawl_all():
                     "error": "Firecrawl failed, Crawl4AI not available",
                 }
 
-    # Маркираме останалите неуспешни (DM, Lilly, T-Market без curl_cffi fallback)
+    # ==========================================================================
+    # Стъпка 4: curl_cffi fallback за DM и T-Market (ако Firecrawl + Crawl4AI неуспешни)
+    # ==========================================================================
+    if CURL_CFFI_AVAILABLE:
+        # DM: Algolia API директно (не изисква browser rendering)
+        dm_result = results.get("dm", {})
+        dm_has_products = dm_result.get("success") and (
+            dm_result.get("products") or len(dm_result.get("markdown", "")) > 100)
+        if not dm_has_products:
+            logger.info("DM: curl_cffi Algolia fallback...")
+            try:
+                dm_curl = await fetch_dm_via_algolia("harmonica")
+                if dm_curl and dm_curl.get("success"):
+                    results["dm"] = dm_curl
+                    logger.info(f"DM: curl_cffi Algolia успех — "
+                                f"{len(dm_curl.get('products', []))} продукта")
+            except Exception as e:
+                logger.warning(f"DM curl_cffi fallback грешка: {e}")
+
+        # T-Market: curl_cffi TLS impersonation (bypass Cloudflare)
+        tm_result = results.get("tmarket", {})
+        tm_has_products = tm_result.get("success") and (
+            tm_result.get("products") or len(tm_result.get("markdown", "")) > 500)
+        if not tm_has_products:
+            logger.info("T-Market: curl_cffi fallback...")
+            try:
+                tm_curl = await fetch_tmarket_via_curl()
+                if tm_curl and tm_curl.get("success"):
+                    results["tmarket"] = tm_curl
+                    logger.info(f"T-Market: curl_cffi успех — {len(tm_curl.get('html', ''))} chars")
+            except Exception as e:
+                logger.warning(f"T-Market curl_cffi fallback грешка: {e}")
+
+    # Маркираме останалите неуспешни
     for store_key in failed_stores:
         if store_key not in results:
             results[store_key] = {
                 "success": False,
-                "error": "Firecrawl failed, no fallback available",
+                "error": "All methods failed (Firecrawl + Crawl4AI + curl_cffi)",
             }
 
     # ==========================================================================
@@ -4339,15 +4397,25 @@ async def main():
     for store_key, store_info in generic_stores.items():
         store_data = crawl_results.get(store_key, {})
         if store_data.get("success") and store_data.get("markdown"):
+            md = store_data["markdown"]
+            # BeFit: премахваме accessibility overlay (UserWay/EqualWeb widget)
+            if store_key == "befit":
+                md = re.sub(
+                    r'(?si)(?:Моля, обърнете внимание|Accessibility|'
+                    r'система за достъпност|екранен четец|'
+                    r'Control-F1[01]|acsb|EqualWeb|UserWay).*?(?=\n\n|\Z)',
+                    '', md
+                )
+                md = re.sub(r'(?si)Close\s+Popup heading\s+Достъпност.*?(?=\n\n|\Z)', '', md)
             store_info["products"] = _extract_generic_products(
-                store_data["markdown"],
+                md,
                 brand_page=store_info["brand_page"],
             )
-            # BeFit: ако generic extractor не намери нищо, пробваме и с HTML
-            if store_key == "befit" and not store_info["products"] and store_data.get("html"):
+            # BeFit: ако generic extractor не намери нищо, пробваме без brand_page filter
+            if store_key == "befit" and not store_info["products"]:
                 store_info["products"] = _extract_generic_products(
-                    store_data["markdown"],
-                    brand_page=False,  # Пробваме и без brand_page filter
+                    md,
+                    brand_page=False,
                 )
             prods = store_info["products"]
             logger.info(f"{STORES[store_key]['name']}: {len(prods)} Harmonica products")

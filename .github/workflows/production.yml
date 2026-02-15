@@ -18,6 +18,9 @@ on:
         default: ''
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   production-scrape:
     runs-on: ubuntu-latest
