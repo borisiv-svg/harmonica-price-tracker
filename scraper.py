@@ -346,6 +346,16 @@ NON_FOOD_KEYWORDS = [
     "загадки", "книга", "игра", "пъзел", "играчка",
 ]
 
+# Приоритетни пренасочвания: (подниз, категория) — проверяват се преди основните
+# ключови думи, за да решат конфликти като "фъстъчено масло" ≠ "масло" (млечно).
+CATEGORY_OVERRIDES = [
+    ("гранола", "Други"),
+    ("smiles", "Други"),
+    ("бисквит", "Вафли и сладки"),
+    ("фъстъчено масло", "Тахани, ядки и бобови"),
+    ("кокосово масло", "Тахани, ядки и бобови"),
+]
+
 # Категории за групиране на продуктите в таблицата
 PRODUCT_CATEGORIES = [
     ("Млечни продукти", [
@@ -379,6 +389,12 @@ PRODUCT_CATEGORIES = [
 def categorize_product(name):
     """Определя категорията на продукт по име. Връща (индекс, име на категория)."""
     name_lower = name.lower()
+    # Приоритетни пренасочвания (решават конфликти между категории)
+    for override_kw, override_cat in CATEGORY_OVERRIDES:
+        if override_kw in name_lower:
+            for idx, (cat_name, _) in enumerate(PRODUCT_CATEGORIES):
+                if cat_name == override_cat:
+                    return (idx, cat_name)
     for idx, (cat_name, keywords) in enumerate(PRODUCT_CATEGORIES):
         for kw in keywords:
             if kw in name_lower:
