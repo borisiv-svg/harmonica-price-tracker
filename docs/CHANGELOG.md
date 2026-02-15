@@ -5,6 +5,26 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v10.5.1 - 2026-02-15
+
+### Поправено
+- **Google Sheets форматиране** — `unmergeCells` грешка блокираше **целия** formatting batch (138+ заявки — цветове, ширини, freeze, deviation highlighting). Причина: `sheet.clear()` изчиства само данни, но не разлепва merge-нати клетки от предишен run. При различен брой колони между run-ове, `unmergeCells` range-ът частично покриваше стария merge → API грешка → нито едно форматиране не се прилагаше. Fix: `unmergeCells` е изнесен в отделен `batch_update` с `sheet.row_count × sheet.col_count` (пълен sheet range), обвит в `try/except`, така че дори да гърми — основното форматиране продължава.
+- **T-Market Crawl4AI Cloudflare bypass** — `crawl_with_captcha_solver()` беше написана и T-Market имаше `needs_captcha_solver: True`, но Crawl4AI fallback-ът **никога не я извикваше** — винаги ползваше обикновения `crawl_store()`, който не може да bypass-не Cloudflare. Резултат: когато Firecrawl timeout-ваше, T-Market връщаше "Performing security verification" → 0 продукта. Fix: Crawl4AI fallback проверява `needs_captcha_solver` и dispatch-ва към `crawl_with_captcha_solver()`.
+
+### Резултати (преди → след)
+| Проблем | Преди | След |
+|---------|-------|------|
+| Sheet форматиране | `APIError [400] unmergeCells` → 0 formatting | 138 заявки успешно |
+| T-Market (Firecrawl timeout) | 0/88 (Cloudflare block) | 11-13/88 (captcha solver fallback) |
+
+### Потвърдено от 3 последователни run-a (2026-02-15)
+- **15 магазина** работещи: Кашон, eBag, Balev Bio, Lilly, T-Market, Metro, Zelen, Randi, Bio-Market, BeFit, Laika, Glovo Kaufland/Billa/CBA/Fantastico
+- **88 продукта** в референтния списък
+- **Claude валидация** стабилна: 8 премахнати, 2 флагнати, 13 потвърдени
+- **Тройна fallback верига** работи: Firecrawl → Crawl4AI → curl_cffi (GraphQL за Lilly)
+- **Пълно форматиране** в Google Sheets: категории, цветове, freeze, deviation highlighting
+
+---
 ## v10.1.0 - 2026-02-15
 
 ### Добавено
