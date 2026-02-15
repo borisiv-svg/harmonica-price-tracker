@@ -291,13 +291,13 @@ EXP-002 е успешно завършен. Digital Lab инфраструкту
 |---------|-------|----------|--------|
 | Кашон (reference) | Crawl4AI | 88 продукта | ✅ Master list |
 | eBag | Crawl4AI | 34/88 (39%) | ✅ Стабилен |
-| Balev Bio | Crawl4AI + BS4 | 11/88 (12%) | ⚠️ Грешни цени (виж изводи) |
+| Balev Bio | Crawl4AI | 11/88 (12%) | ✅ Поправен (v10.0.2 forward-only context) |
 | Lilly Drogerie | curl_cffi GraphQL | 8/88 (9%) | ✅ Стабилен (всички изчерпани) |
 | DM България | Firecrawl (JS rendering) | 11/88 (12%) | ✅ Работи след bugfix v10.0.1 |
 | T-Market | curl_cffi директен | 11/88 (12%) | ✅ Стабилен |
-| Metro | Crawl4AI + line-by-line | 8/88 (9%) | ⚠️ Грешни цени при някои продукти |
+| Metro | Crawl4AI + line-by-line | 8/88 (9%) | ✅ Поправен (v10.0.2 forward-only context) |
 | Randi | Firecrawl | 10/88 (11%) | ✅ Стабилен |
-| Zelen | Crawl4AI generic | 1/88 (1%) | ⚠️ Много ниско покритие |
+| Zelen | Crawl4AI generic | 1/88 (1%) | ⚠️ Image alt fix (v10.0.2), очаква се подобрение |
 | Bio-Market | Crawl4AI generic | 17/88 (19%) | ✅ Стабилен |
 | BeFit | Crawl4AI generic | 43/88 (49%) | ✅ Високо покритие |
 | Laika | Crawl4AI generic (line-by-line) | 20/88 (23%) | ✅ Работи след bugfix v10.0.1 |
@@ -351,6 +351,37 @@ EXP-002 е успешно завършен. Digital Lab инфраструкту
 - Truncated JSON → `JSONDecodeError` → валидацията пропусната → грешни цени в таблицата
 - Решение: динамичен `max_tokens` + JSON repair fallback
 
+### Bugfix-ове (v10.0.2, 15.02.2026)
+
+Три свързани бъга в ценовата extraction логика + подобрение на продуктовата категоризация:
+
+**Bug 5: Backward context bleed (Balev, Metro)**
+- `extract_balev_products()` и `extract_metro_products()` ползваха контекстен прозорец `lines[i-3:i+10]` (13 реда)
+- `extract_bgn_price()` връща **първия** regex match в контекста
+- Ако предходният продукт има цена в редовете i-3..i-1, тя се хваща вместо правилната
+- Пример: 9.00лв (от предходен продукт) вместо 2.70лв за Кисело мляко 400г
+- **Решение:** Progressive forward-only context — първо `i:i+5`, после `i-1:i+8` ако не намери
+- Същият fix приложен и за `_extract_generic_line_by_line()` (Zelen, BioMarket, BeFit, Laika)
+
+**Bug 6: `clean_product_name()` regex order**
+- `[text](url) → text` се изпълняваше **преди** `![alt](url) → ""`
+- За `![Продукт 400g](img.jpg)`: първият regex матчваше `[Продукт 400g](img.jpg)` → `!Продукт 400g`
+- Вторият regex вече не намираше `![...]` формат → стоящо `!` в името
+- **Решение:** Разменена поредността — image removal преди link extraction
+
+**Bug 7: Generic extractor не извличаше image alt text**
+- Продуктови имена в `![alt](url)` формат се губеха:
+  - Link regex `(?<!!)\[` ги пропускаше (negative lookbehind за `!`)
+  - `clean_product_name()` ги изтриваше (→ празен string)
+- Zelen вероятно показва продукти като `![Био вафла 30g](img.jpg)` → 1/88 покритие
+- **Решение:** Добавен "Опит 3" — `!\[([^\]]{8,120})\]\([^\)]+\)` в block-based и line-by-line generic extractors
+
+**Подобрение: Product category overrides (`CATEGORY_OVERRIDES`)**
+- 7 продукта с "масло" в името попадаха в "Млечни" вместо в правилната категория
+- "масло" като ключова дума е прекалено широка — хваща "фъстъчено масло", "кокосово масло" и др.
+- **Решение:** `CATEGORY_OVERRIDES` списък с приоритетни пренасочвания, проверявани преди основните ключови думи
+- Примери: гранола → Други, бисквит → Вафли и сладки, фъстъчено масло → Тахани, кокосово масло → Тахани
+
 ### Изводи и поуки
 
 **1. Silent failures са най-опасни**
@@ -368,12 +399,21 @@ Block-based splitting (`\n{2,}`) работи за сайтове с ясно р
 **5. Defensive JSON parsing за LLM output**
 Дори с правилен `max_tokens`, LLM може да върне malformed JSON. JSON repair (намиране на последния валиден обект + затваряне на масива) спасява частични резултати. **Поука:** Никога не приемай, че LLM output е валиден — винаги имай repair/fallback.
 
+**6. "Първият match" ≠ "правилният match"**
+`extract_bgn_price()` връща първия regex match в подаден текст. С широк контекстен прозорец (i-3:i+10), първият match може да е цената на **съседен** продукт. **Поука:** За line-by-line extraction, предпочитай forward-only контекст — цената на продукта стои **след** името му, не преди. Разширявай назад само като fallback.
+
+**7. Regex order matters в utility функции**
+`clean_product_name()` имаше два regex-а за markdown links: един за `[text](url)` → `text`, и един за `![alt](url)` → `""`. Грешната поредност карше `![alt](url)` да се обработи като `[alt](url)` → `!alt`. **Поука:** При верижни regex замени, специфичните patterns (image links) трябва да се обработват преди по-общите (text links).
+
+**8. Image alt text е валиден продуктов източник**
+Crawl4AI конвертира `<img alt="...">` в `![alt](url)`. Ако сайт показва продукти предимно като изображения (без текстови линкове), generic extractor-ът трябва да може да извлича имена от image alt. **Поука:** За brand pages, image alt е толкова валиден колкото link text или heading.
+
 ### Предложения за следващи подобрения
 
 **Висок приоритет:**
-1. **Balev Bio extraction** — консистентно дава грешни цени (9.00лв за 400г кисело мляко вместо ~2.70лв). `_extract_balev_bs4()` вероятно хваща цени от грешни HTML елементи. Нужен е анализ на актуалната DOM структура
-2. **Metro price matching** — outlier цени (15.82лв за вафла 30г, 2.62лв за сироп 750мл). `extract_metro_products()` свързва имена с цени от съседни продукти. Контекстният прозорец може да е прекалено широк
-3. **Zelen покритие** — само 1/88 (1%). Нужна е инспекция на markdown структурата и вероятно dedicated extractor
+1. ~~**Balev Bio extraction**~~ — ✅ **ПОПРАВЕН (v10.0.2)** Forward-only context fix. Контекстният прозорец `i-3:i+10` хващаше цени от съседни продукти; сега `i:i+5` → `i-1:i+8`
+2. ~~**Metro price matching**~~ — ✅ **ПОПРАВЕН (v10.0.2)** Същият forward-only context fix
+3. ~~**Zelen покритие**~~ — ⚠️ **ЧАСТИЧНО ПОПРАВЕН (v10.0.2)** Добавен image alt extraction + forward-only context + `clean_product_name()` regex order fix. Реалното подобрение ще стане ясно при следващия production run (не можем да тестваме без Crawl4AI markdown от Zelen). Ако покритието остане ниско, може да е нужна инспекция на Zelen markdown + dedicated extractor или `wait_for` CSS selector
 
 **Среден приоритет:**
 4. **Firecrawl version pinning** — `firecrawl-py>=1.0.0,<2.0.0` е прекалено широк. Pin-ване до конкретна minor версия ще предотврати бъдещи API breakages
@@ -381,7 +421,7 @@ Block-based splitting (`\n{2,}`) работи за сайтове с ясно р
 6. **Glovo Fantastico дедупликация** — 88 extracted products (= Kashon!) е подозрително. Вероятно има дублирани или non-Harmonica продукти
 
 **Нисък приоритет:**
-7. **Laika closest-price logic** — вместо "първата цена в ±5 реда", да се търси "най-близката цена по брой редове". Би намалило false matches на гъсти brand pages
+7. ~~**Laika closest-price logic**~~ — ✅ **РЕШЕН (v10.0.2)** Forward-only context fix обхваща и generic line-by-line extractor-а, който Laika ползва
 8. **ХИТ Хипермаркет** — все още не е интегриран. Трябва анализ на сайтовата структура
 
 ### Хронология на промените
@@ -390,6 +430,12 @@ Block-based splitting (`\n{2,}`) работи за сайтове с ясно р
 - Claude Sonnet 4.5 ценова валидация — outlier detection + AI оценка
 - `validate_prices_with_claude()` — batch анализ с контекст за типични BG цени
 - `ANTHROPIC_API_KEY` env var, graceful fallback ако липсва
+
+**v10.0.2 (15.02.2026):**
+- Forward-only context за Balev, Metro и generic line-by-line: `i:i+5` → `i-1:i+8`
+- `clean_product_name()` regex order fix: `![alt](url)` removal преди `[text](url)` extraction
+- Image alt extraction (Опит 3) в generic block-based и line-by-line extractors
+- `CATEGORY_OVERRIDES` за продуктова категоризация (7 продукта преместени в правилни категории)
 
 **v10.0.1 (14.02.2026):**
 - Firecrawl import fix (`Firecrawl` → `FirecrawlApp`)
@@ -414,6 +460,7 @@ Block-based splitting (`\n{2,}`) работи за сайтове с ясно р
 
 | Дата | Експеримент | Промяна |
 |------|-------------|---------|
+| 2026-02-15 | EXP-003 | v10.0.2: Forward-only context (Balev/Metro/generic), image alt extraction (Zelen), clean_product_name fix, CATEGORY_OVERRIDES |
 | 2026-02-14 | EXP-003 | v10.0.1: Firecrawl import/API fix, generic line-by-line, Claude max_tokens fix |
 | 2026-02-14 | EXP-003 | v9.6.0: Claude Sonnet 4.5 ценова валидация — outlier detection + AI оценка |
 | 2026-02-10 | EXP-003 | v7.0: logging, asyncio.gather, BS4, подобрен matching, retry |
