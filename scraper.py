@@ -99,13 +99,19 @@ CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5-20250929")
 PRODUCTS_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                    "data", "products", "harmonica_products.json")
 
+# Всички продукти от JSON (включително removed) — за запазване при save
+_all_loaded_products = []
+
 
 def load_product_list():
     """
     Зарежда референтен списък продукти от harmonica_products.json.
     Връща списък от активни продукти с name, ref_eur, ref_bgn, status.
+    Запазва всички продукти (вкл. removed) в _all_loaded_products.
     Fallback: ако файлът не съществува, връща празен списък.
     """
+    global _all_loaded_products
+
     if not os.path.exists(PRODUCTS_JSON_PATH):
         logger.warning(f"Продуктов файл не е намерен: {PRODUCTS_JSON_PATH}")
         return []
@@ -126,10 +132,13 @@ def load_product_list():
                 "name": p["name"],
                 "ref_eur": ref_eur,
                 "ref_bgn": ref_bgn,
+                "url_slug": p.get("url_slug", ""),
                 "status": p.get("status", "active"),
                 "active": p.get("active", True),
+                "added_date": p.get("added_date", ""),
             })
 
+        _all_loaded_products = products
         active = [p for p in products if p["active"]]
         logger.info(f"Заредени {len(active)} активни продукта от {os.path.basename(PRODUCTS_JSON_PATH)}")
         return active
@@ -142,12 +151,15 @@ def update_product_list_with_new(reference_products, kashon_products):
     """
     Сравнява референтния списък (от JSON) с извлечените от Кашон продукти.
     Добавя нови продукти с status='new'. Връща обновен reference list.
+    Проверява срещу ВСИЧКИ продукти (вкл. removed) за да не добавя повторно.
     """
-    ref_names_lower = {p["name"].lower() for p in reference_products}
+    # Включваме и removed продукти за да не ги добавяме отново
+    all_names_lower = {p["name"].lower() for p in reference_products}
+    all_names_lower.update({p["name"].lower() for p in _all_loaded_products})
     new_count = 0
 
     for kp in kashon_products:
-        if kp["name"].lower() not in ref_names_lower:
+        if kp["name"].lower() not in all_names_lower:
             reference_products.append({
                 "name": kp["name"],
                 "ref_eur": kp.get("eur"),
@@ -165,11 +177,19 @@ def update_product_list_with_new(reference_products, kashon_products):
 
 
 def save_product_list(reference_products):
-    """Записва обновения списък обратно в harmonica_products.json."""
+    """Записва обновения списък обратно в harmonica_products.json.
+    Запазва и removed продуктите от оригиналния JSON."""
     try:
         os.makedirs(os.path.dirname(PRODUCTS_JSON_PATH), exist_ok=True)
+
+        # Обединяваме: активни/нови от reference + removed от оригиналния JSON
+        active_names = {p["name"].lower() for p in reference_products}
+        removed = [p for p in _all_loaded_products
+                   if not p.get("active", True) and p["name"].lower() not in active_names]
+        all_products = list(reference_products) + removed
+
         products_data = []
-        for i, p in enumerate(reference_products, 1):
+        for i, p in enumerate(all_products, 1):
             ref_eur = p.get("ref_eur")
             ref_bgn = p.get("ref_bgn")
             name = p["name"]
@@ -184,12 +204,13 @@ def save_product_list(reference_products):
                 "keywords": keywords,
                 "ref_eur": ref_eur,
                 "ref_bgn": ref_bgn,
-                "url_slug": "",
+                "url_slug": p.get("url_slug", ""),
                 "active": p.get("active", True),
                 "status": p.get("status", "active"),
                 "added_date": p.get("added_date", datetime.now().strftime("%Y-%m-%d")),
             })
 
+        active_count = sum(1 for p in products_data if p["active"])
         output = {
             "version": "2.0",
             "last_sync": datetime.now().strftime("%Y-%m-%d"),
@@ -200,7 +221,7 @@ def save_product_list(reference_products):
 
         with open(PRODUCTS_JSON_PATH, 'w', encoding='utf-8') as f:
             json.dump(output, f, ensure_ascii=False, indent=2)
-        logger.info(f"Продуктов файл обновен: {len(products_data)} продукта")
+        logger.info(f"Продуктов файл обновен: {active_count} активни + {len(products_data) - active_count} removed")
     except Exception as e:
         logger.error(f"Грешка при запис на продуктов файл: {e}")
 
@@ -404,9 +425,24 @@ def categorize_product(name):
     return (len(PRODUCT_CATEGORIES), "Други")
 
 
-# Продукти на Кашон страницата, които не са Harmonica бранд
+# Продукти на Кашон страницата, които не са Harmonica бранд или не проследяваме
+# Кашон URL: https://kashonharmonica.bg/bg/products/field_producer/harmonica-144#content
 KASHON_BRAND_BLACKLIST = [
     "черноморски улов",
+    # Bulk продукти (1.7 kg) — не се продават в retail магазините
+    "червена леща 1.7",
+    "микс от киноа 1.7",
+    "боб мунг 1.7",
+]
+
+# Навигационни елементи от Кашон, които не са продукти
+KASHON_JUNK_ENTRIES = [
+    "frumbaya",
+    "apply",
+    "млечни",
+    "месо",
+    "пресни зеленчуци",
+    "нови продукти",
 ]
 
 
@@ -574,6 +610,8 @@ def extract_kashon_products(markdown):
         if not is_food_product(name):
             continue
         if any(bl in name.lower() for bl in KASHON_BRAND_BLACKLIST):
+            continue
+        if any(j in name.lower() for j in KASHON_JUNK_ENTRIES):
             continue
 
         idx = match.end()
@@ -3370,10 +3408,10 @@ async def crawl_all():
     # Стъпка 3: Crawl4AI fallback за неуспешни магазини
     # ==========================================================================
     # Crawl4AI работи добре за: Кашон, eBag, Balev, Metro, Zelen, BioMarket,
-    # BeFit, Laika, Randi. Не ползваме го за DM, Lilly, T-Market (нужен curl_cffi).
+    # BeFit, Laika, Randi, DM. Lilly и T-Market нужен curl_cffi.
     CRAWL4AI_CAPABLE = {
         "kashon", "ebag", "balev", "metro", "zelen", "biomarket",
-        "befit", "laika", "randi",
+        "befit", "laika", "randi", "dm",
     }
     crawl4ai_needed = [s for s in failed_stores if s in CRAWL4AI_CAPABLE]
 
@@ -3381,42 +3419,66 @@ async def crawl_all():
         logger.info(f"Crawl4AI fallback за {len(crawl4ai_needed)} магазина: "
                     f"{', '.join(STORES[s]['name'] for s in crawl4ai_needed)}")
 
-        browser_kwargs = {
-            "headless": True,
-            "viewport_width": 1920,
-            "viewport_height": 1080,
-        }
-        if PROXY_URL:
-            proxy_cfg = _parse_proxy_url(PROXY_URL)
-            browser_kwargs["proxy_config"] = proxy_cfg
-            logger.info(f"Proxy: {proxy_cfg['server']}")
+        # Пробваме първо с proxy, после без ако tunnel-ът пропадне
+        proxy_attempts = [True, False] if PROXY_URL else [False]
 
-        browser_config = BrowserConfig(**browser_kwargs)
+        for use_proxy in proxy_attempts:
+            stores_to_crawl = [s for s in crawl4ai_needed if s not in results
+                               or not results.get(s, {}).get("success")]
+            if not stores_to_crawl:
+                break
 
-        async with AsyncWebCrawler(config=browser_config) as crawler:
-            tasks = {}
-            for store_key in crawl4ai_needed:
-                cfg = STORES[store_key]
-                tasks[store_key] = crawl_store(crawler, store_key, cfg)
+            browser_kwargs = {
+                "headless": True,
+                "viewport_width": 1920,
+                "viewport_height": 1080,
+            }
+            if use_proxy and PROXY_URL:
+                proxy_cfg = _parse_proxy_url(PROXY_URL)
+                browser_kwargs["proxy_config"] = proxy_cfg
+                logger.info(f"Proxy: {proxy_cfg['server']}")
+            elif not use_proxy and PROXY_URL:
+                logger.info("Crawl4AI retry без proxy")
 
-            task_results = await asyncio.gather(
-                *tasks.values(), return_exceptions=True)
+            browser_config = BrowserConfig(**browser_kwargs)
+            tunnel_failures = 0
 
-            for store_key, result in zip(tasks.keys(), task_results):
-                store_name = STORES[store_key]["name"]
-                if isinstance(result, Exception):
-                    logger.error(f"{store_name}: Crawl4AI грешка — {result}")
-                    results[store_key] = {"success": False, "error": str(result)}
-                elif result and result.get("success"):
-                    result["method"] = "crawl4ai"
-                    results[store_key] = result
-                    logger.info(f"{store_name}: Crawl4AI fallback успех — "
-                                f"{len(result.get('markdown', ''))} chars")
-                else:
-                    error = result.get("error", "unknown") if result else "None"
-                    logger.warning(f"{store_name}: Crawl4AI fallback неуспешен ({error})")
-                    results[store_key] = result or {
-                        "success": False, "error": "Crawl4AI returned None"}
+            async with AsyncWebCrawler(config=browser_config) as crawler:
+                tasks = {}
+                for store_key in stores_to_crawl:
+                    cfg = STORES[store_key]
+                    tasks[store_key] = crawl_store(crawler, store_key, cfg)
+
+                task_results = await asyncio.gather(
+                    *tasks.values(), return_exceptions=True)
+
+                for store_key, result in zip(tasks.keys(), task_results):
+                    store_name = STORES[store_key]["name"]
+                    if isinstance(result, Exception):
+                        error_str = str(result)
+                        if "TUNNEL_CONNECTION_FAILED" in error_str and use_proxy:
+                            tunnel_failures += 1
+                            logger.warning(f"{store_name}: proxy tunnel fail — ще пробваме без proxy")
+                            continue  # Не записваме, ще retry-нем
+                        logger.error(f"{store_name}: Crawl4AI грешка — {result}")
+                        results[store_key] = {"success": False, "error": error_str}
+                    elif result and result.get("success"):
+                        result["method"] = "crawl4ai"
+                        results[store_key] = result
+                        logger.info(f"{store_name}: Crawl4AI fallback успех — "
+                                    f"{len(result.get('markdown', ''))} chars")
+                    else:
+                        error = result.get("error", "unknown") if result else "None"
+                        if "TUNNEL_CONNECTION_FAILED" in str(error) and use_proxy:
+                            tunnel_failures += 1
+                            logger.warning(f"{store_name}: proxy tunnel fail — ще пробваме без proxy")
+                            continue
+                        logger.warning(f"{store_name}: Crawl4AI fallback неуспешен ({error})")
+                        results[store_key] = result or {
+                            "success": False, "error": "Crawl4AI returned None"}
+
+            if tunnel_failures == 0:
+                break  # Няма tunnel грешки, не е нужен retry
 
     elif crawl4ai_needed and not has_crawl4ai:
         logger.warning(f"Crawl4AI не е наличен — {len(crawl4ai_needed)} магазина без fallback: "
@@ -4222,8 +4284,18 @@ async def main():
                 store_data["markdown"],
                 brand_page=store_info["brand_page"],
             )
+            # BeFit: ако generic extractor не намери нищо, пробваме и с HTML
+            if store_key == "befit" and not store_info["products"] and store_data.get("html"):
+                store_info["products"] = _extract_generic_products(
+                    store_data["markdown"],
+                    brand_page=False,  # Пробваме и без brand_page filter
+                )
             prods = store_info["products"]
             logger.info(f"{STORES[store_key]['name']}: {len(prods)} Harmonica products")
+            if not prods:
+                # Debug: показваме начало на markdown за диагностика
+                md_preview = store_data["markdown"][:300].replace('\n', ' ')
+                logger.info(f"  [DEBUG] markdown preview: {md_preview}")
             # Debug: показваме извлечените имена за магазини с малко продукти
             if len(prods) <= 10:
                 for p in prods:
