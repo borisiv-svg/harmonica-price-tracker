@@ -167,7 +167,7 @@ def update_product_list_with_new(reference_products, kashon_products):
                 "status": "new",
                 "active": True,
             })
-            ref_names_lower.add(kp["name"].lower())
+            all_names_lower.add(kp["name"].lower())
             new_count += 1
 
     if new_count:
