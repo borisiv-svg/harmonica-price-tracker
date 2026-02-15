@@ -138,6 +138,20 @@ jobs:
           python scraper.py
           echo "Scraper completed at $(date)"
 
+      - name: Commit updated product list
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet data/products/harmonica_products.json 2>/dev/null; then
+            echo "No changes to product list"
+          else
+            git add data/products/harmonica_products.json
+            git commit -m "Auto-update harmonica_products.json [skip ci]"
+            git push
+            echo "Product list committed"
+          fi
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
