@@ -1,7 +1,8 @@
 """
-Harmonica Price Tracker v10.3
+Harmonica Price Tracker v10.5
 ==============================
-Unified scraper — Firecrawl-first архитектура (всички магазини през Firecrawl).
+Unified scraper — Firecrawl-first + Crawl4AI fallback архитектура.
+Магазини, за които Firecrawl timeout-ва, автоматично преминават на Crawl4AI.
 Claude Sonnet валидация на outlier цени (EUR).
 Продуктов списък от harmonica_products.json (месечен sync с Кашон).
 
@@ -88,7 +89,6 @@ except ImportError:
 # =============================================================================
 
 EUR_BGN_RATE = 1.9558  # Фиксиран курс
-PROXY_URL = os.environ.get("PROXY_URL")  # Optional: http://user:pass@host:port
 GLOVO_AUTH_TOKEN = os.environ.get("GLOVO_AUTH_TOKEN")  # Optional: Glovo Bearer token
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")  # Optional: Firecrawl API key
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")  # Optional: Claude API key за валидация
@@ -98,13 +98,19 @@ CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5-20250929")
 PRODUCTS_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                    "data", "products", "harmonica_products.json")
 
+# Всички продукти от JSON (включително removed) — за запазване при save
+_all_loaded_products = []
+
 
 def load_product_list():
     """
     Зарежда референтен списък продукти от harmonica_products.json.
     Връща списък от активни продукти с name, ref_eur, ref_bgn, status.
+    Запазва всички продукти (вкл. removed) в _all_loaded_products.
     Fallback: ако файлът не съществува, връща празен списък.
     """
+    global _all_loaded_products
+
     if not os.path.exists(PRODUCTS_JSON_PATH):
         logger.warning(f"Продуктов файл не е намерен: {PRODUCTS_JSON_PATH}")
         return []
@@ -125,10 +131,13 @@ def load_product_list():
                 "name": p["name"],
                 "ref_eur": ref_eur,
                 "ref_bgn": ref_bgn,
+                "url_slug": p.get("url_slug", ""),
                 "status": p.get("status", "active"),
                 "active": p.get("active", True),
+                "added_date": p.get("added_date", ""),
             })
 
+        _all_loaded_products = products
         active = [p for p in products if p["active"]]
         logger.info(f"Заредени {len(active)} активни продукта от {os.path.basename(PRODUCTS_JSON_PATH)}")
         return active
@@ -141,12 +150,15 @@ def update_product_list_with_new(reference_products, kashon_products):
     """
     Сравнява референтния списък (от JSON) с извлечените от Кашон продукти.
     Добавя нови продукти с status='new'. Връща обновен reference list.
+    Проверява срещу ВСИЧКИ продукти (вкл. removed) за да не добавя повторно.
     """
-    ref_names_lower = {p["name"].lower() for p in reference_products}
+    # Включваме и removed продукти за да не ги добавяме отново
+    all_names_lower = {p["name"].lower() for p in reference_products}
+    all_names_lower.update({p["name"].lower() for p in _all_loaded_products})
     new_count = 0
 
     for kp in kashon_products:
-        if kp["name"].lower() not in ref_names_lower:
+        if kp["name"].lower() not in all_names_lower:
             reference_products.append({
                 "name": kp["name"],
                 "ref_eur": kp.get("eur"),
@@ -154,7 +166,7 @@ def update_product_list_with_new(reference_products, kashon_products):
                 "status": "new",
                 "active": True,
             })
-            ref_names_lower.add(kp["name"].lower())
+            all_names_lower.add(kp["name"].lower())
             new_count += 1
 
     if new_count:
@@ -164,11 +176,19 @@ def update_product_list_with_new(reference_products, kashon_products):
 
 
 def save_product_list(reference_products):
-    """Записва обновения списък обратно в harmonica_products.json."""
+    """Записва обновения списък обратно в harmonica_products.json.
+    Запазва и removed продуктите от оригиналния JSON."""
     try:
         os.makedirs(os.path.dirname(PRODUCTS_JSON_PATH), exist_ok=True)
+
+        # Обединяваме: активни/нови от reference + removed от оригиналния JSON
+        active_names = {p["name"].lower() for p in reference_products}
+        removed = [p for p in _all_loaded_products
+                   if not p.get("active", True) and p["name"].lower() not in active_names]
+        all_products = list(reference_products) + removed
+
         products_data = []
-        for i, p in enumerate(reference_products, 1):
+        for i, p in enumerate(all_products, 1):
             ref_eur = p.get("ref_eur")
             ref_bgn = p.get("ref_bgn")
             name = p["name"]
@@ -183,12 +203,13 @@ def save_product_list(reference_products):
                 "keywords": keywords,
                 "ref_eur": ref_eur,
                 "ref_bgn": ref_bgn,
-                "url_slug": "",
+                "url_slug": p.get("url_slug", ""),
                 "active": p.get("active", True),
                 "status": p.get("status", "active"),
                 "added_date": p.get("added_date", datetime.now().strftime("%Y-%m-%d")),
             })
 
+        active_count = sum(1 for p in products_data if p["active"])
         output = {
             "version": "2.0",
             "last_sync": datetime.now().strftime("%Y-%m-%d"),
@@ -199,24 +220,10 @@ def save_product_list(reference_products):
 
         with open(PRODUCTS_JSON_PATH, 'w', encoding='utf-8') as f:
             json.dump(output, f, ensure_ascii=False, indent=2)
-        logger.info(f"Продуктов файл обновен: {len(products_data)} продукта")
+        logger.info(f"Продуктов файл обновен: {active_count} активни + {len(products_data) - active_count} removed")
     except Exception as e:
         logger.error(f"Грешка при запис на продуктов файл: {e}")
 
-
-def _parse_proxy_url(proxy_url):
-    """Парсва proxy URL за Playwright proxy_config (server, username, password)."""
-    if not proxy_url:
-        return None
-    from urllib.parse import urlparse
-    parsed = urlparse(proxy_url)
-    if parsed.username:
-        return {
-            "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
-            "username": parsed.username,
-            "password": parsed.password or "",
-        }
-    return {"server": proxy_url}
 
 
 # =============================================================================
@@ -227,8 +234,8 @@ STORES = {
     "kashon": {
         "name": "Кашон",
         "url": "https://kashonharmonica.bg/bg/products/field_producer/harmonica-144",
-        "scroll_times": 20,
-        "scroll_delay": 2000,
+        "scroll_times": 40,
+        "scroll_delay": 3000,
         "is_master": True,
     },
     "ebag": {
@@ -247,13 +254,6 @@ STORES = {
         "scroll_times": 4,
         "brand_page": True,
         "use_magic": True,
-    },
-    "dm": {
-        "name": "DM",
-        "url": "https://www.dm-drogeriemarkt.bg/search?query=harmonica&searchType=product",
-        "scroll_times": 5,
-        "needs_captcha_solver": True,
-        "algolia_enabled": True,
     },
     "tmarket": {
         "name": "T-Market",
@@ -289,6 +289,21 @@ STORES = {
         "url": "https://befit.bg/brands/harmonica",
         "scroll_times": 10,
         "brand_page": True,
+        # Accessibility popup трябва да се затвори преди скролиране
+        "pre_js": """
+            // Затваряме accessibility popup (UserWay/EqualWeb widget)
+            document.querySelectorAll('[aria-label="Close"], .close-popup, .acsb-close, [class*="close"]')
+                .forEach(el => el.click());
+            // Премахваме overlay елементи
+            document.querySelectorAll('[class*="acsb"], [class*="accessibility"], [id*="acsb"]')
+                .forEach(el => el.remove());
+        """,
+        # Firecrawl: затваряне на accessibility overlay преди scroll
+        "firecrawl_pre_actions": [
+            {"type": "click", "selector": ".acsb-close"},
+            {"type": "click", "selector": "[aria-label='Close']"},
+            {"type": "wait", "milliseconds": 1000},
+        ],
     },
     "laika": {
         "name": "Laika",
@@ -403,9 +418,24 @@ def categorize_product(name):
     return (len(PRODUCT_CATEGORIES), "Други")
 
 
-# Продукти на Кашон страницата, които не са Harmonica бранд
+# Продукти на Кашон страницата, които не са Harmonica бранд или не проследяваме
+# Кашон URL: https://kashonharmonica.bg/bg/products/field_producer/harmonica-144#content
 KASHON_BRAND_BLACKLIST = [
     "черноморски улов",
+    # Bulk продукти (1.7 kg) — не се продават в retail магазините
+    "червена леща 1.7",
+    "микс от киноа 1.7",
+    "боб мунг 1.7",
+]
+
+# Навигационни елементи от Кашон, които не са продукти
+KASHON_JUNK_ENTRIES = [
+    "frumbaya",
+    "apply",
+    "млечни",
+    "месо",
+    "пресни зеленчуци",
+    "нови продукти",
 ]
 
 
@@ -513,9 +543,14 @@ def extract_bgn_price(text):
 
 
 def extract_price_fallback(text):
-    """Извлича цена без валутен символ. Връща (price, 'BGN') или None."""
-    match = re.search(r'(?:^|\s)(\d+)[,.](\d{2})(?:\s|$)', text)
-    if match:
+    """Извлича цена без валутен символ. Връща (price, 'BGN') или None.
+    По-строг: игнорира числа, следвани от единица мярка (г, мл, g, ml, kg, %).
+    """
+    for match in re.finditer(r'(?:^|\s)(\d+)[,.](\d{2})(?=\s|$)', text):
+        # Проверяваме дали НЕ е грамаж/процент (напр. "3.60%" или "400.00г")
+        after = text[match.end():match.end()+5]
+        if re.match(r'\s*(?:г|мл|ml|g|kg|кг|л|l|%|бр)', after, re.IGNORECASE):
+            continue
         try:
             price = float(f"{match.group(1)}.{match.group(2)}")
             if PRICE_RANGE_BGN[0] <= price <= PRICE_RANGE_BGN[1]:
@@ -568,6 +603,8 @@ def extract_kashon_products(markdown):
         if not is_food_product(name):
             continue
         if any(bl in name.lower() for bl in KASHON_BRAND_BLACKLIST):
+            continue
+        if any(j in name.lower() for j in KASHON_JUNK_ENTRIES):
             continue
 
         idx = match.end()
@@ -683,7 +720,7 @@ def extract_balev_products(markdown):
         # Търсим цена НАПРЕД от името (тесен прозорец), за да не хванем
         # цена от предходен продукт. Разширяваме само ако не намерим.
         eur, bgn = None, None
-        for ctx_start, ctx_end in [(i, i + 5), (max(0, i - 1), i + 8)]:
+        for ctx_start, ctx_end in [(i, i + 3), (max(0, i - 1), i + 5)]:
             ctx = '\n'.join(lines[ctx_start:min(len(lines), ctx_end)])
             eur = extract_eur_price(ctx)
             bgn = extract_bgn_price(ctx)
@@ -846,9 +883,10 @@ def _extract_generic_line_by_line(markdown, brand_page=False):
         if deduplicate_check(name, seen):
             continue
 
-        # Търсим цена НАПРЕД от името, после разширяваме (като Balev/Metro fix)
+        # Търсим цена НАПРЕД от името (тесен прозорец: 3 реда), после разширяваме (5).
+        # По-тесен контекст намалява risk от price bleed между съседни продукти.
         bgn, eur = None, None
-        for ctx_start, ctx_end in [(i, i + 5), (max(0, i - 1), i + 8)]:
+        for ctx_start, ctx_end in [(i, i + 3), (max(0, i - 1), i + 5)]:
             ctx = '\n'.join(lines[ctx_start:min(len(lines), ctx_end)])
             bgn = extract_bgn_price(ctx)
             if not bgn:
@@ -914,10 +952,10 @@ def extract_metro_products(markdown):
         if deduplicate_check(name, seen):
             continue
 
-        # Търсим цена НАПРЕД от името (тесен прозорец), за да не хванем
-        # цена от съседен продукт. Разширяваме само ако не намерим.
+        # Търсим цена НАПРЕД от името (тесен прозорец: 3 реда), за да не хванем
+        # цена от съседен продукт. Разширяваме до 5 само ако не намерим.
         bgn, eur = None, None
-        for ctx_start, ctx_end in [(i, i + 5), (max(0, i - 1), i + 8)]:
+        for ctx_start, ctx_end in [(i, i + 3), (max(0, i - 1), i + 5)]:
             ctx = '\n'.join(lines[ctx_start:min(len(lines), ctx_end)])
             bgn = extract_bgn_price(ctx)
             if not bgn:
@@ -1781,6 +1819,7 @@ def _fetch_dm_via_firecrawl(query="harmonica"):
         app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
 
         # Firecrawl scrape с wait за JS rendering
+        # DM е тежък JS сайт (Cloudflare + SPA) — 90s timeout
         result = app.scrape_url(
             url,
             params={
@@ -1788,10 +1827,12 @@ def _fetch_dm_via_firecrawl(query="harmonica"):
                 "actions": [
                     {"type": "wait", "milliseconds": 5000},
                     {"type": "scroll", "direction": "down"},
+                    {"type": "wait", "milliseconds": 3000},
+                    {"type": "scroll", "direction": "down"},
                     {"type": "wait", "milliseconds": 2000},
                     {"type": "scrape"},
                 ],
-                "timeout": 60000,
+                "timeout": 90000,
             },
         )
         elapsed = time.time() - start
@@ -1869,12 +1910,12 @@ def _fetch_randi_via_firecrawl():
             params={
                 "formats": ["markdown"],
                 "actions": [
-                    {"type": "wait", "milliseconds": 3000},
+                    {"type": "wait", "milliseconds": 4000},
                     {"type": "scroll", "direction": "down", "amount": 8},
-                    {"type": "wait", "milliseconds": 2000},
+                    {"type": "wait", "milliseconds": 3000},
                     {"type": "scrape"},
                 ],
-                "timeout": 60000,
+                "timeout": 90000,
             },
         )
         elapsed = time.time() - start
@@ -1941,24 +1982,41 @@ def _fetch_store_via_firecrawl(store_key, store_config):
         app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
 
         # Изграждаме actions: wait → scroll → wait → scrape
+        # Firecrawl лимити: max 50 actions, max 60s общо wait
+        scroll_wait = store_config.get("scroll_delay", 1500)
+        initial_wait = 4000
+        # Бюджет: 50 actions = 1 (init wait) + 2N (scroll+wait) + 1 (final scroll) + 1 (final wait) + 1 (scrape) = 2N+4
+        max_scrolls_by_actions = (50 - 4) // 2  # = 23
+        # Бюджет: 60s wait = initial_wait + N * scroll_wait + scroll_wait (final)
+        max_scrolls_by_wait = max(1, int((60000 - initial_wait - scroll_wait) / scroll_wait))
+        firecrawl_scrolls = min(scroll_times, max_scrolls_by_actions, max_scrolls_by_wait)
+
         actions = [
-            {"type": "wait", "milliseconds": 4000},
+            {"type": "wait", "milliseconds": initial_wait},
         ]
-        # Scroll серия
-        for _ in range(min(scroll_times, 8)):
+        # Pre-actions (напр. затваряне на overlay/popup) — ако са зададени
+        pre_actions = store_config.get("firecrawl_pre_actions", [])
+        actions.extend(pre_actions)
+        for _ in range(firecrawl_scrolls):
             actions.append({"type": "scroll", "direction": "down"})
-            actions.append({"type": "wait", "milliseconds": 1500})
+            actions.append({"type": "wait", "milliseconds": scroll_wait})
         # Финален scroll до дъното
         actions.append({"type": "scroll", "direction": "down"})
-        actions.append({"type": "wait", "milliseconds": 2000})
+        actions.append({"type": "wait", "milliseconds": scroll_wait})
         actions.append({"type": "scrape"})
 
+        if firecrawl_scrolls < scroll_times:
+            logger.info(f"{store_name} Firecrawl: {firecrawl_scrolls}/{scroll_times} scrolls "
+                        f"(лимит actions/wait), Crawl4AI ще обхване пълния обхват")
+
+        # Timeout: базов 60s + scroll_times × scroll_wait
+        timeout = max(90000, 60000 + firecrawl_scrolls * scroll_wait * 2)
         result = app.scrape_url(
             url,
             params={
                 "formats": ["markdown", "html"],
                 "actions": actions,
-                "timeout": 90000,
+                "timeout": timeout,
             },
         )
         elapsed = time.time() - start
@@ -1986,6 +2044,7 @@ def _fetch_store_via_firecrawl(store_key, store_config):
             "markdown": markdown,
             "html": html,
             "elapsed": elapsed,
+            "scrolls_capped": firecrawl_scrolls < scroll_times,
         }
 
     except Exception as e:
@@ -2087,20 +2146,16 @@ def extract_randi_products(markdown):
         if name_key in seen:
             continue
 
-        # Търсим цена в контекст от ±5 реда
-        context = '\n'.join(lines[max(0, i - 3):i + 8])
-        bgn = extract_bgn_price(context)
-        if not bgn:
-            # Опит: цена без "лв" суфикс (напр. "2.99" или "2,99")
-            price_match = re.search(r'(\d+)[,.](\d{2})\b', context)
-            if price_match:
-                try:
-                    price = float(f"{price_match.group(1)}.{price_match.group(2)}")
-                    if 0.50 <= price <= 100:
-                        bgn = round(price, 2)
-                except ValueError:
-                    pass
-        eur = extract_eur_price(context)
+        # Търсим цена НАПРЕД от името (тесен прозорец), после разширяваме
+        bgn, eur = None, None
+        for ctx_start, ctx_end in [(i, i + 3), (max(0, i - 1), i + 5)]:
+            context = '\n'.join(lines[ctx_start:min(len(lines), ctx_end)])
+            bgn = extract_bgn_price(context)
+            if not bgn:
+                bgn = extract_price_fallback(context)
+            eur = extract_eur_price(context)
+            if bgn or eur:
+                break
 
         if bgn or eur:
             if bgn and not eur:
@@ -2131,13 +2186,13 @@ async def fetch_dm_via_algolia(query="harmonica"):
 
     try:
         async with CurlAsyncSession(impersonate="chrome") as session:
-            proxy = PROXY_URL if PROXY_URL else None
+
 
             # Стъпка 1: Fetch dm.bg за Algolia config
             logger.info("DM Algolia: извличане на конфигурация от dm.bg...")
             resp = await session.get(
                 "https://www.dm-drogeriemarkt.bg/search?query=harmonica&searchType=product",
-                proxy=proxy,
+
                 timeout=30,
                 headers={
                     "Accept": "text/html,application/xhtml+xml",
@@ -2164,7 +2219,7 @@ async def fetch_dm_via_algolia(query="harmonica"):
                     if not js_url.startswith('http'):
                         js_url = f"https://www.dm-drogeriemarkt.bg{js_url}"
                     try:
-                        js_resp = await session.get(js_url, proxy=proxy, timeout=15)
+                        js_resp = await session.get(js_url, timeout=15)
                         if js_resp.status_code == 200:
                             config = await extract_algolia_config(js_resp.text)
                             if config:
@@ -2194,7 +2249,7 @@ async def fetch_dm_via_algolia(query="harmonica"):
             algolia_url = f"https://{app_id}-dsn.algolia.net/1/indexes/{index_name}/query"
             algolia_resp = await session.post(
                 algolia_url,
-                proxy=proxy,
+
                 timeout=15,
                 headers={
                     "X-Algolia-Application-Id": app_id,
@@ -2323,13 +2378,13 @@ async def fetch_lilly_via_curl():
 
     try:
         async with CurlAsyncSession(impersonate="chrome") as session:
-            proxy = PROXY_URL if PROXY_URL else None
+
 
             # Опит 1: GraphQL API
             try:
                 resp = await session.post(
                     "https://lillydrogerie.bg/graphql",
-                    proxy=proxy,
+    
                     timeout=30,
                     headers={
                         "Content-Type": "application/json",
@@ -2398,7 +2453,7 @@ async def fetch_lilly_via_curl():
                             "&searchCriteria[pageSize]=50")
                 resp = await session.get(
                     rest_url,
-                    proxy=proxy,
+    
                     timeout=30,
                     headers={"Accept": "application/json"},
                 )
@@ -2460,10 +2515,10 @@ async def fetch_tmarket_via_curl(url="https://tmarketonline.bg/vendor/harmonica-
 
     try:
         async with CurlAsyncSession(impersonate="chrome") as session:
-            proxy = PROXY_URL if PROXY_URL else None
+
             resp = await session.get(
                 url,
-                proxy=proxy,
+
                 timeout=30,
                 headers={
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -2713,7 +2768,7 @@ async def fetch_glovo_store_products(store_key, store_config, query="harmonica")
 
     # === Подход 2: Glovo API (с auth token) ===
     if GLOVO_AUTH_TOKEN and CURL_CFFI_AVAILABLE:
-        proxy = PROXY_URL if PROXY_URL else None
+
         glovo_headers = {
             "Accept": "application/json",
             "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.8",
@@ -2730,7 +2785,7 @@ async def fetch_glovo_store_products(store_key, store_config, query="harmonica")
                 search_url = f"{GLOVO_API_BASE}/stores/{slug}/search"
                 resp = await session.get(
                     search_url, params={"query": query},
-                    proxy=proxy, headers=glovo_headers, timeout=20,
+                    headers=glovo_headers, timeout=20,
                 )
                 if resp.status_code == 200:
                     data = resp.json()
@@ -2747,7 +2802,7 @@ async def fetch_glovo_store_products(store_key, store_config, query="harmonica")
                 # API catalog
                 catalog_url = f"{GLOVO_API_BASE}/stores/{slug}"
                 resp = await session.get(
-                    catalog_url, proxy=proxy, headers=glovo_headers, timeout=20,
+                    catalog_url, headers=glovo_headers, timeout=20,
                 )
                 if resp.status_code == 200:
                     data = resp.json()
@@ -3221,9 +3276,14 @@ async def crawl_store(crawler, store_key, store_config):
     logger.info(f"CRAWLING{'(magic)' if use_magic else ''}: {store_name}")
 
     scroll_delay = store_config.get("scroll_delay", 1500)
+    pre_js = store_config.get("pre_js", "")
     scroll_js = ""
     if scroll_times > 0 and not use_magic:
         scroll_js = f"""
+        // Pre-scroll JS (затваряне на popups и т.н.)
+        {pre_js}
+        await new Promise(r => setTimeout(r, 1000));
+
         async function scrollPage() {{
             const step = window.innerHeight || 800;
             for (let i = 0; i < {scroll_times}; i++) {{
@@ -3277,54 +3337,60 @@ async def crawl_store(crawler, store_key, store_config):
 
 async def crawl_all():
     """
-    Сканира всички магазини паралелно чрез Firecrawl.
-    Всички магазини минават през Firecrawl — без proxy, Crawl4AI или curl_cffi.
+    Сканира всички магазини: Firecrawl-first + Crawl4AI fallback.
+
+    Стратегия:
+    1. Стартираме Firecrawl за всички магазини паралелно
+    2. Магазини, за които Firecrawl timeout-ва или връща грешка,
+       автоматично преминават на Crawl4AI (локален headless Chromium)
+    3. Crawl4AI работи без прокси — достатъчен е за повечето BG магазини
     """
-    if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
-        logger.error("Firecrawl не е наличен! Задайте FIRECRAWL_API_KEY.")
+    has_firecrawl = FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY
+    has_crawl4ai = CRAWL4AI_AVAILABLE
+
+    if not has_firecrawl and not has_crawl4ai:
+        logger.error("Нито Firecrawl, нито Crawl4AI е наличен! Не може да се сканира.")
         return {}
 
     results = {}
     loop = asyncio.get_event_loop()
 
     # ==========================================================================
-    # Стартираме ВСИЧКИ Firecrawl задачи паралелно в thread pool
+    # Стъпка 1: Стартираме Firecrawl задачи паралелно (ако е наличен)
     # ==========================================================================
     firecrawl_futures = {}
 
-    # DM — специализиран Firecrawl (с Algolia извличане)
-    if "dm" in STORES:
-        firecrawl_futures["dm"] = loop.run_in_executor(
-            None, _fetch_dm_via_firecrawl, "harmonica")
+    if has_firecrawl:
+        # Randi — специализиран Firecrawl (JS-heavy)
+        if "randi" in STORES:
+            firecrawl_futures["randi"] = loop.run_in_executor(
+                None, _fetch_randi_via_firecrawl)
 
-    # Randi — специализиран Firecrawl (JS-heavy)
-    if "randi" in STORES:
-        firecrawl_futures["randi"] = loop.run_in_executor(
-            None, _fetch_randi_via_firecrawl)
+        # Lilly — специализиран Firecrawl (Magento 2 + Hyvä)
+        if "lilly" in STORES:
+            firecrawl_futures["lilly"] = loop.run_in_executor(
+                None, _fetch_lilly_via_firecrawl)
 
-    # Lilly — специализиран Firecrawl (Magento 2 + Hyvä)
-    if "lilly" in STORES:
-        firecrawl_futures["lilly"] = loop.run_in_executor(
-            None, _fetch_lilly_via_firecrawl)
+        # T-Market — специализиран Firecrawl (CloudCart + Cloudflare)
+        if "tmarket" in STORES:
+            firecrawl_futures["tmarket"] = loop.run_in_executor(
+                None, _fetch_tmarket_via_firecrawl)
 
-    # T-Market — специализиран Firecrawl (CloudCart + Cloudflare)
-    if "tmarket" in STORES:
-        firecrawl_futures["tmarket"] = loop.run_in_executor(
-            None, _fetch_tmarket_via_firecrawl)
-
-    # Останалите магазини — универсален Firecrawl fetch
-    generic_firecrawl_stores = [
-        "kashon", "ebag", "balev", "metro", "zelen", "biomarket", "befit", "laika",
-    ]
-    for store_key in generic_firecrawl_stores:
-        if store_key in STORES:
-            cfg = STORES[store_key]
-            firecrawl_futures[store_key] = loop.run_in_executor(
-                None, _fetch_store_via_firecrawl, store_key, cfg)
+        # Останалите магазини — универсален Firecrawl fetch
+        generic_firecrawl_stores = [
+            "kashon", "ebag", "balev", "metro", "zelen", "biomarket", "befit", "laika",
+        ]
+        for store_key in generic_firecrawl_stores:
+            if store_key in STORES:
+                cfg = STORES[store_key]
+                firecrawl_futures[store_key] = loop.run_in_executor(
+                    None, _fetch_store_via_firecrawl, store_key, cfg)
 
     # ==========================================================================
-    # Събираме резултати от всички Firecrawl задачи
+    # Стъпка 2: Събираме Firecrawl резултати, маркираме неуспешните за fallback
     # ==========================================================================
+    failed_stores = []  # Магазини, които ще опитаме с Crawl4AI
+
     for store_key, future in firecrawl_futures.items():
         store_name = STORES.get(store_key, {}).get("name", store_key)
         try:
@@ -3339,19 +3405,159 @@ async def crawl_all():
                     logger.info(f"{store_name}: Firecrawl успех — "
                                 f"markdown/html получен")
             else:
-                logger.warning(f"{store_name}: Firecrawl неуспешен")
-                results[store_key] = fc_result or {
-                    "success": False,
-                    "error": "Firecrawl returned None",
-                }
+                error_msg = ""
+                if fc_result:
+                    error_msg = fc_result.get("error", "unknown")
+                logger.warning(f"{store_name}: Firecrawl неуспешен ({error_msg})")
+                failed_stores.append(store_key)
         except Exception as e:
             logger.error(f"{store_name}: Firecrawl грешка — {e}")
-            results[store_key] = {"success": False, "error": str(e)}
+            failed_stores.append(store_key)
+
+    # Магазини, за които Firecrawl изобщо не беше стартиран (липсва API key)
+    if not has_firecrawl:
+        failed_stores = list(STORES.keys())
+
+    # Магазини, за които Firecrawl успя но с ограничени scrolls —
+    # Crawl4AI ще скролира пълния обхват и ще заместим ако е по-добър
+    partial_stores = [
+        sk for sk, res in results.items()
+        if res.get("success") and res.get("scrolls_capped")
+    ]
+    if partial_stores:
+        logger.info(f"Магазини с ограничен Firecrawl scroll (ще пробваме Crawl4AI): "
+                    f"{', '.join(STORES[s]['name'] for s in partial_stores)}")
+
+    # ==========================================================================
+    # Стъпка 3: Crawl4AI fallback за неуспешни + partial магазини
+    # ==========================================================================
+    # Crawl4AI fallback за всички магазини — опитваме headless Chromium
+    CRAWL4AI_CAPABLE = {
+        "kashon", "ebag", "balev", "metro", "zelen", "biomarket",
+        "befit", "laika", "randi", "lilly", "tmarket",
+    }
+    crawl4ai_needed = [s for s in failed_stores if s in CRAWL4AI_CAPABLE]
+    # Добавяме partial stores (Firecrawl успя, но scrolls бяха лимитирани)
+    for s in partial_stores:
+        if s in CRAWL4AI_CAPABLE and s not in crawl4ai_needed:
+            crawl4ai_needed.append(s)
+
+    if crawl4ai_needed and has_crawl4ai:
+        logger.info(f"Crawl4AI fallback за {len(crawl4ai_needed)} магазина: "
+                    f"{', '.join(STORES[s]['name'] for s in crawl4ai_needed)}")
+
+        partial_set = set(partial_stores)
+        stores_to_crawl = [s for s in crawl4ai_needed
+                           if s in partial_set  # partial Firecrawl → Crawl4AI upgrade
+                           or s not in results
+                           or not results.get(s, {}).get("success")]
+
+        if stores_to_crawl:
+            browser_config = BrowserConfig(
+                headless=True,
+                viewport_width=1920,
+                viewport_height=1080,
+            )
+
+            async with AsyncWebCrawler(config=browser_config) as crawler:
+                tasks = {}
+                for store_key in stores_to_crawl:
+                    cfg = STORES[store_key]
+                    if cfg.get("needs_captcha_solver"):
+                        tasks[store_key] = crawl_with_captcha_solver(
+                            crawler, store_key, cfg)
+                    else:
+                        tasks[store_key] = crawl_store(crawler, store_key, cfg)
+
+                task_results = await asyncio.gather(
+                    *tasks.values(), return_exceptions=True)
+
+                for store_key, result in zip(tasks.keys(), task_results):
+                    store_name = STORES[store_key]["name"]
+                    if isinstance(result, Exception):
+                        error_str = str(result)
+                        logger.error(f"{store_name}: Crawl4AI грешка — {result}")
+                        results[store_key] = {"success": False, "error": error_str}
+                    elif result and result.get("success"):
+                        result["method"] = "crawl4ai"
+                        crawl4ai_md_len = len(result.get('markdown', ''))
+                        existing_md_len = len(results.get(store_key, {}).get('markdown', ''))
+                        if store_key in partial_set and existing_md_len > 0:
+                            # Partial Firecrawl: сравняваме markdown размер
+                            if crawl4ai_md_len > existing_md_len:
+                                results[store_key] = result
+                                logger.info(f"{store_name}: Crawl4AI upgrade — "
+                                            f"{crawl4ai_md_len} chars (Firecrawl: {existing_md_len})")
+                                partial_set.discard(store_key)
+                            else:
+                                logger.info(f"{store_name}: Crawl4AI {crawl4ai_md_len} chars "
+                                            f"≤ Firecrawl {existing_md_len} — запазваме Firecrawl")
+                                partial_set.discard(store_key)
+                        else:
+                            results[store_key] = result
+                            logger.info(f"{store_name}: Crawl4AI fallback успех — "
+                                        f"{crawl4ai_md_len} chars")
+                    else:
+                        error = result.get("error", "unknown") if result else "None"
+                        logger.warning(f"{store_name}: Crawl4AI fallback неуспешен ({error})")
+                        results[store_key] = result or {
+                            "success": False, "error": "Crawl4AI returned None"}
+
+    elif crawl4ai_needed and not has_crawl4ai:
+        logger.warning(f"Crawl4AI не е наличен — {len(crawl4ai_needed)} магазина без fallback: "
+                       f"{', '.join(STORES[s]['name'] for s in crawl4ai_needed)}")
+        for store_key in crawl4ai_needed:
+            if store_key not in results:
+                results[store_key] = {
+                    "success": False,
+                    "error": "Firecrawl failed, Crawl4AI not available",
+                }
+
+    # ==========================================================================
+    # Стъпка 4: curl_cffi fallback за T-Market и Lilly (ако Firecrawl + Crawl4AI неуспешни)
+    # ==========================================================================
+    if CURL_CFFI_AVAILABLE:
+        # T-Market: curl_cffi TLS impersonation (bypass Cloudflare)
+        tm_result = results.get("tmarket", {})
+        tm_has_products = tm_result.get("success") and (
+            tm_result.get("products") or len(tm_result.get("markdown", "")) > 500)
+        if not tm_has_products:
+            logger.info("T-Market: curl_cffi fallback...")
+            try:
+                tm_curl = await fetch_tmarket_via_curl()
+                if tm_curl and tm_curl.get("success"):
+                    results["tmarket"] = tm_curl
+                    logger.info(f"T-Market: curl_cffi успех — {len(tm_curl.get('html', ''))} chars")
+            except Exception as e:
+                logger.warning(f"T-Market curl_cffi fallback грешка: {e}")
+
+        # Lilly: Magento GraphQL/REST API (Hyvä Theme не дава продукти чрез Firecrawl)
+        lilly_result = results.get("lilly", {})
+        lilly_products = lilly_result.get("products", [])
+        lilly_has_enough = lilly_result.get("success") and len(lilly_products) >= 3
+        if not lilly_has_enough:
+            logger.info("Lilly: curl_cffi GraphQL/REST API fallback...")
+            try:
+                lilly_curl = await fetch_lilly_via_curl()
+                if lilly_curl and lilly_curl.get("success"):
+                    results["lilly"] = lilly_curl
+                    logger.info(f"Lilly: curl_cffi успех — "
+                                f"{len(lilly_curl.get('products', []))} продукта")
+            except Exception as e:
+                logger.warning(f"Lilly curl_cffi fallback грешка: {e}")
+
+    # Маркираме останалите неуспешни
+    for store_key in failed_stores:
+        if store_key not in results:
+            results[store_key] = {
+                "success": False,
+                "error": "All methods failed (Firecrawl + Crawl4AI + curl_cffi)",
+            }
 
     # ==========================================================================
     # Glovo магазини (паралелно, отделен Firecrawl pipeline)
     # ==========================================================================
-    if GLOVO_STORES:
+    if GLOVO_STORES and has_firecrawl:
         glovo_results = await fetch_all_glovo_products("harmonica")
         results.update(glovo_results)
 
@@ -3442,7 +3648,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер v10.3'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер v10.5'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(STORES) + len(GLOVO_STORES)}']
@@ -3600,6 +3806,21 @@ def write_to_sheets(final_products, stats):
     try:
         last_row = len(all_data)
         last_col = len(headers)
+
+        # Разлепяме всички merge-нати клетки от предишен run в ОТДЕЛНА заявка.
+        # Използваме пълния размер на sheet-а, за да покрием merges от runs
+        # с различен брой колони. Ако няма merges — просто no-op.
+        try:
+            sheet.spreadsheet.batch_update({"requests": [{
+                "unmergeCells": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": 0, "endRowIndex": sheet.row_count,
+                              "startColumnIndex": 0, "endColumnIndex": sheet.col_count}
+                }
+            }]})
+        except Exception:
+            pass  # Няма merge-нати клетки или друга грешка — продължаваме
+
         format_requests = []
 
         # Заглавен ред
@@ -3710,6 +3931,52 @@ def write_to_sheets(final_products, stats):
                 }
             })
 
+        # Числово форматиране за ценови колони (2 десетични знака)
+        price_cols_start = KASHON_EUR_COL  # от Кашон EUR до последния магазин + Ср.EUR
+        price_cols_end = STORE_COL_START + len(store_columns) + 1  # +1 за Ср.EUR
+        if last_row > HEADER_ROW:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": HEADER_ROW, "endRowIndex": last_row,
+                              "startColumnIndex": price_cols_start,
+                              "endColumnIndex": price_cols_end},
+                    "cell": {"userEnteredFormat": {
+                        "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
+                        "horizontalAlignment": "RIGHT",
+                    }},
+                    "fields": "userEnteredFormat(numberFormat,horizontalAlignment)"
+                }
+            })
+
+        # Фиксиране на header реда (freeze)
+        format_requests.append({
+            "updateSheetProperties": {
+                "properties": {
+                    "sheetId": sheet.id,
+                    "gridProperties": {"frozenRowCount": HEADER_ROW}
+                },
+                "fields": "gridProperties.frozenRowCount"
+            }
+        })
+
+        # Светлозелен фон за нови продукти (ПРЕДИ deviation оцветяването)
+        for row_idx in new_product_rows:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": row_idx, "endRowIndex": row_idx + 1,
+                              "startColumnIndex": 0, "endColumnIndex": last_col},
+                    "cell": {"userEnteredFormat": {
+                        "backgroundColor": {"red": 0.85, "green": 0.95, "blue": 0.85},
+                        "textFormat": {
+                            "foregroundColor": {"red": 0.1, "green": 0.4, "blue": 0.1},
+                        }
+                    }},
+                    "fields": "userEnteredFormat(backgroundColor,textFormat.foregroundColor)"
+                }
+            })
+
         # Сиво форматиране за изчерпани (OOS)
         for row_idx, col_idx in out_of_stock_cells:
             format_requests.append({
@@ -3718,15 +3985,17 @@ def write_to_sheets(final_products, stats):
                               "startRowIndex": row_idx, "endRowIndex": row_idx + 1,
                               "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
                     "cell": {"userEnteredFormat": {
+                        "backgroundColor": {"red": 0.93, "green": 0.93, "blue": 0.93},
                         "textFormat": {
-                            "foregroundColor": {"red": 0.6, "green": 0.6, "blue": 0.6}
+                            "foregroundColor": {"red": 0.6, "green": 0.6, "blue": 0.6},
+                            "italic": True,
                         }
                     }},
-                    "fields": "userEnteredFormat.textFormat.foregroundColor"
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
                 }
             })
 
-        # Червено (↑) за цени >10% над средната
+        # Червено (↑) за цени >10% над средната (СЛЕД new/removed)
         for row_idx, col_idx in deviation_cells_high:
             format_requests.append({
                 "repeatCell": {
@@ -3744,7 +4013,7 @@ def write_to_sheets(final_products, stats):
                 }
             })
 
-        # Светлосиньо (↓) за цени >10% под средната
+        # Светлосиньо (↓) за цени >10% под средната (СЛЕД new/removed)
         for row_idx, col_idx in deviation_cells_low:
             format_requests.append({
                 "repeatCell": {
@@ -3759,23 +4028,6 @@ def write_to_sheets(final_products, stats):
                         }
                     }},
                     "fields": "userEnteredFormat(backgroundColor,textFormat)"
-                }
-            })
-
-        # Светлозелен фон за нови продукти (добавени при последен sync)
-        for row_idx in new_product_rows:
-            format_requests.append({
-                "repeatCell": {
-                    "range": {"sheetId": sheet.id,
-                              "startRowIndex": row_idx, "endRowIndex": row_idx + 1,
-                              "startColumnIndex": 0, "endColumnIndex": last_col},
-                    "cell": {"userEnteredFormat": {
-                        "backgroundColor": {"red": 0.85, "green": 0.95, "blue": 0.85},
-                        "textFormat": {
-                            "foregroundColor": {"red": 0.1, "green": 0.4, "blue": 0.1},
-                        }
-                    }},
-                    "fields": "userEnteredFormat(backgroundColor,textFormat.foregroundColor)"
                 }
             })
 
@@ -3968,23 +4220,25 @@ def send_email_report(final_products, stats):
 async def main():
     logger.info("=" * 60)
     total_stores = len(STORES) + len(GLOVO_STORES)
-    logger.info(f"HARMONICA PRICE TRACKER v10.3 — {total_stores} магазина (Firecrawl-first)")
+    logger.info(f"HARMONICA PRICE TRACKER v10.5 — {total_stores} магазина (Firecrawl + Crawl4AI)")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}")
     if FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY:
         logger.info(f"Firecrawl: YES (key: {FIRECRAWL_API_KEY[:8]}...)")
-    elif not FIRECRAWL_AVAILABLE:
-        logger.error("Firecrawl: NOT AVAILABLE — scraper cannot run without Firecrawl!")
-    elif not FIRECRAWL_API_KEY:
-        logger.error("Firecrawl: API KEY NOT SET — set FIRECRAWL_API_KEY env variable!")
+    else:
+        logger.warning("Firecrawl: НЕ — ще се ползва само Crawl4AI")
+    if CRAWL4AI_AVAILABLE:
+        logger.info("Crawl4AI: YES (fallback за неуспешни Firecrawl магазини)")
+    else:
+        logger.warning("Crawl4AI: НЕ — няма fallback при Firecrawl timeout")
     if ANTHROPIC_AVAILABLE and ANTHROPIC_API_KEY:
         logger.info(f"Claude: YES ({CLAUDE_MODEL})")
     else:
         logger.info("Claude: НЕ — ценова валидация изключена")
 
-    if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
-        logger.error("Firecrawl е задължителен за v10.3! Инсталирайте firecrawl и задайте FIRECRAWL_API_KEY.")
+    if not (FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY) and not CRAWL4AI_AVAILABLE:
+        logger.error("Нито Firecrawl, нито Crawl4AI е наличен! Инсталирайте поне един.")
         return
 
     total_start = time.time()
@@ -4048,28 +4302,6 @@ async def main():
     elif lilly_data.get("error"):
         logger.warning(f"Lilly: {lilly_data['error']}")
 
-    # DM Bulgaria
-    dm_products = []
-    dm_data = crawl_results.get("dm", {})
-    if dm_data.get("success"):
-        method = dm_data.get("method", "unknown")
-        # Algolia API — продуктите са вече извлечени
-        if dm_data.get("products"):
-            dm_products = dm_data["products"]
-        # curl_cffi HTML или Crawl4AI HTML — парсваме
-        elif dm_data.get("html"):
-            dm_products = extract_dm_from_curl_html(dm_data["html"])
-            if not dm_products:
-                dm_products = extract_dm_products(
-                    dm_data.get("markdown", ""),
-                    html_text=dm_data.get("html"),
-                )
-        elif dm_data.get("markdown"):
-            dm_products = extract_dm_products(dm_data["markdown"])
-        logger.info(f"DM: {len(dm_products)} Harmonica products (method: {method})")
-    elif dm_data.get("error"):
-        logger.warning(f"DM: {dm_data['error']}")
-
     # T-Market
     tmarket_products = []
     tmarket_data = crawl_results.get("tmarket", {})
@@ -4128,12 +4360,32 @@ async def main():
     for store_key, store_info in generic_stores.items():
         store_data = crawl_results.get(store_key, {})
         if store_data.get("success") and store_data.get("markdown"):
+            md = store_data["markdown"]
+            # BeFit: премахваме accessibility overlay (UserWay/EqualWeb widget)
+            if store_key == "befit":
+                md = re.sub(
+                    r'(?si)(?:Моля, обърнете внимание|Accessibility|'
+                    r'система за достъпност|екранен четец|'
+                    r'Control-F1[01]|acsb|EqualWeb|UserWay).*?(?=\n\n|\Z)',
+                    '', md
+                )
+                md = re.sub(r'(?si)Close\s+Popup heading\s+Достъпност.*?(?=\n\n|\Z)', '', md)
             store_info["products"] = _extract_generic_products(
-                store_data["markdown"],
+                md,
                 brand_page=store_info["brand_page"],
             )
+            # BeFit: ако generic extractor не намери нищо, пробваме без brand_page filter
+            if store_key == "befit" and not store_info["products"]:
+                store_info["products"] = _extract_generic_products(
+                    md,
+                    brand_page=False,
+                )
             prods = store_info["products"]
             logger.info(f"{STORES[store_key]['name']}: {len(prods)} Harmonica products")
+            if not prods:
+                # Debug: показваме начало на markdown за диагностика
+                md_preview = store_data["markdown"][:300].replace('\n', ' ')
+                logger.info(f"  [DEBUG] markdown preview: {md_preview}")
             # Debug: показваме извлечените имена за магазини с малко продукти
             if len(prods) <= 10:
                 for p in prods:
@@ -4190,7 +4442,6 @@ async def main():
         "ebag": ebag_products,
         "balev": balev_products,
         "lilly": lilly_products,
-        "dm": dm_products,
         "tmarket": tmarket_products,
         "metro": metro_products,
         "randi": randi_products,
