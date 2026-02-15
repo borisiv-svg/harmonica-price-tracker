@@ -1,5 +1,5 @@
 """
-Harmonica Price Tracker v10.4
+Harmonica Price Tracker v10.5
 ==============================
 Unified scraper — Firecrawl-first + Crawl4AI fallback архитектура.
 Магазини, за които Firecrawl timeout-ва, автоматично преминават на Crawl4AI.
@@ -254,13 +254,6 @@ STORES = {
         "scroll_times": 4,
         "brand_page": True,
         "use_magic": True,
-    },
-    "dm": {
-        "name": "DM",
-        "url": "https://www.dm-drogeriemarkt.bg/search?query=harmonica&searchType=product",
-        "scroll_times": 5,
-        "needs_captcha_solver": True,
-        "algolia_enabled": True,
     },
     "tmarket": {
         "name": "T-Market",
@@ -3368,11 +3361,6 @@ async def crawl_all():
     firecrawl_futures = {}
 
     if has_firecrawl:
-        # DM — специализиран Firecrawl (с Algolia извличане)
-        if "dm" in STORES:
-            firecrawl_futures["dm"] = loop.run_in_executor(
-                None, _fetch_dm_via_firecrawl, "harmonica")
-
         # Randi — специализиран Firecrawl (JS-heavy)
         if "randi" in STORES:
             firecrawl_futures["randi"] = loop.run_in_executor(
@@ -3446,7 +3434,7 @@ async def crawl_all():
     # Crawl4AI fallback за всички магазини — опитваме headless Chromium
     CRAWL4AI_CAPABLE = {
         "kashon", "ebag", "balev", "metro", "zelen", "biomarket",
-        "befit", "laika", "randi", "dm", "lilly", "tmarket",
+        "befit", "laika", "randi", "lilly", "tmarket",
     }
     crawl4ai_needed = [s for s in failed_stores if s in CRAWL4AI_CAPABLE]
     # Добавяме partial stores (Firecrawl успя, но scrolls бяха лимитирани)
@@ -3522,24 +3510,9 @@ async def crawl_all():
                 }
 
     # ==========================================================================
-    # Стъпка 4: curl_cffi fallback за DM и T-Market (ако Firecrawl + Crawl4AI неуспешни)
+    # Стъпка 4: curl_cffi fallback за T-Market и Lilly (ако Firecrawl + Crawl4AI неуспешни)
     # ==========================================================================
     if CURL_CFFI_AVAILABLE:
-        # DM: Algolia API директно (не изисква browser rendering)
-        dm_result = results.get("dm", {})
-        dm_has_products = dm_result.get("success") and (
-            dm_result.get("products") or len(dm_result.get("markdown", "")) > 100)
-        if not dm_has_products:
-            logger.info("DM: curl_cffi Algolia fallback...")
-            try:
-                dm_curl = await fetch_dm_via_algolia("harmonica")
-                if dm_curl and dm_curl.get("success"):
-                    results["dm"] = dm_curl
-                    logger.info(f"DM: curl_cffi Algolia успех — "
-                                f"{len(dm_curl.get('products', []))} продукта")
-            except Exception as e:
-                logger.warning(f"DM curl_cffi fallback грешка: {e}")
-
         # T-Market: curl_cffi TLS impersonation (bypass Cloudflare)
         tm_result = results.get("tmarket", {})
         tm_has_products = tm_result.get("success") and (
@@ -3671,7 +3644,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер v10.4'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер v10.5'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(STORES) + len(GLOVO_STORES)}']
@@ -3939,6 +3912,52 @@ def write_to_sheets(final_products, stats):
                 }
             })
 
+        # Числово форматиране за ценови колони (2 десетични знака)
+        price_cols_start = KASHON_EUR_COL  # от Кашон EUR до последния магазин + Ср.EUR
+        price_cols_end = STORE_COL_START + len(store_columns) + 1  # +1 за Ср.EUR
+        if last_row > HEADER_ROW:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": HEADER_ROW, "endRowIndex": last_row,
+                              "startColumnIndex": price_cols_start,
+                              "endColumnIndex": price_cols_end},
+                    "cell": {"userEnteredFormat": {
+                        "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
+                        "horizontalAlignment": "RIGHT",
+                    }},
+                    "fields": "userEnteredFormat(numberFormat,horizontalAlignment)"
+                }
+            })
+
+        # Фиксиране на header реда (freeze)
+        format_requests.append({
+            "updateSheetProperties": {
+                "properties": {
+                    "sheetId": sheet.id,
+                    "gridProperties": {"frozenRowCount": HEADER_ROW}
+                },
+                "fields": "gridProperties.frozenRowCount"
+            }
+        })
+
+        # Светлозелен фон за нови продукти (ПРЕДИ deviation оцветяването)
+        for row_idx in new_product_rows:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": row_idx, "endRowIndex": row_idx + 1,
+                              "startColumnIndex": 0, "endColumnIndex": last_col},
+                    "cell": {"userEnteredFormat": {
+                        "backgroundColor": {"red": 0.85, "green": 0.95, "blue": 0.85},
+                        "textFormat": {
+                            "foregroundColor": {"red": 0.1, "green": 0.4, "blue": 0.1},
+                        }
+                    }},
+                    "fields": "userEnteredFormat(backgroundColor,textFormat.foregroundColor)"
+                }
+            })
+
         # Сиво форматиране за изчерпани (OOS)
         for row_idx, col_idx in out_of_stock_cells:
             format_requests.append({
@@ -3947,15 +3966,17 @@ def write_to_sheets(final_products, stats):
                               "startRowIndex": row_idx, "endRowIndex": row_idx + 1,
                               "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
                     "cell": {"userEnteredFormat": {
+                        "backgroundColor": {"red": 0.93, "green": 0.93, "blue": 0.93},
                         "textFormat": {
-                            "foregroundColor": {"red": 0.6, "green": 0.6, "blue": 0.6}
+                            "foregroundColor": {"red": 0.6, "green": 0.6, "blue": 0.6},
+                            "italic": True,
                         }
                     }},
-                    "fields": "userEnteredFormat.textFormat.foregroundColor"
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
                 }
             })
 
-        # Червено (↑) за цени >10% над средната
+        # Червено (↑) за цени >10% над средната (СЛЕД new/removed)
         for row_idx, col_idx in deviation_cells_high:
             format_requests.append({
                 "repeatCell": {
@@ -3973,7 +3994,7 @@ def write_to_sheets(final_products, stats):
                 }
             })
 
-        # Светлосиньо (↓) за цени >10% под средната
+        # Светлосиньо (↓) за цени >10% под средната (СЛЕД new/removed)
         for row_idx, col_idx in deviation_cells_low:
             format_requests.append({
                 "repeatCell": {
@@ -3988,23 +4009,6 @@ def write_to_sheets(final_products, stats):
                         }
                     }},
                     "fields": "userEnteredFormat(backgroundColor,textFormat)"
-                }
-            })
-
-        # Светлозелен фон за нови продукти (добавени при последен sync)
-        for row_idx in new_product_rows:
-            format_requests.append({
-                "repeatCell": {
-                    "range": {"sheetId": sheet.id,
-                              "startRowIndex": row_idx, "endRowIndex": row_idx + 1,
-                              "startColumnIndex": 0, "endColumnIndex": last_col},
-                    "cell": {"userEnteredFormat": {
-                        "backgroundColor": {"red": 0.85, "green": 0.95, "blue": 0.85},
-                        "textFormat": {
-                            "foregroundColor": {"red": 0.1, "green": 0.4, "blue": 0.1},
-                        }
-                    }},
-                    "fields": "userEnteredFormat(backgroundColor,textFormat.foregroundColor)"
                 }
             })
 
@@ -4197,7 +4201,7 @@ def send_email_report(final_products, stats):
 async def main():
     logger.info("=" * 60)
     total_stores = len(STORES) + len(GLOVO_STORES)
-    logger.info(f"HARMONICA PRICE TRACKER v10.4 — {total_stores} магазина (Firecrawl + Crawl4AI)")
+    logger.info(f"HARMONICA PRICE TRACKER v10.5 — {total_stores} магазина (Firecrawl + Crawl4AI)")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}")
@@ -4278,28 +4282,6 @@ async def main():
             logger.info(f"  Налични: {in_stock}, Изчерпани: {len(lilly_products) - in_stock}")
     elif lilly_data.get("error"):
         logger.warning(f"Lilly: {lilly_data['error']}")
-
-    # DM Bulgaria
-    dm_products = []
-    dm_data = crawl_results.get("dm", {})
-    if dm_data.get("success"):
-        method = dm_data.get("method", "unknown")
-        # Algolia API — продуктите са вече извлечени
-        if dm_data.get("products"):
-            dm_products = dm_data["products"]
-        # curl_cffi HTML или Crawl4AI HTML — парсваме
-        elif dm_data.get("html"):
-            dm_products = extract_dm_from_curl_html(dm_data["html"])
-            if not dm_products:
-                dm_products = extract_dm_products(
-                    dm_data.get("markdown", ""),
-                    html_text=dm_data.get("html"),
-                )
-        elif dm_data.get("markdown"):
-            dm_products = extract_dm_products(dm_data["markdown"])
-        logger.info(f"DM: {len(dm_products)} Harmonica products (method: {method})")
-    elif dm_data.get("error"):
-        logger.warning(f"DM: {dm_data['error']}")
 
     # T-Market
     tmarket_products = []
@@ -4441,7 +4423,6 @@ async def main():
         "ebag": ebag_products,
         "balev": balev_products,
         "lilly": lilly_products,
-        "dm": dm_products,
         "tmarket": tmarket_products,
         "metro": metro_products,
         "randi": randi_products,
