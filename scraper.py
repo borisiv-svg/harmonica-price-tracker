@@ -311,6 +311,15 @@ STORES = {
         "url": "https://befit.bg/brands/harmonica",
         "scroll_times": 10,
         "brand_page": True,
+        # Accessibility popup трябва да се затвори преди скролиране
+        "pre_js": """
+            // Затваряме accessibility popup (UserWay/EqualWeb widget)
+            document.querySelectorAll('[aria-label="Close"], .close-popup, .acsb-close, [class*="close"]')
+                .forEach(el => el.click());
+            // Премахваме overlay елементи
+            document.querySelectorAll('[class*="acsb"], [class*="accessibility"], [id*="acsb"]')
+                .forEach(el => el.remove());
+        """,
     },
     "laika": {
         "name": "Laika",
@@ -1986,12 +1995,19 @@ def _fetch_store_via_firecrawl(store_key, store_config):
         app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
 
         # Изграждаме actions: wait → scroll → wait → scrape
+        # Firecrawl лимити: max 50 actions, max 60s общо wait
         scroll_wait = store_config.get("scroll_delay", 1500)
+        initial_wait = 4000
+        # Бюджет: 50 actions = 1 (init wait) + 2N (scroll+wait) + 1 (final scroll) + 1 (final wait) + 1 (scrape) = 2N+4
+        max_scrolls_by_actions = (50 - 4) // 2  # = 23
+        # Бюджет: 60s wait = initial_wait + N * scroll_wait + scroll_wait (final)
+        max_scrolls_by_wait = max(1, int((60000 - initial_wait - scroll_wait) / scroll_wait))
+        firecrawl_scrolls = min(scroll_times, max_scrolls_by_actions, max_scrolls_by_wait)
+
         actions = [
-            {"type": "wait", "milliseconds": 4000},
+            {"type": "wait", "milliseconds": initial_wait},
         ]
-        # Scroll серия — използваме пълния scroll_times от конфигурацията
-        for _ in range(scroll_times):
+        for _ in range(firecrawl_scrolls):
             actions.append({"type": "scroll", "direction": "down"})
             actions.append({"type": "wait", "milliseconds": scroll_wait})
         # Финален scroll до дъното
@@ -1999,8 +2015,12 @@ def _fetch_store_via_firecrawl(store_key, store_config):
         actions.append({"type": "wait", "milliseconds": scroll_wait})
         actions.append({"type": "scrape"})
 
+        if firecrawl_scrolls < scroll_times:
+            logger.info(f"{store_name} Firecrawl: {firecrawl_scrolls}/{scroll_times} scrolls "
+                        f"(лимит actions/wait), Crawl4AI ще обхване пълния обхват")
+
         # Timeout: базов 60s + scroll_times × scroll_wait
-        timeout = max(90000, 60000 + scroll_times * scroll_wait * 2)
+        timeout = max(90000, 60000 + firecrawl_scrolls * scroll_wait * 2)
         result = app.scrape_url(
             url,
             params={
@@ -3265,9 +3285,14 @@ async def crawl_store(crawler, store_key, store_config):
     logger.info(f"CRAWLING{'(magic)' if use_magic else ''}: {store_name}")
 
     scroll_delay = store_config.get("scroll_delay", 1500)
+    pre_js = store_config.get("pre_js", "")
     scroll_js = ""
     if scroll_times > 0 and not use_magic:
         scroll_js = f"""
+        // Pre-scroll JS (затваряне на popups и т.н.)
+        {pre_js}
+        await new Promise(r => setTimeout(r, 1000));
+
         async function scrollPage() {{
             const step = window.innerHeight || 800;
             for (let i = 0; i < {scroll_times}; i++) {{
@@ -3410,11 +3435,10 @@ async def crawl_all():
     # ==========================================================================
     # Стъпка 3: Crawl4AI fallback за неуспешни магазини
     # ==========================================================================
-    # Crawl4AI работи добре за: Кашон, eBag, Balev, Metro, Zelen, BioMarket,
-    # BeFit, Laika, Randi, DM. Lilly и T-Market нужен curl_cffi.
+    # Crawl4AI fallback за всички магазини — опитваме headless Chromium
     CRAWL4AI_CAPABLE = {
         "kashon", "ebag", "balev", "metro", "zelen", "biomarket",
-        "befit", "laika", "randi", "dm",
+        "befit", "laika", "randi", "dm", "lilly", "tmarket",
     }
     crawl4ai_needed = [s for s in failed_stores if s in CRAWL4AI_CAPABLE]
 
