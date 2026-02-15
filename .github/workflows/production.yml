@@ -134,7 +134,6 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
-          PROXY_URL: ${{ secrets.PROXY_URL }}
           GLOVO_AUTH_TOKEN: ${{ secrets.GLOVO_AUTH_TOKEN }}
         run: |
           echo "Starting scraper at $(date)"

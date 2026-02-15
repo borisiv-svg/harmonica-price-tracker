@@ -89,7 +89,6 @@ except ImportError:
 # =============================================================================
 
 EUR_BGN_RATE = 1.9558  # Фиксиран курс
-PROXY_URL = os.environ.get("PROXY_URL")  # Optional: http://user:pass@host:port
 GLOVO_AUTH_TOKEN = os.environ.get("GLOVO_AUTH_TOKEN")  # Optional: Glovo Bearer token
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")  # Optional: Firecrawl API key
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")  # Optional: Claude API key за валидация
@@ -225,20 +224,6 @@ def save_product_list(reference_products):
     except Exception as e:
         logger.error(f"Грешка при запис на продуктов файл: {e}")
 
-
-def _parse_proxy_url(proxy_url):
-    """Парсва proxy URL за Playwright proxy_config (server, username, password)."""
-    if not proxy_url:
-        return None
-    from urllib.parse import urlparse
-    parsed = urlparse(proxy_url)
-    if parsed.username:
-        return {
-            "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
-            "username": parsed.username,
-            "password": parsed.password or "",
-        }
-    return {"server": proxy_url}
 
 
 # =============================================================================
@@ -2208,13 +2193,13 @@ async def fetch_dm_via_algolia(query="harmonica"):
 
     try:
         async with CurlAsyncSession(impersonate="chrome") as session:
-            proxy = PROXY_URL if PROXY_URL else None
+
 
             # Стъпка 1: Fetch dm.bg за Algolia config
             logger.info("DM Algolia: извличане на конфигурация от dm.bg...")
             resp = await session.get(
                 "https://www.dm-drogeriemarkt.bg/search?query=harmonica&searchType=product",
-                proxy=proxy,
+
                 timeout=30,
                 headers={
                     "Accept": "text/html,application/xhtml+xml",
@@ -2241,7 +2226,7 @@ async def fetch_dm_via_algolia(query="harmonica"):
                     if not js_url.startswith('http'):
                         js_url = f"https://www.dm-drogeriemarkt.bg{js_url}"
                     try:
-                        js_resp = await session.get(js_url, proxy=proxy, timeout=15)
+                        js_resp = await session.get(js_url, timeout=15)
                         if js_resp.status_code == 200:
                             config = await extract_algolia_config(js_resp.text)
                             if config:
@@ -2271,7 +2256,7 @@ async def fetch_dm_via_algolia(query="harmonica"):
             algolia_url = f"https://{app_id}-dsn.algolia.net/1/indexes/{index_name}/query"
             algolia_resp = await session.post(
                 algolia_url,
-                proxy=proxy,
+
                 timeout=15,
                 headers={
                     "X-Algolia-Application-Id": app_id,
@@ -2400,13 +2385,13 @@ async def fetch_lilly_via_curl():
 
     try:
         async with CurlAsyncSession(impersonate="chrome") as session:
-            proxy = PROXY_URL if PROXY_URL else None
+
 
             # Опит 1: GraphQL API
             try:
                 resp = await session.post(
                     "https://lillydrogerie.bg/graphql",
-                    proxy=proxy,
+    
                     timeout=30,
                     headers={
                         "Content-Type": "application/json",
@@ -2475,7 +2460,7 @@ async def fetch_lilly_via_curl():
                             "&searchCriteria[pageSize]=50")
                 resp = await session.get(
                     rest_url,
-                    proxy=proxy,
+    
                     timeout=30,
                     headers={"Accept": "application/json"},
                 )
@@ -2537,10 +2522,10 @@ async def fetch_tmarket_via_curl(url="https://tmarketonline.bg/vendor/harmonica-
 
     try:
         async with CurlAsyncSession(impersonate="chrome") as session:
-            proxy = PROXY_URL if PROXY_URL else None
+
             resp = await session.get(
                 url,
-                proxy=proxy,
+
                 timeout=30,
                 headers={
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -2790,7 +2775,7 @@ async def fetch_glovo_store_products(store_key, store_config, query="harmonica")
 
     # === Подход 2: Glovo API (с auth token) ===
     if GLOVO_AUTH_TOKEN and CURL_CFFI_AVAILABLE:
-        proxy = PROXY_URL if PROXY_URL else None
+
         glovo_headers = {
             "Accept": "application/json",
             "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.8",
@@ -2807,7 +2792,7 @@ async def fetch_glovo_store_products(store_key, store_config, query="harmonica")
                 search_url = f"{GLOVO_API_BASE}/stores/{slug}/search"
                 resp = await session.get(
                     search_url, params={"query": query},
-                    proxy=proxy, headers=glovo_headers, timeout=20,
+                    headers=glovo_headers, timeout=20,
                 )
                 if resp.status_code == 200:
                     data = resp.json()
@@ -2824,7 +2809,7 @@ async def fetch_glovo_store_products(store_key, store_config, query="harmonica")
                 # API catalog
                 catalog_url = f"{GLOVO_API_BASE}/stores/{slug}"
                 resp = await session.get(
-                    catalog_url, proxy=proxy, headers=glovo_headers, timeout=20,
+                    catalog_url, headers=glovo_headers, timeout=20,
                 )
                 if resp.status_code == 200:
                     data = resp.json()
@@ -3473,45 +3458,18 @@ async def crawl_all():
         logger.info(f"Crawl4AI fallback за {len(crawl4ai_needed)} магазина: "
                     f"{', '.join(STORES[s]['name'] for s in crawl4ai_needed)}")
 
-        # Бърза proxy проверка — ако proxy-то не работи, не губим време
-        proxy_attempts = [False]  # default: без proxy
-        if PROXY_URL:
-            try:
-                import socket
-                from urllib.parse import urlparse as _urlparse
-                _pp = _urlparse(PROXY_URL)
-                _sock = socket.create_connection(
-                    (_pp.hostname, _pp.port or 12321), timeout=5)
-                _sock.close()
-                proxy_attempts = [True, False]
-                logger.info(f"Proxy health check: OK ({_pp.hostname}:{_pp.port})")
-            except Exception as _e:
-                logger.warning(f"Proxy health check: FAILED ({_e}) — пропускаме proxy")
-                proxy_attempts = [False]
-
         partial_set = set(partial_stores)
-        for use_proxy in proxy_attempts:
-            stores_to_crawl = [s for s in crawl4ai_needed
-                               if s in partial_set  # partial Firecrawl → Crawl4AI upgrade
-                               or s not in results
-                               or not results.get(s, {}).get("success")]
-            if not stores_to_crawl:
-                break
+        stores_to_crawl = [s for s in crawl4ai_needed
+                           if s in partial_set  # partial Firecrawl → Crawl4AI upgrade
+                           or s not in results
+                           or not results.get(s, {}).get("success")]
 
-            browser_kwargs = {
-                "headless": True,
-                "viewport_width": 1920,
-                "viewport_height": 1080,
-            }
-            if use_proxy and PROXY_URL:
-                proxy_cfg = _parse_proxy_url(PROXY_URL)
-                browser_kwargs["proxy_config"] = proxy_cfg
-                logger.info(f"Proxy: {proxy_cfg['server']}")
-            elif not use_proxy and PROXY_URL:
-                logger.info("Crawl4AI retry без proxy")
-
-            browser_config = BrowserConfig(**browser_kwargs)
-            tunnel_failures = 0
+        if stores_to_crawl:
+            browser_config = BrowserConfig(
+                headless=True,
+                viewport_width=1920,
+                viewport_height=1080,
+            )
 
             async with AsyncWebCrawler(config=browser_config) as crawler:
                 tasks = {}
@@ -3526,10 +3484,6 @@ async def crawl_all():
                     store_name = STORES[store_key]["name"]
                     if isinstance(result, Exception):
                         error_str = str(result)
-                        if "TUNNEL_CONNECTION_FAILED" in error_str and use_proxy:
-                            tunnel_failures += 1
-                            logger.warning(f"{store_name}: proxy tunnel fail — ще пробваме без proxy")
-                            continue  # Не записваме, ще retry-нем
                         logger.error(f"{store_name}: Crawl4AI грешка — {result}")
                         results[store_key] = {"success": False, "error": error_str}
                     elif result and result.get("success"):
@@ -3553,16 +3507,9 @@ async def crawl_all():
                                         f"{crawl4ai_md_len} chars")
                     else:
                         error = result.get("error", "unknown") if result else "None"
-                        if "TUNNEL_CONNECTION_FAILED" in str(error) and use_proxy:
-                            tunnel_failures += 1
-                            logger.warning(f"{store_name}: proxy tunnel fail — ще пробваме без proxy")
-                            continue
                         logger.warning(f"{store_name}: Crawl4AI fallback неуспешен ({error})")
                         results[store_key] = result or {
                             "success": False, "error": "Crawl4AI returned None"}
-
-            if tunnel_failures == 0:
-                break  # Няма tunnel грешки, не е нужен retry
 
     elif crawl4ai_needed and not has_crawl4ai:
         logger.warning(f"Crawl4AI не е наличен — {len(crawl4ai_needed)} магазина без fallback: "
@@ -3606,6 +3553,21 @@ async def crawl_all():
                     logger.info(f"T-Market: curl_cffi успех — {len(tm_curl.get('html', ''))} chars")
             except Exception as e:
                 logger.warning(f"T-Market curl_cffi fallback грешка: {e}")
+
+        # Lilly: Magento GraphQL/REST API (Hyvä Theme не дава продукти чрез Firecrawl)
+        lilly_result = results.get("lilly", {})
+        lilly_products = lilly_result.get("products", [])
+        lilly_has_enough = lilly_result.get("success") and len(lilly_products) >= 3
+        if not lilly_has_enough:
+            logger.info("Lilly: curl_cffi GraphQL/REST API fallback...")
+            try:
+                lilly_curl = await fetch_lilly_via_curl()
+                if lilly_curl and lilly_curl.get("success"):
+                    results["lilly"] = lilly_curl
+                    logger.info(f"Lilly: curl_cffi успех — "
+                                f"{len(lilly_curl.get('products', []))} продукта")
+            except Exception as e:
+                logger.warning(f"Lilly curl_cffi fallback грешка: {e}")
 
     # Маркираме останалите неуспешни
     for store_key in failed_stores:

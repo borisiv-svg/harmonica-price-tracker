@@ -133,7 +133,6 @@ jobs:
 
       - name: ℹ️ Environment info
         env:
-          PROXY_URL: ${{ secrets.PROXY_URL }}
           GLOVO_AUTH_TOKEN: ${{ secrets.GLOVO_AUTH_TOKEN }}
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
         run: |
@@ -144,7 +143,6 @@ jobs:
           echo "Branch: $(git branch --show-current)"
           echo "Use Crawl4AI: ${{ github.event.inputs.use_crawl4ai || 'false' }}"
           echo "Date: $(date)"
-          echo "PROXY_URL set: $([ -n "$PROXY_URL" ] && echo 'YES (length: '${#PROXY_URL}')' || echo 'NO')"
           echo "FIRECRAWL_API_KEY set: $([ -n "$FIRECRAWL_API_KEY" ] && echo 'YES' || echo 'NO')"
           echo "GLOVO_AUTH_TOKEN set: $([ -n "$GLOVO_AUTH_TOKEN" ] && echo 'YES' || echo 'NO')"
           echo "=========================================="
@@ -157,7 +155,6 @@ jobs:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           CAPSOLVER_API_KEY: ${{ secrets.CAPSOLVER_API_KEY }}
-          PROXY_URL: ${{ secrets.PROXY_URL }}
           GLOVO_AUTH_TOKEN: ${{ secrets.GLOVO_AUTH_TOKEN }}
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
           EXPERIMENTAL_MODE: "true"
@@ -166,7 +163,6 @@ jobs:
           ALERT_EMAIL: "boris.iv@gmail.com"
         run: |
           echo "Starting experimental scraper..."
-          echo "PROXY_URL check: $([ -n "$PROXY_URL" ] && echo 'SET (length: '${#PROXY_URL}')' || echo 'EMPTY')"
 
           if [ -f "experimental/scraper_experimental.py" ]; then
             python experimental/scraper_experimental.py
