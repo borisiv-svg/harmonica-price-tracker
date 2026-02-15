@@ -4,9 +4,6 @@
 name: 🔬 Experimental Scraper
 
 on:
-  schedule:
-    # Всеки понеделник в 05:00 UTC (07:00 българско зимно време)
-    - cron: '0 5 * * 1'
   workflow_dispatch:
     inputs:
       branch:
