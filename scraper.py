@@ -1,7 +1,8 @@
 """
-Harmonica Price Tracker v10.3
+Harmonica Price Tracker v10.4
 ==============================
-Unified scraper — Firecrawl-first архитектура (всички магазини през Firecrawl).
+Unified scraper — Firecrawl-first + Crawl4AI fallback архитектура.
+Магазини, за които Firecrawl timeout-ва, автоматично преминават на Crawl4AI.
 Claude Sonnet валидация на outlier цени (EUR).
 Продуктов списък от harmonica_products.json (месечен sync с Кашон).
 
@@ -513,9 +514,14 @@ def extract_bgn_price(text):
 
 
 def extract_price_fallback(text):
-    """Извлича цена без валутен символ. Връща (price, 'BGN') или None."""
-    match = re.search(r'(?:^|\s)(\d+)[,.](\d{2})(?:\s|$)', text)
-    if match:
+    """Извлича цена без валутен символ. Връща (price, 'BGN') или None.
+    По-строг: игнорира числа, следвани от единица мярка (г, мл, g, ml, kg, %).
+    """
+    for match in re.finditer(r'(?:^|\s)(\d+)[,.](\d{2})(?=\s|$)', text):
+        # Проверяваме дали НЕ е грамаж/процент (напр. "3.60%" или "400.00г")
+        after = text[match.end():match.end()+5]
+        if re.match(r'\s*(?:г|мл|ml|g|kg|кг|л|l|%|бр)', after, re.IGNORECASE):
+            continue
         try:
             price = float(f"{match.group(1)}.{match.group(2)}")
             if PRICE_RANGE_BGN[0] <= price <= PRICE_RANGE_BGN[1]:
@@ -683,7 +689,7 @@ def extract_balev_products(markdown):
         # Търсим цена НАПРЕД от името (тесен прозорец), за да не хванем
         # цена от предходен продукт. Разширяваме само ако не намерим.
         eur, bgn = None, None
-        for ctx_start, ctx_end in [(i, i + 5), (max(0, i - 1), i + 8)]:
+        for ctx_start, ctx_end in [(i, i + 3), (max(0, i - 1), i + 5)]:
             ctx = '\n'.join(lines[ctx_start:min(len(lines), ctx_end)])
             eur = extract_eur_price(ctx)
             bgn = extract_bgn_price(ctx)
@@ -846,9 +852,10 @@ def _extract_generic_line_by_line(markdown, brand_page=False):
         if deduplicate_check(name, seen):
             continue
 
-        # Търсим цена НАПРЕД от името, после разширяваме (като Balev/Metro fix)
+        # Търсим цена НАПРЕД от името (тесен прозорец: 3 реда), после разширяваме (5).
+        # По-тесен контекст намалява risk от price bleed между съседни продукти.
         bgn, eur = None, None
-        for ctx_start, ctx_end in [(i, i + 5), (max(0, i - 1), i + 8)]:
+        for ctx_start, ctx_end in [(i, i + 3), (max(0, i - 1), i + 5)]:
             ctx = '\n'.join(lines[ctx_start:min(len(lines), ctx_end)])
             bgn = extract_bgn_price(ctx)
             if not bgn:
@@ -914,10 +921,10 @@ def extract_metro_products(markdown):
         if deduplicate_check(name, seen):
             continue
 
-        # Търсим цена НАПРЕД от името (тесен прозорец), за да не хванем
-        # цена от съседен продукт. Разширяваме само ако не намерим.
+        # Търсим цена НАПРЕД от името (тесен прозорец: 3 реда), за да не хванем
+        # цена от съседен продукт. Разширяваме до 5 само ако не намерим.
         bgn, eur = None, None
-        for ctx_start, ctx_end in [(i, i + 5), (max(0, i - 1), i + 8)]:
+        for ctx_start, ctx_end in [(i, i + 3), (max(0, i - 1), i + 5)]:
             ctx = '\n'.join(lines[ctx_start:min(len(lines), ctx_end)])
             bgn = extract_bgn_price(ctx)
             if not bgn:
@@ -2087,20 +2094,16 @@ def extract_randi_products(markdown):
         if name_key in seen:
             continue
 
-        # Търсим цена в контекст от ±5 реда
-        context = '\n'.join(lines[max(0, i - 3):i + 8])
-        bgn = extract_bgn_price(context)
-        if not bgn:
-            # Опит: цена без "лв" суфикс (напр. "2.99" или "2,99")
-            price_match = re.search(r'(\d+)[,.](\d{2})\b', context)
-            if price_match:
-                try:
-                    price = float(f"{price_match.group(1)}.{price_match.group(2)}")
-                    if 0.50 <= price <= 100:
-                        bgn = round(price, 2)
-                except ValueError:
-                    pass
-        eur = extract_eur_price(context)
+        # Търсим цена НАПРЕД от името (тесен прозорец), после разширяваме
+        bgn, eur = None, None
+        for ctx_start, ctx_end in [(i, i + 3), (max(0, i - 1), i + 5)]:
+            context = '\n'.join(lines[ctx_start:min(len(lines), ctx_end)])
+            bgn = extract_bgn_price(context)
+            if not bgn:
+                bgn = extract_price_fallback(context)
+            eur = extract_eur_price(context)
+            if bgn or eur:
+                break
 
         if bgn or eur:
             if bgn and not eur:
@@ -3277,54 +3280,65 @@ async def crawl_store(crawler, store_key, store_config):
 
 async def crawl_all():
     """
-    Сканира всички магазини паралелно чрез Firecrawl.
-    Всички магазини минават през Firecrawl — без proxy, Crawl4AI или curl_cffi.
+    Сканира всички магазини: Firecrawl-first + Crawl4AI fallback.
+
+    Стратегия:
+    1. Стартираме Firecrawl за всички магазини паралелно
+    2. Магазини, за които Firecrawl timeout-ва или връща грешка,
+       автоматично преминават на Crawl4AI (локален headless Chromium)
+    3. Crawl4AI работи без прокси — достатъчен е за повечето BG магазини
     """
-    if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
-        logger.error("Firecrawl не е наличен! Задайте FIRECRAWL_API_KEY.")
+    has_firecrawl = FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY
+    has_crawl4ai = CRAWL4AI_AVAILABLE
+
+    if not has_firecrawl and not has_crawl4ai:
+        logger.error("Нито Firecrawl, нито Crawl4AI е наличен! Не може да се сканира.")
         return {}
 
     results = {}
     loop = asyncio.get_event_loop()
 
     # ==========================================================================
-    # Стартираме ВСИЧКИ Firecrawl задачи паралелно в thread pool
+    # Стъпка 1: Стартираме Firecrawl задачи паралелно (ако е наличен)
     # ==========================================================================
     firecrawl_futures = {}
 
-    # DM — специализиран Firecrawl (с Algolia извличане)
-    if "dm" in STORES:
-        firecrawl_futures["dm"] = loop.run_in_executor(
-            None, _fetch_dm_via_firecrawl, "harmonica")
+    if has_firecrawl:
+        # DM — специализиран Firecrawl (с Algolia извличане)
+        if "dm" in STORES:
+            firecrawl_futures["dm"] = loop.run_in_executor(
+                None, _fetch_dm_via_firecrawl, "harmonica")
 
-    # Randi — специализиран Firecrawl (JS-heavy)
-    if "randi" in STORES:
-        firecrawl_futures["randi"] = loop.run_in_executor(
-            None, _fetch_randi_via_firecrawl)
+        # Randi — специализиран Firecrawl (JS-heavy)
+        if "randi" in STORES:
+            firecrawl_futures["randi"] = loop.run_in_executor(
+                None, _fetch_randi_via_firecrawl)
 
-    # Lilly — специализиран Firecrawl (Magento 2 + Hyvä)
-    if "lilly" in STORES:
-        firecrawl_futures["lilly"] = loop.run_in_executor(
-            None, _fetch_lilly_via_firecrawl)
+        # Lilly — специализиран Firecrawl (Magento 2 + Hyvä)
+        if "lilly" in STORES:
+            firecrawl_futures["lilly"] = loop.run_in_executor(
+                None, _fetch_lilly_via_firecrawl)
 
-    # T-Market — специализиран Firecrawl (CloudCart + Cloudflare)
-    if "tmarket" in STORES:
-        firecrawl_futures["tmarket"] = loop.run_in_executor(
-            None, _fetch_tmarket_via_firecrawl)
+        # T-Market — специализиран Firecrawl (CloudCart + Cloudflare)
+        if "tmarket" in STORES:
+            firecrawl_futures["tmarket"] = loop.run_in_executor(
+                None, _fetch_tmarket_via_firecrawl)
 
-    # Останалите магазини — универсален Firecrawl fetch
-    generic_firecrawl_stores = [
-        "kashon", "ebag", "balev", "metro", "zelen", "biomarket", "befit", "laika",
-    ]
-    for store_key in generic_firecrawl_stores:
-        if store_key in STORES:
-            cfg = STORES[store_key]
-            firecrawl_futures[store_key] = loop.run_in_executor(
-                None, _fetch_store_via_firecrawl, store_key, cfg)
+        # Останалите магазини — универсален Firecrawl fetch
+        generic_firecrawl_stores = [
+            "kashon", "ebag", "balev", "metro", "zelen", "biomarket", "befit", "laika",
+        ]
+        for store_key in generic_firecrawl_stores:
+            if store_key in STORES:
+                cfg = STORES[store_key]
+                firecrawl_futures[store_key] = loop.run_in_executor(
+                    None, _fetch_store_via_firecrawl, store_key, cfg)
 
     # ==========================================================================
-    # Събираме резултати от всички Firecrawl задачи
+    # Стъпка 2: Събираме Firecrawl резултати, маркираме неуспешните за fallback
     # ==========================================================================
+    failed_stores = []  # Магазини, които ще опитаме с Crawl4AI
+
     for store_key, future in firecrawl_futures.items():
         store_name = STORES.get(store_key, {}).get("name", store_key)
         try:
@@ -3339,19 +3353,93 @@ async def crawl_all():
                     logger.info(f"{store_name}: Firecrawl успех — "
                                 f"markdown/html получен")
             else:
-                logger.warning(f"{store_name}: Firecrawl неуспешен")
-                results[store_key] = fc_result or {
-                    "success": False,
-                    "error": "Firecrawl returned None",
-                }
+                error_msg = ""
+                if fc_result:
+                    error_msg = fc_result.get("error", "unknown")
+                logger.warning(f"{store_name}: Firecrawl неуспешен ({error_msg})")
+                failed_stores.append(store_key)
         except Exception as e:
             logger.error(f"{store_name}: Firecrawl грешка — {e}")
-            results[store_key] = {"success": False, "error": str(e)}
+            failed_stores.append(store_key)
+
+    # Магазини, за които Firecrawl изобщо не беше стартиран (липсва API key)
+    if not has_firecrawl:
+        failed_stores = list(STORES.keys())
+
+    # ==========================================================================
+    # Стъпка 3: Crawl4AI fallback за неуспешни магазини
+    # ==========================================================================
+    # Crawl4AI работи добре за: Кашон, eBag, Balev, Metro, Zelen, BioMarket,
+    # BeFit, Laika, Randi. Не ползваме го за DM, Lilly, T-Market (нужен curl_cffi).
+    CRAWL4AI_CAPABLE = {
+        "kashon", "ebag", "balev", "metro", "zelen", "biomarket",
+        "befit", "laika", "randi",
+    }
+    crawl4ai_needed = [s for s in failed_stores if s in CRAWL4AI_CAPABLE]
+
+    if crawl4ai_needed and has_crawl4ai:
+        logger.info(f"Crawl4AI fallback за {len(crawl4ai_needed)} магазина: "
+                    f"{', '.join(STORES[s]['name'] for s in crawl4ai_needed)}")
+
+        browser_kwargs = {
+            "headless": True,
+            "viewport_width": 1920,
+            "viewport_height": 1080,
+        }
+        if PROXY_URL:
+            proxy_cfg = _parse_proxy_url(PROXY_URL)
+            browser_kwargs["proxy_config"] = proxy_cfg
+            logger.info(f"Proxy: {proxy_cfg['server']}")
+
+        browser_config = BrowserConfig(**browser_kwargs)
+
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            tasks = {}
+            for store_key in crawl4ai_needed:
+                cfg = STORES[store_key]
+                tasks[store_key] = crawl_store(crawler, store_key, cfg)
+
+            task_results = await asyncio.gather(
+                *tasks.values(), return_exceptions=True)
+
+            for store_key, result in zip(tasks.keys(), task_results):
+                store_name = STORES[store_key]["name"]
+                if isinstance(result, Exception):
+                    logger.error(f"{store_name}: Crawl4AI грешка — {result}")
+                    results[store_key] = {"success": False, "error": str(result)}
+                elif result and result.get("success"):
+                    result["method"] = "crawl4ai"
+                    results[store_key] = result
+                    logger.info(f"{store_name}: Crawl4AI fallback успех — "
+                                f"{len(result.get('markdown', ''))} chars")
+                else:
+                    error = result.get("error", "unknown") if result else "None"
+                    logger.warning(f"{store_name}: Crawl4AI fallback неуспешен ({error})")
+                    results[store_key] = result or {
+                        "success": False, "error": "Crawl4AI returned None"}
+
+    elif crawl4ai_needed and not has_crawl4ai:
+        logger.warning(f"Crawl4AI не е наличен — {len(crawl4ai_needed)} магазина без fallback: "
+                       f"{', '.join(STORES[s]['name'] for s in crawl4ai_needed)}")
+        for store_key in crawl4ai_needed:
+            if store_key not in results:
+                results[store_key] = {
+                    "success": False,
+                    "error": "Firecrawl failed, Crawl4AI not available",
+                }
+
+    # Маркираме останалите неуспешни (DM, Lilly, T-Market без curl_cffi fallback)
+    for store_key in failed_stores:
+        if store_key not in results:
+            results[store_key] = {
+                "success": False,
+                "error": "Firecrawl failed, no fallback available",
+            }
 
     # ==========================================================================
     # Glovo магазини (паралелно, отделен Firecrawl pipeline)
     # ==========================================================================
-    if GLOVO_STORES:
+    if GLOVO_STORES and has_firecrawl:
         glovo_results = await fetch_all_glovo_products("harmonica")
         results.update(glovo_results)
 
@@ -3442,7 +3530,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер v10.3'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер v10.4'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(STORES) + len(GLOVO_STORES)}']
@@ -3968,23 +4056,25 @@ def send_email_report(final_products, stats):
 async def main():
     logger.info("=" * 60)
     total_stores = len(STORES) + len(GLOVO_STORES)
-    logger.info(f"HARMONICA PRICE TRACKER v10.3 — {total_stores} магазина (Firecrawl-first)")
+    logger.info(f"HARMONICA PRICE TRACKER v10.4 — {total_stores} магазина (Firecrawl + Crawl4AI)")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}")
     if FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY:
         logger.info(f"Firecrawl: YES (key: {FIRECRAWL_API_KEY[:8]}...)")
-    elif not FIRECRAWL_AVAILABLE:
-        logger.error("Firecrawl: NOT AVAILABLE — scraper cannot run without Firecrawl!")
-    elif not FIRECRAWL_API_KEY:
-        logger.error("Firecrawl: API KEY NOT SET — set FIRECRAWL_API_KEY env variable!")
+    else:
+        logger.warning("Firecrawl: НЕ — ще се ползва само Crawl4AI")
+    if CRAWL4AI_AVAILABLE:
+        logger.info("Crawl4AI: YES (fallback за неуспешни Firecrawl магазини)")
+    else:
+        logger.warning("Crawl4AI: НЕ — няма fallback при Firecrawl timeout")
     if ANTHROPIC_AVAILABLE and ANTHROPIC_API_KEY:
         logger.info(f"Claude: YES ({CLAUDE_MODEL})")
     else:
         logger.info("Claude: НЕ — ценова валидация изключена")
 
-    if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
-        logger.error("Firecrawl е задължителен за v10.3! Инсталирайте firecrawl и задайте FIRECRAWL_API_KEY.")
+    if not (FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY) and not CRAWL4AI_AVAILABLE:
+        logger.error("Нито Firecrawl, нито Crawl4AI е наличен! Инсталирайте поне един.")
         return
 
     total_start = time.time()
