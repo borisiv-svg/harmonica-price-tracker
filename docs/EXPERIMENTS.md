@@ -416,8 +416,8 @@ Crawl4AI конвертира `<img alt="...">` в `![alt](url)`. Ако сай�
 3. ~~**Zelen покритие**~~ — ⚠️ **ЧАСТИЧНО ПОПРАВЕН (v10.0.2)** Добавен image alt extraction + forward-only context + `clean_product_name()` regex order fix. Реалното подобрение ще стане ясно при следващия production run (не можем да тестваме без Crawl4AI markdown от Zelen). Ако покритието остане ниско, може да е нужна инспекция на Zelen markdown + dedicated extractor или `wait_for` CSS selector
 
 **Среден приоритет:**
-4. **Firecrawl version pinning** — `firecrawl-py>=1.0.0,<2.0.0` е прекалено широк. Pin-ване до конкретна minor версия ще предотврати бъдещи API breakages
-5. **Smoke test за imports** — добавяне на CI стъпка, която валидира всички imports преди пълното изпълнение. Би хванала Firecrawl бъга веднага
+4. ~~**Firecrawl version pinning**~~ — ✅ **РЕШЕН (v10.0.2)** `firecrawl-py==1.17.0` (последна 1.x версия). Кодът ползва `FirecrawlApp` + `.scrape_url()` от 1.x API; 2.x+ има breaking changes
+5. ~~**Smoke test за imports**~~ — ✅ **РЕШЕН (v10.0.2)** Добавена CI стъпка "Smoke test — imports & env vars" в production.yml и experimental.yml. Валидира 7 критични imports + Firecrawl API метод + required/important env vars. Fail-fast при грешки
 6. **Glovo Fantastico дедупликация** — 88 extracted products (= Kashon!) е подозрително. Вероятно има дублирани или non-Harmonica продукти
 
 **Нисък приоритет:**
@@ -436,6 +436,8 @@ Crawl4AI конвертира `<img alt="...">` в `![alt](url)`. Ако сай�
 - `clean_product_name()` regex order fix: `![alt](url)` removal преди `[text](url)` extraction
 - Image alt extraction (Опит 3) в generic block-based и line-by-line extractors
 - `CATEGORY_OVERRIDES` за продуктова категоризация (7 продукта преместени в правилни категории)
+- `firecrawl-py==1.17.0` version pin (последна стабилна 1.x)
+- CI smoke test стъпка в production.yml и experimental.yml (imports + env vars + Firecrawl API check)
 
 **v10.0.1 (14.02.2026):**
 - Firecrawl import fix (`Firecrawl` → `FirecrawlApp`)
@@ -460,7 +462,7 @@ Crawl4AI конвертира `<img alt="...">` в `![alt](url)`. Ако сай�
 
 | Дата | Експеримент | Промяна |
 |------|-------------|---------|
-| 2026-02-15 | EXP-003 | v10.0.2: Forward-only context (Balev/Metro/generic), image alt extraction (Zelen), clean_product_name fix, CATEGORY_OVERRIDES |
+| 2026-02-15 | EXP-003 | v10.0.2: Forward-only context (Balev/Metro/generic), image alt extraction (Zelen), clean_product_name fix, CATEGORY_OVERRIDES, firecrawl pin 1.17.0, CI smoke test |
 | 2026-02-14 | EXP-003 | v10.0.1: Firecrawl import/API fix, generic line-by-line, Claude max_tokens fix |
 | 2026-02-14 | EXP-003 | v9.6.0: Claude Sonnet 4.5 ценова валидация — outlier detection + AI оценка |
 | 2026-02-10 | EXP-003 | v7.0: logging, asyncio.gather, BS4, подобрен matching, retry |
