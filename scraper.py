@@ -249,8 +249,8 @@ STORES = {
     "kashon": {
         "name": "Кашон",
         "url": "https://kashonharmonica.bg/bg/products/field_producer/harmonica-144",
-        "scroll_times": 20,
-        "scroll_delay": 2000,
+        "scroll_times": 40,
+        "scroll_delay": 3000,
         "is_master": True,
     },
     "ebag": {
@@ -1986,24 +1986,27 @@ def _fetch_store_via_firecrawl(store_key, store_config):
         app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
 
         # Изграждаме actions: wait → scroll → wait → scrape
+        scroll_wait = store_config.get("scroll_delay", 1500)
         actions = [
             {"type": "wait", "milliseconds": 4000},
         ]
-        # Scroll серия
-        for _ in range(min(scroll_times, 8)):
+        # Scroll серия — използваме пълния scroll_times от конфигурацията
+        for _ in range(scroll_times):
             actions.append({"type": "scroll", "direction": "down"})
-            actions.append({"type": "wait", "milliseconds": 1500})
+            actions.append({"type": "wait", "milliseconds": scroll_wait})
         # Финален scroll до дъното
         actions.append({"type": "scroll", "direction": "down"})
-        actions.append({"type": "wait", "milliseconds": 2000})
+        actions.append({"type": "wait", "milliseconds": scroll_wait})
         actions.append({"type": "scrape"})
 
+        # Timeout: базов 60s + scroll_times × scroll_wait
+        timeout = max(90000, 60000 + scroll_times * scroll_wait * 2)
         result = app.scrape_url(
             url,
             params={
                 "formats": ["markdown", "html"],
                 "actions": actions,
-                "timeout": 90000,
+                "timeout": timeout,
             },
         )
         elapsed = time.time() - start
