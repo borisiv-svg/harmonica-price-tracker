@@ -526,8 +526,8 @@ def extract_price_fallback(text):
 
 def clean_product_name(name):
     """Почиства име на продукт от markdown, URL-и, bold и префикси."""
+    name = re.sub(r'!\[[^\]]*\]\([^\)]*\)', '', name)        # ![alt](url) -> "" (ПРЕДИ links!)
     name = re.sub(r'\[([^\]]*)\]\([^\)]*\)', r'\1', name)   # [text](url) -> text
-    name = re.sub(r'!\[[^\]]*\]\([^\)]*\)', '', name)        # ![alt](url) -> ""
     name = re.sub(r'https?://[^\s]+', '', name)               # URL-и
     name = re.sub(r'\*\*([^\*]+)\*\*', r'\1', name)           # **bold** -> bold
     name = re.sub(r'^\s*[\-\*\#\|\>]+\s*', '', name)          # Markdown префикси
@@ -673,12 +673,17 @@ def extract_balev_products(markdown):
         if not is_food_product(name):
             continue
 
-        context = '\n'.join(lines[max(0, i - 3):i + 10])
-        eur = extract_eur_price(context)
-        bgn = extract_bgn_price(context)
-
-        if not bgn and not eur:
-            bgn = extract_price_fallback(context)
+        # Търсим цена НАПРЕД от името (тесен прозорец), за да не хванем
+        # цена от предходен продукт. Разширяваме само ако не намерим.
+        eur, bgn = None, None
+        for ctx_start, ctx_end in [(i, i + 5), (max(0, i - 1), i + 8)]:
+            ctx = '\n'.join(lines[ctx_start:min(len(lines), ctx_end)])
+            eur = extract_eur_price(ctx)
+            bgn = extract_bgn_price(ctx)
+            if not bgn and not eur:
+                bgn = extract_price_fallback(ctx)
+            if bgn or eur:
+                break
 
         if bgn and not eur:
             eur = round(bgn / EUR_BGN_RATE, 2)
@@ -752,6 +757,14 @@ def _extract_generic_block_based(markdown, brand_page=False):
                     name = candidate
 
         if not name:
+            # Image alt текст: ![Продукт 400g](img.jpg) — clean_product_name го изтрива
+            img_match = re.search(r'!\[([^\]]{8,120})\]\([^\)]+\)', block)
+            if img_match:
+                candidate = img_match.group(1).strip()
+                if is_food_product(candidate):
+                    name = candidate
+
+        if not name:
             for line in block.split('\n'):
                 line = clean_product_name(line)
                 if (len(line) > 10 and
@@ -797,6 +810,15 @@ def _extract_generic_line_by_line(markdown, brand_page=False):
                     name = candidate
 
         if not name:
+            # Опит 3: Image alt текст (![Продукт 400g](img.jpg))
+            # clean_product_name() изтрива image alt, затова го извличаме директно
+            img_match = re.search(r'!\[([^\]]{8,120})\]\([^\)]+\)', line_stripped)
+            if img_match:
+                candidate = img_match.group(1).strip()
+                if is_food_product(candidate):
+                    name = candidate
+
+        if not name:
             continue
 
         # Проверка за harmonica (освен при brand_page)
@@ -809,12 +831,16 @@ def _extract_generic_line_by_line(markdown, brand_page=False):
         if deduplicate_check(name, seen):
             continue
 
-        # Търсим цена в контекст ±3 реда (по-тесен за brand pages с гъсти продукти)
-        context = '\n'.join(lines[max(0, i - 2):i + 5])
-        bgn = extract_bgn_price(context)
-        if not bgn:
-            bgn = extract_price_fallback(context)
-        eur = extract_eur_price(context)
+        # Търсим цена НАПРЕД от името, после разширяваме (като Balev/Metro fix)
+        bgn, eur = None, None
+        for ctx_start, ctx_end in [(i, i + 5), (max(0, i - 1), i + 8)]:
+            ctx = '\n'.join(lines[ctx_start:min(len(lines), ctx_end)])
+            bgn = extract_bgn_price(ctx)
+            if not bgn:
+                bgn = extract_price_fallback(ctx)
+            eur = extract_eur_price(ctx)
+            if bgn or eur:
+                break
 
         if bgn or eur:
             if bgn and not eur:
@@ -873,11 +899,17 @@ def extract_metro_products(markdown):
         if deduplicate_check(name, seen):
             continue
 
-        context = '\n'.join(lines[max(0, i - 3):i + 10])
-        bgn = extract_bgn_price(context)
-        if not bgn:
-            bgn = extract_price_fallback(context)
-        eur = extract_eur_price(context)
+        # Търсим цена НАПРЕД от името (тесен прозорец), за да не хванем
+        # цена от съседен продукт. Разширяваме само ако не намерим.
+        bgn, eur = None, None
+        for ctx_start, ctx_end in [(i, i + 5), (max(0, i - 1), i + 8)]:
+            ctx = '\n'.join(lines[ctx_start:min(len(lines), ctx_end)])
+            bgn = extract_bgn_price(ctx)
+            if not bgn:
+                bgn = extract_price_fallback(ctx)
+            eur = extract_eur_price(ctx)
+            if bgn or eur:
+                break
 
         if bgn or eur:
             if bgn and not eur:
