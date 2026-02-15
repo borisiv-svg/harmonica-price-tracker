@@ -2054,6 +2054,7 @@ def _fetch_store_via_firecrawl(store_key, store_config):
             "markdown": markdown,
             "html": html,
             "elapsed": elapsed,
+            "scrolls_capped": firecrawl_scrolls < scroll_times,
         }
 
     except Exception as e:
@@ -3432,8 +3433,18 @@ async def crawl_all():
     if not has_firecrawl:
         failed_stores = list(STORES.keys())
 
+    # Магазини, за които Firecrawl успя но с ограничени scrolls —
+    # Crawl4AI ще скролира пълния обхват и ще заместим ако е по-добър
+    partial_stores = [
+        sk for sk, res in results.items()
+        if res.get("success") and res.get("scrolls_capped")
+    ]
+    if partial_stores:
+        logger.info(f"Магазини с ограничен Firecrawl scroll (ще пробваме Crawl4AI): "
+                    f"{', '.join(STORES[s]['name'] for s in partial_stores)}")
+
     # ==========================================================================
-    # Стъпка 3: Crawl4AI fallback за неуспешни магазини
+    # Стъпка 3: Crawl4AI fallback за неуспешни + partial магазини
     # ==========================================================================
     # Crawl4AI fallback за всички магазини — опитваме headless Chromium
     CRAWL4AI_CAPABLE = {
@@ -3441,6 +3452,10 @@ async def crawl_all():
         "befit", "laika", "randi", "dm", "lilly", "tmarket",
     }
     crawl4ai_needed = [s for s in failed_stores if s in CRAWL4AI_CAPABLE]
+    # Добавяме partial stores (Firecrawl успя, но scrolls бяха лимитирани)
+    for s in partial_stores:
+        if s in CRAWL4AI_CAPABLE and s not in crawl4ai_needed:
+            crawl4ai_needed.append(s)
 
     if crawl4ai_needed and has_crawl4ai:
         logger.info(f"Crawl4AI fallback за {len(crawl4ai_needed)} магазина: "
@@ -3449,8 +3464,11 @@ async def crawl_all():
         # Пробваме първо с proxy, после без ако tunnel-ът пропадне
         proxy_attempts = [True, False] if PROXY_URL else [False]
 
+        partial_set = set(partial_stores)
         for use_proxy in proxy_attempts:
-            stores_to_crawl = [s for s in crawl4ai_needed if s not in results
+            stores_to_crawl = [s for s in crawl4ai_needed
+                               if s in partial_set  # partial Firecrawl → Crawl4AI upgrade
+                               or s not in results
                                or not results.get(s, {}).get("success")]
             if not stores_to_crawl:
                 break
@@ -3491,9 +3509,23 @@ async def crawl_all():
                         results[store_key] = {"success": False, "error": error_str}
                     elif result and result.get("success"):
                         result["method"] = "crawl4ai"
-                        results[store_key] = result
-                        logger.info(f"{store_name}: Crawl4AI fallback успех — "
-                                    f"{len(result.get('markdown', ''))} chars")
+                        crawl4ai_md_len = len(result.get('markdown', ''))
+                        existing_md_len = len(results.get(store_key, {}).get('markdown', ''))
+                        if store_key in partial_set and existing_md_len > 0:
+                            # Partial Firecrawl: сравняваме markdown размер
+                            if crawl4ai_md_len > existing_md_len:
+                                results[store_key] = result
+                                logger.info(f"{store_name}: Crawl4AI upgrade — "
+                                            f"{crawl4ai_md_len} chars (Firecrawl: {existing_md_len})")
+                                partial_set.discard(store_key)
+                            else:
+                                logger.info(f"{store_name}: Crawl4AI {crawl4ai_md_len} chars "
+                                            f"≤ Firecrawl {existing_md_len} — запазваме Firecrawl")
+                                partial_set.discard(store_key)
+                        else:
+                            results[store_key] = result
+                            logger.info(f"{store_name}: Crawl4AI fallback успех — "
+                                        f"{crawl4ai_md_len} chars")
                     else:
                         error = result.get("error", "unknown") if result else "None"
                         if "TUNNEL_CONNECTION_FAILED" in str(error) and use_proxy:
