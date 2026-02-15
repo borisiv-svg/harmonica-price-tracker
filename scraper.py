@@ -1,8 +1,9 @@
 """
-Harmonica Price Tracker v10.0
+Harmonica Price Tracker v10.1
 ==============================
 Unified scraper — async архитектура (Crawl4AI + curl_cffi + Firecrawl).
-Claude Sonnet валидация на outlier цени.
+Claude Sonnet валидация на outlier цени (EUR).
+Продуктов списък от harmonica_products.json (месечен sync с Кашон).
 
 Магазини: Кашон, eBag, Balev, Lilly, DM, T-Market, Metro, Randi,
           Zelen, BioMarket, BeFit, Laika + Glovo (Fantastico, Billa, CBA, Kaufland).
@@ -93,6 +94,114 @@ FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")  # Optional: Firecrawl A
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")  # Optional: Claude API key за валидация
 
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5-20250929")
+
+PRODUCTS_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "data", "products", "harmonica_products.json")
+
+
+def load_product_list():
+    """
+    Зарежда референтен списък продукти от harmonica_products.json.
+    Връща списък от активни продукти с name, ref_eur, ref_bgn, status.
+    Fallback: ако файлът не съществува, връща празен списък.
+    """
+    if not os.path.exists(PRODUCTS_JSON_PATH):
+        logger.warning(f"Продуктов файл не е намерен: {PRODUCTS_JSON_PATH}")
+        return []
+
+    try:
+        with open(PRODUCTS_JSON_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        products = []
+        for p in data.get("products", []):
+            ref_eur = p.get("ref_eur")
+            ref_bgn = p.get("ref_bgn")
+            # Изчисляваме EUR от BGN ако липсва
+            if not ref_eur and ref_bgn:
+                ref_eur = round(ref_bgn / EUR_BGN_RATE, 2)
+
+            products.append({
+                "name": p["name"],
+                "ref_eur": ref_eur,
+                "ref_bgn": ref_bgn,
+                "status": p.get("status", "active"),
+                "active": p.get("active", True),
+            })
+
+        active = [p for p in products if p["active"]]
+        logger.info(f"Заредени {len(active)} активни продукта от {os.path.basename(PRODUCTS_JSON_PATH)}")
+        return active
+    except Exception as e:
+        logger.error(f"Грешка при зареждане на продуктов файл: {e}")
+        return []
+
+
+def update_product_list_with_new(reference_products, kashon_products):
+    """
+    Сравнява референтния списък (от JSON) с извлечените от Кашон продукти.
+    Добавя нови продукти с status='new'. Връща обновен reference list.
+    """
+    ref_names_lower = {p["name"].lower() for p in reference_products}
+    new_count = 0
+
+    for kp in kashon_products:
+        if kp["name"].lower() not in ref_names_lower:
+            reference_products.append({
+                "name": kp["name"],
+                "ref_eur": kp.get("eur"),
+                "ref_bgn": kp.get("bgn"),
+                "status": "new",
+                "active": True,
+            })
+            ref_names_lower.add(kp["name"].lower())
+            new_count += 1
+
+    if new_count:
+        logger.info(f"Открити {new_count} нови продукта от Кашон (маркирани като 'new')")
+
+    return reference_products
+
+
+def save_product_list(reference_products):
+    """Записва обновения списък обратно в harmonica_products.json."""
+    try:
+        os.makedirs(os.path.dirname(PRODUCTS_JSON_PATH), exist_ok=True)
+        products_data = []
+        for i, p in enumerate(reference_products, 1):
+            ref_eur = p.get("ref_eur")
+            ref_bgn = p.get("ref_bgn")
+            name = p["name"]
+            # Генериране на keywords от името
+            words = re.findall(r'[а-яА-Яa-zA-Z]+|\d+[.,]?\d*\s*(?:г|мл|ml|g|kg|кг|л|l|%)',
+                               name.lower())
+            keywords = [w.strip() for w in words if len(w.strip()) > 1]
+
+            products_data.append({
+                "id": i,
+                "name": name,
+                "keywords": keywords,
+                "ref_eur": ref_eur,
+                "ref_bgn": ref_bgn,
+                "url_slug": "",
+                "active": p.get("active", True),
+                "status": p.get("status", "active"),
+                "added_date": p.get("added_date", datetime.now().strftime("%Y-%m-%d")),
+            })
+
+        output = {
+            "version": "2.0",
+            "last_sync": datetime.now().strftime("%Y-%m-%d"),
+            "source": "kashonharmonica.bg",
+            "total_products": len(products_data),
+            "products": products_data,
+        }
+
+        with open(PRODUCTS_JSON_PATH, 'w', encoding='utf-8') as f:
+            json.dump(output, f, ensure_ascii=False, indent=2)
+        logger.info(f"Продуктов файл обновен: {len(products_data)} продукта")
+    except Exception as e:
+        logger.error(f"Грешка при запис на продуктов файл: {e}")
 
 
 def _parse_proxy_url(proxy_url):
@@ -2730,31 +2839,31 @@ def validate_prices_with_claude(final_products, all_store_keys):
         logger.warning("Claude валидация пропусната — липсва API ключ или anthropic модул")
         return final_products, {}
 
-    # 1. Намираме съмнителни цени
+    # 1. Намираме съмнителни цени — сравняваме по EUR
     suspicious = []
     for product in final_products:
-        bgn_prices = {}
+        eur_prices = {}
         for sk in ["kashon"] + list(all_store_keys):
             data = product.get(sk)
-            if data and data.get("bgn") and data["bgn"] > 0:
-                bgn_prices[sk] = data["bgn"]
+            if data and data.get("eur") and data["eur"] > 0:
+                eur_prices[sk] = data["eur"]
 
-        if len(bgn_prices) < 3:
+        if len(eur_prices) < 3:
             continue
 
-        values = sorted(bgn_prices.values())
+        values = sorted(eur_prices.values())
         median = values[len(values) // 2]
 
-        for store, price in bgn_prices.items():
+        for store, price in eur_prices.items():
             deviation = abs(price - median) / median * 100
             if deviation > 50:
                 suspicious.append({
                     "product": product["name"],
                     "store": store,
-                    "price_bgn": price,
-                    "median_bgn": round(median, 2),
+                    "price_eur": price,
+                    "median_eur": round(median, 2),
                     "deviation_pct": round(deviation, 1),
-                    "all_prices": {k: round(v, 2) for k, v in bgn_prices.items()},
+                    "all_prices": {k: round(v, 2) for k, v in eur_prices.items()},
                 })
 
     if not suspicious:
@@ -2766,29 +2875,29 @@ def validate_prices_with_claude(final_products, all_store_keys):
     # 2. Изпращаме batch към Claude Sonnet
     price_lines = []
     for i, s in enumerate(suspicious, 1):
-        prices_str = ", ".join(f"{k}={v:.2f}лв" for k, v in s["all_prices"].items())
+        prices_str = ", ".join(f"{k}={v:.2f}€" for k, v in s["all_prices"].items())
         price_lines.append(
             f"{i}. Продукт: \"{s['product']}\"\n"
-            f"   Магазин: {s['store']} → {s['price_bgn']:.2f} лв (медиана: {s['median_bgn']:.2f} лв, "
+            f"   Магазин: {s['store']} → {s['price_eur']:.2f}€ (медиана: {s['median_eur']:.2f}€, "
             f"отклонение: {s['deviation_pct']:.0f}%)\n"
             f"   Всички цени: {prices_str}"
         )
 
     prompt = f"""Ти си експерт по цените на био храни и напитки в България от марката Хармоника (Harmonica).
 
-Анализирай следните съмнителни цени. За всяка реши:
+Анализирай следните съмнителни цени (в EUR). За всяка реши:
 - "ГРЕШНА" — цената е очевидно грешна (грешен match, грешно извлечена цена, цена за друг продукт или друг грамаж)
 - "ВЯРНА" — цената е реална, макар и различна (промоция, по-висока цена в определен магазин)
 - "СЪМНИТЕЛНА" — не можеш да прецениш със сигурност
 
-Контекст за типични цени в България (2024-2026):
-- Кисело мляко 400г: 2.50-3.50 лв
-- Кисело мляко 2кг: 8.00-12.00 лв (затова 8-9 лв за 2кг е нормално!)
-- Вафла 30г: 0.90-1.50 лв
-- Сирене краве 400г: 10.00-15.00 лв
-- Айран 500мл: 1.50-2.50 лв
-- Масло 125г: 3.00-5.00 лв
-- Тахан 250г: 5.00-8.00 лв
+Контекст за типични цени в EUR (1 EUR = 1.9558 BGN, фиксиран курс):
+- Кисело мляко 400г: 1.28-1.79€
+- Кисело мляко 2кг: 4.09-6.14€ (затова 4-5€ за 2кг е нормално!)
+- Вафла 30г: 0.46-0.77€
+- Сирене краве 400г: 5.11-7.67€
+- Айран 500мл: 0.77-1.28€
+- Масло 125г: 1.53-2.56€
+- Тахан 250г: 2.56-4.09€
 
 ВАЖНО: Внимавай за грамажа! Ако едни магазини продават 400г, а съмнителната цена може да е за 2кг версия — тя може да е вярна.
 
@@ -2871,8 +2980,8 @@ def validate_prices_with_claude(final_products, all_store_keys):
             "verdict": verdict_text,
             "action": action,
             "reason": reason,
-            "price": s["price_bgn"],
-            "median": s["median_bgn"],
+            "price_eur": s["price_eur"],
+            "median_eur": s["median_eur"],
         }
 
         if action == "remove":
@@ -2882,7 +2991,7 @@ def validate_prices_with_claude(final_products, all_store_keys):
                     product[s["store"]] = None
                     removed_count += 1
                     logger.info(f"  ✗ ПРЕМАХНАТА: {s['store']} {s['product'][:40]} "
-                                f"({s['price_bgn']:.2f}лв) — {reason}")
+                                f"({s['price_eur']:.2f}€) — {reason}")
                     break
         elif action == "flag":
             # Маркираме за ръчна проверка
@@ -2893,12 +3002,12 @@ def validate_prices_with_claude(final_products, all_store_keys):
                     product["_flags"].append(f"{s['store']}: {reason}")
                     flagged_count += 1
                     logger.info(f"  ⚠ ФЛАГ: {s['store']} {s['product'][:40]} "
-                                f"({s['price_bgn']:.2f}лв) — {reason}")
+                                f"({s['price_eur']:.2f}€) — {reason}")
                     break
         else:
             kept_count += 1
             logger.info(f"  ✓ OK: {s['store']} {s['product'][:40]} "
-                        f"({s['price_bgn']:.2f}лв) — {reason}")
+                        f"({s['price_eur']:.2f}€) — {reason}")
 
     logger.info(f"Claude валидация: {removed_count} премахнати, {flagged_count} флагнати, "
                 f"{kept_count} потвърдени")
@@ -3217,7 +3326,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер v10.0'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер v10.1'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(STORES) + len(GLOVO_STORES)}']
@@ -3234,6 +3343,8 @@ def write_to_sheets(final_products, stats):
     deviation_cells_high = []   # (row, col) — цена >10% над средната
     deviation_cells_low = []    # (row, col) — цена >10% под средната
     category_separator_rows = []  # row indices за форматиране на разделителите
+    new_product_rows = []         # row indices за нови продукти (зелен фон)
+    removed_product_rows = []     # row indices за отпаднали продукти (жълт фон)
 
     current_category = None
     product_num = 0
@@ -3249,6 +3360,15 @@ def write_to_sheets(final_products, stats):
             category_separator_rows.append(len(all_data) - 1)  # 0-indexed
 
         product_num += 1
+
+        # Проследяване на статус за цветово кодиране
+        product_status = product.get("status", "active")
+        row_0idx_status = len(all_data)  # текущ row index за цветово маркиране
+        if product_status == "new":
+            new_product_rows.append(row_0idx_status)
+        elif product_status == "removed":
+            removed_product_rows.append(row_0idx_status)
+
         kashon = product.get("kashon") or {}
         kashon_bgn = kashon.get("bgn")
         kashon_eur = kashon.get("eur")
@@ -3526,11 +3646,50 @@ def write_to_sheets(final_products, stats):
                 }
             })
 
+        # Светлозелен фон за нови продукти (добавени при последен sync)
+        for row_idx in new_product_rows:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": row_idx, "endRowIndex": row_idx + 1,
+                              "startColumnIndex": 0, "endColumnIndex": last_col},
+                    "cell": {"userEnteredFormat": {
+                        "backgroundColor": {"red": 0.85, "green": 0.95, "blue": 0.85},
+                        "textFormat": {
+                            "foregroundColor": {"red": 0.1, "green": 0.4, "blue": 0.1},
+                        }
+                    }},
+                    "fields": "userEnteredFormat(backgroundColor,textFormat.foregroundColor)"
+                }
+            })
+
+        # Жълт фон за отпаднали продукти
+        for row_idx in removed_product_rows:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": row_idx, "endRowIndex": row_idx + 1,
+                              "startColumnIndex": 0, "endColumnIndex": last_col},
+                    "cell": {"userEnteredFormat": {
+                        "backgroundColor": {"red": 1.0, "green": 0.95, "blue": 0.80},
+                        "textFormat": {
+                            "foregroundColor": {"red": 0.6, "green": 0.5, "blue": 0.0},
+                            "strikethrough": True,
+                        }
+                    }},
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                }
+            })
+
         if format_requests:
             sheet.spreadsheet.batch_update({"requests": format_requests})
             logger.info(f"Форматиране: {len(format_requests)} заявки")
             if category_separator_rows:
                 logger.info(f"Категории: {len(category_separator_rows)} разделителни реда")
+            if new_product_rows:
+                logger.info(f"Нови продукти: {len(new_product_rows)} реда (зелен фон)")
+            if removed_product_rows:
+                logger.info(f"Отпаднали продукти: {len(removed_product_rows)} реда (жълт фон)")
             if out_of_stock_cells:
                 logger.info(f"Сиво форматиране: {len(out_of_stock_cells)} изчерпани клетки")
             if deviation_cells_high or deviation_cells_low:
@@ -3667,7 +3826,7 @@ def send_email_report(final_products, stats):
     if sheets_url:
         html += f'<div style="text-align:center;margin:20px;"><a href="{sheets_url}" class="button">Отвори в Google Sheets</a></div>'
 
-    html += f'<div class="footer"><p><strong>Harmonica Price Tracker v10.0</strong></p><p>Автоматично генерирано на {date_str} в {time_str} ч.</p></div></body></html>'
+    html += f'<div class="footer"><p><strong>Harmonica Price Tracker v10.1</strong></p><p>Автоматично генерирано на {date_str} в {time_str} ч.</p></div></body></html>'
 
     try:
         msg = MIMEMultipart('alternative')
@@ -3693,7 +3852,7 @@ def send_email_report(final_products, stats):
 async def main():
     logger.info("=" * 60)
     total_stores = len(STORES) + len(GLOVO_STORES)
-    logger.info(f"HARMONICA PRICE TRACKER v10.0 — {total_stores} магазина")
+    logger.info(f"HARMONICA PRICE TRACKER v10.1 — {total_stores} магазина")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}, "
@@ -3719,17 +3878,32 @@ async def main():
 
     total_start = time.time()
 
+    # 0. Зареждане на продуктовия списък от JSON (master list)
+    reference_products = load_product_list()
+
     # 1. Crawl — паралелно
     crawl_results = await crawl_all()
 
     # 2. Extract products
     logger.info("=" * 40 + " EXTRACTING " + "=" * 40)
 
-    # Кашон (референтен)
+    # Кашон — извличаме за цени + откриване на нови продукти
     kashon_products = []
     if crawl_results.get("kashon", {}).get("success"):
         kashon_products = extract_kashon_products(crawl_results["kashon"]["markdown"])
         logger.info(f"Кашон: {len(kashon_products)} Harmonica products")
+
+    # Обновяваме reference list с нови продукти от Кашон
+    if kashon_products and reference_products:
+        reference_products = update_product_list_with_new(reference_products, kashon_products)
+    elif kashon_products and not reference_products:
+        # Fallback: ако JSON липсва, използваме Кашон като master list
+        logger.warning("JSON продуктов файл липсва — използваме Кашон като master list")
+        reference_products = [
+            {"name": kp["name"], "ref_eur": kp.get("eur"), "ref_bgn": kp.get("bgn"),
+             "status": "active", "active": True}
+            for kp in kashon_products
+        ]
 
     # eBag
     ebag_products = []
@@ -3873,12 +4047,27 @@ async def main():
     glovo_keys = list(GLOVO_STORES.keys())
     all_keys = store_keys + glovo_keys
 
+    # Изграждаме final_products от reference list (JSON), не от Кашон crawl
     final_products = []
-    for ref in kashon_products:
-        product = {"name": ref["name"], "kashon": {"eur": ref["eur"], "bgn": ref["bgn"]}}
+    for ref in reference_products:
+        product = {
+            "name": ref["name"],
+            "kashon": None,
+            "status": ref.get("status", "active"),
+        }
         for sk in all_keys:
             product[sk] = None
         final_products.append(product)
+
+    # Кашон — match-ваме цените от crawl към reference list (EUR + BGN)
+    if kashon_products:
+        kashon_matches = match_products(reference_products, kashon_products)
+        for product in final_products:
+            if product["name"] in kashon_matches:
+                m = kashon_matches[product["name"]]
+                product["kashon"] = {"eur": m["eur"], "bgn": m["bgn"]}
+        kashon_matched = sum(1 for p in final_products if p.get("kashon"))
+        logger.info(f"Кашон цени: {kashon_matched}/{len(reference_products)} matched")
 
     # Всички магазини и техните продукти
     all_store_products = {
@@ -3896,14 +4085,19 @@ async def main():
     # Добавяме Glovo магазините
     all_store_products.update(glovo_all_products)
 
+    # External stores — само EUR цени
     for store_key, store_prods in all_store_products.items():
         if not store_prods:
             continue
-        matches = match_products(kashon_products, store_prods)
+        matches = match_products(reference_products, store_prods)
         for product in final_products:
             if product["name"] in matches:
                 m = matches[product["name"]]
-                entry = {"eur": m["eur"], "bgn": m["bgn"]}
+                eur = m.get("eur")
+                bgn = m.get("bgn")
+                if not eur and bgn:
+                    eur = round(bgn / EUR_BGN_RATE, 2)
+                entry = {"eur": eur}
                 if "in_stock" in m:
                     entry["in_stock"] = m["in_stock"]
                 product[store_key] = entry
@@ -3914,8 +4108,11 @@ async def main():
 
     # 4. Statistics
     logger.info("=" * 40 + " STATISTICS " + "=" * 40)
+    total_ref = len(reference_products)
     kashon_count = len([p for p in final_products if p.get("kashon")])
-    logger.info(f"Кашон (master list): {kashon_count}")
+    new_count = len([p for p in final_products if p.get("status") == "new"])
+    logger.info(f"Референтен списък: {total_ref} продукта ({new_count} нови)")
+    logger.info(f"Кашон цени: {kashon_count}/{total_ref} matched")
 
     # Всички имена на магазини (обикновени + Glovo)
     all_display = {}
@@ -3926,31 +4123,31 @@ async def main():
     for sk in all_keys:
         count = len([p for p in final_products if p.get(sk)])
         store_counts[sk] = count
-        if kashon_count:
-            pct = count / kashon_count * 100
+        if total_ref:
+            pct = count / total_ref * 100
             extra = ""
             if sk == "lilly":
                 oos = len([p for p in final_products
                            if p.get("lilly") and not p["lilly"].get("in_stock", True)])
                 extra = f" — {oos} изчерпани"
                 store_counts["lilly_oos"] = oos
-            logger.info(f"{all_display.get(sk, sk)}: {count}/{kashon_count} ({pct:.0f}%){extra}")
+            logger.info(f"{all_display.get(sk, sk)}: {count}/{total_ref} ({pct:.0f}%){extra}")
 
-    # Примерни продукти
+    # Примерни продукти — показваме EUR
     matched = [p for p in final_products
                if any(p.get(sk) for sk in all_keys)][:5]
     for p in matched:
         parts = [f"{p['name'][:50]}:"]
         for store in ["kashon"] + all_keys:
             if p.get(store):
-                bgn = p[store].get('bgn')
-                parts.append(f"  {store}={'%.2f' % bgn if bgn else 'N/A'}лв")
+                eur = p[store].get('eur')
+                parts.append(f"  {store}={'%.2f' % eur if eur else 'N/A'}€")
         logger.info(" ".join(parts))
 
     total_time = time.time() - total_start
 
     # 5. Write to Google Sheets
-    stats = {"kashon_products": kashon_count}
+    stats = {"total_products": total_ref, "kashon_products": kashon_count}
     for sk in all_keys:
         stats[f"{sk}_matches"] = store_counts.get(sk, 0)
     stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
@@ -3959,8 +4156,19 @@ async def main():
     # 6. Email report
     send_email_report(final_products, stats)
 
-    # 7. Save JSON
-    json_stats = {"kashon_products": kashon_count}
+    # 7. Save product list (with any new products discovered)
+    if kashon_products:
+        # Обновяваме Кашон цените в reference list
+        kashon_matches = match_products(reference_products, kashon_products)
+        for ref in reference_products:
+            if ref["name"] in kashon_matches:
+                m = kashon_matches[ref["name"]]
+                ref["ref_eur"] = m.get("eur")
+                ref["ref_bgn"] = m.get("bgn")
+        save_product_list(reference_products)
+
+    # 8. Save JSON results
+    json_stats = {"total_products": total_ref, "kashon_products": kashon_count}
     for sk, prods in all_store_products.items():
         json_stats[f"{sk}_products"] = len(prods)
         json_stats[f"{sk}_matches"] = store_counts.get(sk, 0)
@@ -3973,7 +4181,7 @@ async def main():
         products_for_json.append(clean)
 
     output = {
-        "version": "v10.0",
+        "version": "v10.1",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stores": len(STORES) + len(GLOVO_STORES),
@@ -3991,7 +4199,7 @@ async def main():
         logger.error(f"Грешка при запис на JSON: {e}")
 
     logger.info(f"ГОТОВО за {total_time:.1f}s — {len(STORES) + len(GLOVO_STORES)} магазина, "
-                f"{kashon_count} продукта в Кашон")
+                f"{total_ref} продукта ({new_count} нови)")
 
 
 if __name__ == "__main__":
