@@ -2,7 +2,7 @@
   "version": "2.0",
   "last_sync": "2026-02-15",
   "source": "kashonharmonica.bg",
-  "total_products": 65,
+  "total_products": 39,
   "products": [
     {
       "id": 1,
@@ -204,9 +204,9 @@
       "ref_eur": 3.39,
       "ref_bgn": 6.64,
       "url_slug": "bio-cherven-domat-500-gr",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 14,
@@ -266,9 +266,9 @@
       "ref_eur": 1.82,
       "ref_bgn": 3.56,
       "url_slug": "bio-morkov-0500-kg",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 18,
@@ -281,9 +281,9 @@
       "ref_eur": 4.29,
       "ref_bgn": 8.39,
       "url_slug": "bio-presen-kartof-1-kg",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 19,
@@ -296,9 +296,9 @@
       "ref_eur": 2.65,
       "ref_bgn": 5.18,
       "url_slug": "bio-pashchrnak-0300-kg",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 20,
@@ -310,9 +310,9 @@
       "ref_eur": 3.56,
       "ref_bgn": 6.97,
       "url_slug": "bio-krastavica-1-br",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 21,
@@ -324,9 +324,9 @@
       "ref_eur": 1.66,
       "ref_bgn": 3.24,
       "url_slug": "bio-salatka-1-br",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 22,
@@ -338,9 +338,9 @@
       "ref_eur": 1.32,
       "ref_bgn": 2.59,
       "url_slug": "bio-magdanoz-1br",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 23,
@@ -352,9 +352,9 @@
       "ref_eur": 1.41,
       "ref_bgn": 2.75,
       "url_slug": "bio-repichki-1-vr",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 24,
@@ -367,9 +367,9 @@
       "ref_eur": 3.58,
       "ref_bgn": 7.0,
       "url_slug": "bio-oveseno-mlyako-1-l",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 25,
@@ -383,9 +383,9 @@
       "ref_eur": 4.91,
       "ref_bgn": 9.6,
       "url_slug": "bio-chervena-leshcha-17-kg",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 26,
@@ -399,9 +399,9 @@
       "ref_eur": 9.71,
       "ref_bgn": 18.99,
       "url_slug": "bio-miks-ot-kinoa-17-kg",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 27,
@@ -415,9 +415,9 @@
       "ref_eur": 8.18,
       "ref_bgn": 18.99,
       "url_slug": "bio-bob-mung-17-kg",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 28,
@@ -585,9 +585,9 @@
       "ref_eur": 6.21,
       "ref_bgn": 12.15,
       "url_slug": "zelen-chay-s-menta",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 39,
@@ -600,9 +600,9 @@
       "ref_eur": 6.74,
       "ref_bgn": 13.18,
       "url_slug": "zelen-chay-pukanki",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 40,
@@ -614,9 +614,9 @@
       "ref_eur": 7.78,
       "ref_bgn": 15.22,
       "url_slug": "byal-chay-silver-tips",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 41,
@@ -630,9 +630,9 @@
       "ref_eur": 6.21,
       "ref_bgn": 12.15,
       "url_slug": "bio-zelen-chay-mao-feng",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 42,
@@ -679,9 +679,9 @@
       "ref_eur": 7.39,
       "ref_bgn": 14.45,
       "url_slug": "bio-pasta-rakovini-15-kg",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 45,
@@ -695,9 +695,9 @@
       "ref_eur": 5.88,
       "ref_bgn": 11.5,
       "url_slug": "bio-pasta-penne-12-kg",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 46,
@@ -710,9 +710,9 @@
       "ref_eur": 5.88,
       "ref_bgn": 11.5,
       "url_slug": "bio-kuskus-17-kg",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 47,
@@ -740,9 +740,9 @@
       "ref_eur": 3.71,
       "ref_bgn": 7.26,
       "url_slug": "bio-sok-yablka-i-portokal-750ml",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 49,
@@ -756,9 +756,9 @@
       "ref_eur": 3.71,
       "ref_bgn": 7.26,
       "url_slug": "bio-sok-yablka-i-limon-750ml",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 50,
@@ -772,9 +772,9 @@
       "ref_eur": 3.45,
       "ref_bgn": 6.75,
       "url_slug": "bio-sok-ot-zelena-yablka-750ml",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 51,
@@ -787,9 +787,9 @@
       "ref_eur": 15.34,
       "ref_bgn": 30.0,
       "url_slug": "bio-elda-17-kg",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 52,
@@ -803,9 +803,9 @@
       "ref_eur": 7.79,
       "ref_bgn": 15.24,
       "url_slug": "bio-kafyava-leshcha-17-kg",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 53,
@@ -819,9 +819,9 @@
       "ref_eur": 5.71,
       "ref_bgn": 11.17,
       "url_slug": "bio-kafyav-oriz17-kg",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 54,
@@ -835,9 +835,9 @@
       "ref_eur": 6.32,
       "ref_bgn": 12.36,
       "url_slug": "bio-byal-oriz-17-kg",
-      "active": true,
+      "active": false,
       "added_date": "2026-02-05",
-      "status": "active"
+      "status": "removed"
     },
     {
       "id": 55,
