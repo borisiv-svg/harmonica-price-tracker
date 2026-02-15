@@ -1,27 +1,25 @@
 """
-Harmonica Price Tracker v9.1
-- Колоната Откл.% показва посоката с ↓ (по-евтино) или ↑ (по-скъпо)
-- Имейл нотификациите показват магазините с визуална индикация:
-  ↓ Balev: 2.03 лв (-23%) за по-евтино (синьо)
-  ↑ Laika: 9.85 лв (+10%) за по-скъпо (червено)
-- Средната цена се изчислява от реалните пазарни цени на магазините
-- Статус "ВНИМАНИЕ" ако поне един магазин има отклонение над 10%
+Harmonica Price Tracker v10.2
+==============================
+Unified scraper — async архитектура (Crawl4AI + curl_cffi + Firecrawl).
+Claude Sonnet валидация на outlier цени (EUR).
+Продуктов списък от harmonica_products.json (месечен sync с Кашон).
+
+Магазини: Кашон, eBag, Balev, Lilly, DM, T-Market, Metro, Randi,
+          Zelen, BioMarket, BeFit, Laika + Glovo (Fantastico, Billa, CBA, Kaufland).
 """
 
-import os
-import json
-import re
-import gc
+import asyncio
+import functools
 import time
-import smtplib
-import base64
+import json
+import os
+import re
 import logging
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import smtplib
 from datetime import datetime
-from playwright.sync_api import sync_playwright
-import gspread
-from google.oauth2.service_account import Credentials
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 # Logging setup
 logging.basicConfig(
@@ -35,2881 +33,4248 @@ logging.basicConfig(
 )
 logger = logging.getLogger('harmonica')
 
-# Playwright Stealth за Cloudflare bypass
 try:
-    from playwright_stealth import stealth_sync
-    STEALTH_AVAILABLE = True
+    from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+    CRAWL4AI_AVAILABLE = True
 except ImportError:
-    STEALTH_AVAILABLE = False
-    logger.warning("  [WARN] playwright-stealth не е инсталиран, Cloudflare сайтове може да не работят")
+    CRAWL4AI_AVAILABLE = False
+    logger.error("Crawl4AI not installed")
 
-# Claude API
+try:
+    import capsolver
+    CAPSOLVER_AVAILABLE = True
+except ImportError:
+    CAPSOLVER_AVAILABLE = False
+    logger.warning("capsolver not installed — anti-bot bypass disabled")
+
+try:
+    import gspread
+    GSPREAD_AVAILABLE = True
+except ImportError:
+    GSPREAD_AVAILABLE = False
+    logger.warning("gspread not installed — Sheets write disabled")
+
+try:
+    from bs4 import BeautifulSoup
+    BS4_AVAILABLE = True
+except ImportError:
+    BS4_AVAILABLE = False
+    logger.warning("beautifulsoup4 not installed — using regex fallback for Lilly")
+
+try:
+    from curl_cffi.requests import AsyncSession as CurlAsyncSession
+    CURL_CFFI_AVAILABLE = True
+except ImportError:
+    CURL_CFFI_AVAILABLE = False
+    logger.warning("curl_cffi not installed — TLS impersonation disabled")
+
+try:
+    from firecrawl import FirecrawlApp
+    FIRECRAWL_AVAILABLE = True
+except ImportError:
+    FIRECRAWL_AVAILABLE = False
+    logger.warning("firecrawl not installed — Glovo JS rendering disabled")
+
 try:
     import anthropic
-    CLAUDE_AVAILABLE = True
+    ANTHROPIC_AVAILABLE = True
 except ImportError:
-    CLAUDE_AVAILABLE = False
-    logger.warning("Anthropic библиотеката не е налична")
-
-# Firecrawl интеграция (v10.0)
-try:
-    from firecrawl_scraper import (
-        is_firecrawl_available,
-        scrape_all_stores_firecrawl,
-        scrape_store_with_extraction,
-        get_firecrawl_client,
-        extract_products_from_markdown,
-    )
-    FIRECRAWL_MODULE_AVAILABLE = True
-except ImportError:
-    FIRECRAWL_MODULE_AVAILABLE = False
-    logger.info("  Firecrawl модулът не е наличен, ще се използва Playwright")
-
-# =============================================================================
-# КОНФИГУРАЦИЯ
-# =============================================================================
-
-# Фиксиран курс EUR/BGN (официален за еврозоната)
-EUR_BGN_RATE = 1.95583
-ALERT_THRESHOLD = 10
-
-# Базова валута за сравнение - BGN (до юни 2026)
-# След това може да се смени на EUR
-BASE_CURRENCY = "BGN"
-
-# Suffix за worksheet името (за experimental branch)
-# Примери: "" (production), "_experimental" (тестове)
-SHEET_TAB_SUFFIX = os.environ.get("SHEET_TAB_SUFFIX", "")
-
-# Claude модели - хибриден подход за оптимална точност и скорост
-# Фаза 1 (извличане): Haiku - бърз и евтин за парсване на HTML
-# Фаза 2 (съпоставяне): Sonnet - по-точен за семантично разпознаване на продукти
-# Визуална верификация: Haiku - достатъчно добър за разпознаване на опаковки
-CLAUDE_MODEL_PHASE1 = "claude-haiku-4-5-20251001"      # Извличане на продукти от HTML
-CLAUDE_MODEL_PHASE2 = "claude-sonnet-4-5-20250929"    # Семантично съпоставяне (Sonnet 4.5)
-CLAUDE_MODEL_VISION = "claude-haiku-4-5-20251001"      # Визуална верификация
-
-STORES = {
-    "eBag": {
-        "url": "https://www.ebag.bg/search/?products%5BrefinementList%5D%5Bbrand_name_bg%5D%5B0%5D=%D0%A5%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
-        "name_in_sheet": "eBag",
-        "scroll_times": 15,
-        "has_pagination": False,
-        "has_load_more": True,
-        "load_more_selector": 'button:has-text("покажи повече"), button:has-text("Покажи повече"), .load-more-button, [data-testid="load-more"]',
-        "expected_currency": "BGN",  # Все още показват лева
-        "currency_indicators": ["лв", "лева", "BGN"]
-    },
-    "Kashon": {
-        "url": "https://kashonharmonica.bg/bg/products/field_producer/harmonica-144",
-        "name_in_sheet": "Кашон",
-        "scroll_times": 15,
-        "has_pagination": True,
-        "max_pages": 5,  # Увеличено от 3 за пълно покритие
-        "has_load_more": False,
-        "expected_currency": "BGN",
-        "currency_indicators": ["лв", "лева", "BGN"]
-    },
-    "Balev": {
-        "url": "https://balevbiomarket.com/productBrands/harmonica",
-        "name_in_sheet": "Balev",
-        "scroll_times": 12,
-        "has_pagination": False,
-        "has_load_more": False,
-        "expected_currency": "BGN",
-        "currency_indicators": ["лв", "лева", "BGN"]
-    },
-    "Metro": {
-        "url": "https://shop.metro.bg/shop/search?q=%D1%85%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
-        "name_in_sheet": "Metro",
-        "scroll_times": 15,
-        "has_pagination": False,
-        "has_load_more": False,
-        "expected_currency": "BGN",
-        "currency_indicators": ["лв", "лева", "BGN"]
-    },
-    "Zelen": {
-        "url": "https://zelen.bg/brand/94/harmonica",
-        "name_in_sheet": "Zelen",
-        "scroll_times": 10,
-        "has_pagination": False,
-        "has_load_more": False,
-        "expected_currency": "BGN",  # Показва EUR и BGN, но взимаме BGN
-        "currency_indicators": ["лв", "лева", "BGN", "€", "EUR"]
-    },
-    "Randi": {
-        "url": "https://randi.bg/search?search=harmonica",
-        "name_in_sheet": "Randi",
-        "scroll_times": 10,
-        "has_pagination": True,
-        "max_pages": 3,
-        "pagination_param": "page",  # URL формат: ?search=harmonica&page=2
-        "has_load_more": False,
-        "expected_currency": "BGN",
-        "currency_indicators": ["лв", "лева", "BGN"]
-    },
-    "BioMarket": {
-        "url": "https://bio-market.bg/brand/harmonica",
-        "name_in_sheet": "Bio-Market",
-        "scroll_times": 10,
-        "has_pagination": False,
-        "has_load_more": False,
-        "expected_currency": "BGN",
-        "currency_indicators": ["лв", "лева", "BGN"]
-    },
-    "BeFit": {
-        "url": "https://befit.bg/brands/harmonica",
-        "name_in_sheet": "BeFit",
-        "scroll_times": 10,
-        "has_pagination": False,
-        "has_load_more": False,
-        "expected_currency": "BGN",
-        "currency_indicators": ["лв", "лева", "BGN"],
-        # BeFit често показва по-ниски цени (промоции) - разширен толеранс
-        "price_tolerance": 0.70,  # 70% вместо стандартните 50%
-        "note": "BeFit е фитнес магазин с по-агресивни промоции"
-    },
-    "Laika": {
-        "url": "https://laika.bg/harmonica-bio-bulgaria-proizvodstvo-magi-maleeva-shoko-ghi-kefir-boza-koze-sirene-ovche-izvara-bulgarska-tzena-kade-da-kupia-magazin-online",
-        "name_in_sheet": "Laika",
-        "scroll_times": 10,
-        "has_pagination": False,
-        "has_load_more": False,
-        "expected_currency": "BGN",
-        "currency_indicators": ["лв", "лева", "BGN"]
-    }
-}
-
-# Продукти с референтни цени от Balev Bio Market (27 продукта)
-# Zelen продуктите (локум, бисквити) са разпределени равномерно в списъка
-PRODUCTS = [
-    # Референтни цени в BGN (основни) и EUR (информативни)
-    {"id": 1, "name": "Био вафла с лимонов крем", "weight": "30г", "ref_price_bgn": 1.39, "ref_price_eur": 0.71},
-    {"id": 2, "name": "Био вафла без добавена захар", "weight": "30г", "ref_price_bgn": 1.49, "ref_price_eur": 0.76},
-    {"id": 3, "name": "Био сирене козе", "weight": "200г", "ref_price_bgn": 10.99, "ref_price_eur": 5.62},
-    {"id": 4, "name": "Био лютеница Илиеви", "weight": "260г", "ref_price_bgn": 8.99, "ref_price_eur": 4.60},
-    {"id": 5, "name": "Био кисело мляко 3,6%", "weight": "400г", "ref_price_bgn": 2.79, "ref_price_eur": 1.43},
-    {"id": 6, "name": "Био лютеница Хаджиеви", "weight": "260г", "ref_price_bgn": 8.99, "ref_price_eur": 4.60},
-    {"id": 7, "name": "Био пълнозърнест сусамов тахан", "weight": "700г", "ref_price_bgn": 18.79, "ref_price_eur": 9.61},
-    {"id": 8, "name": "Био локум натурален", "weight": "140г", "ref_price_bgn": 4.28, "ref_price_eur": 2.19},  # Zelen продукт
-    {"id": 9, "name": "Био кашкавал от краве мляко", "weight": "300г", "ref_price_bgn": 13.49, "ref_price_eur": 6.90},
-    {"id": 10, "name": "Био крема сирене", "weight": "125г", "ref_price_bgn": 5.69, "ref_price_eur": 2.91},
-    {"id": 11, "name": "Био вафла с лимец и кокос", "weight": "30г", "ref_price_bgn": 1.39, "ref_price_eur": 0.71},
-    {"id": 12, "name": "Био краве сирене", "weight": "400г", "ref_price_bgn": 12.59, "ref_price_eur": 6.44},
-    {"id": 13, "name": "Био пълнозърнести кори за баница", "weight": "400г", "ref_price_bgn": 7.99, "ref_price_eur": 4.09},
-    {"id": 14, "name": "Био фъстъчено масло", "weight": "250г", "ref_price_bgn": 9.39, "ref_price_eur": 4.80},
-    {"id": 15, "name": "Био локум роза", "weight": "140г", "ref_price_bgn": 4.28, "ref_price_eur": 2.19},  # Zelen продукт
-    {"id": 16, "name": "Био слънчогледово масло", "weight": "500мл", "ref_price_bgn": 8.29, "ref_price_eur": 4.24},
-    {"id": 17, "name": "Био тунквана вафла Chocobiotic", "weight": "40г", "ref_price_bgn": 2.29, "ref_price_eur": 1.17},
-    {"id": 18, "name": "Био сироп от бъз", "weight": "750мл", "ref_price_bgn": 15.49, "ref_price_eur": 7.92},
-    {"id": 19, "name": "Био прясно мляко 3,6%", "weight": "1л", "ref_price_bgn": 5.39, "ref_price_eur": 2.76},
-    {"id": 20, "name": "Био солети от лимец", "weight": "50г", "ref_price_bgn": 2.59, "ref_price_eur": 1.32},
-    {"id": 21, "name": "Био бисквити с масло и какао", "weight": "150г", "ref_price_bgn": 4.49, "ref_price_eur": 2.30},  # Zelen продукт
-    {"id": 22, "name": "Био пълнозърнести солети", "weight": "60г", "ref_price_bgn": 2.09, "ref_price_eur": 1.07},
-    {"id": 23, "name": "Био кисело пълномаслено мляко", "weight": "400г", "ref_price_bgn": 2.79, "ref_price_eur": 1.43},
-    {"id": 24, "name": "Био извара", "weight": "500г", "ref_price_bgn": 3.69, "ref_price_eur": 1.89},
-    {"id": 25, "name": "Био студено пресовано слънчогледово масло", "weight": "500мл", "ref_price_bgn": 8.29, "ref_price_eur": 4.24},
-    {"id": 26, "name": "Био кисело мляко 2%", "weight": "400г", "ref_price_bgn": 2.79, "ref_price_eur": 1.43},
-    {"id": 27, "name": "Био кефир", "weight": "500мл", "ref_price_bgn": 3.89, "ref_price_eur": 1.99},
-]
-
-# Визуални описания на продуктите за по-точна идентификация
-# Тези описания помагат на Claude да разпознае продуктите по опаковката
-PRODUCT_VISUAL_DESCRIPTIONS = {
-    1: "Жълта опаковка вафла с лимонов крем, 30г",
-    2: "Зелена опаковка вафла, надпис 'Без захар' или 'Sugar free', 30г",
-    3: "Бяла опаковка козе сирене, 200г",
-    4: "Буркан лютеница Илиеви, червен цвят, 260г",
-    5: "Бяла пластмасова кутия кисело мляко 3.6%, 400г",
-    6: "Буркан лютеница Хаджиеви, червен цвят, 260г",
-    7: "Буркан сусамов тахан, 700г",
-    8: "Опаковка локум натурален, 140г",  # Zelen продукт
-    9: "Жълта опаковка кашкавал от краве мляко, 300г",
-    10: "Бяла пластмасова кутийка крема сирене, 125г",
-    11: "Кафява/бежова опаковка вафла с лимец и кокос, 30г",
-    12: "Бяла опаковка краве сирене, 400г",
-    13: "Опаковка пълнозърнести кори за баница, 400г",
-    14: "Буркан фъстъчено масло, 250г",
-    15: "Опаковка локум роза, 140г",  # Zelen продукт
-    16: "Бутилка слънчогледово масло, 500мл",
-    17: "Тунквана вафла Chocobiotic с шоколад и пробиотик, 40г",
-    18: "Висока стъклена бутилка сироп от бъз, 750мл",
-    19: "Кутия прясно мляко 3.6%, 1л",
-    20: "Опаковка солети от лимец, 50г",
-    21: "Опаковка бисквити с масло и какао, 150г",  # Zelen продукт
-    22: "Опаковка пълнозърнести солети, 60г",
-    23: "Бяла пластмасова кутия кисело пълномаслено мляко, 400г",
-    24: "Бяла кутия извара, 500г",
-    25: "Бутилка студено пресовано слънчогледово масло, 500мл",
-    26: "Бяла пластмасова кутия кисело мляко 2%, 400г",
-    27: "Бяла бутилка кефир, 500мл",
-}
-
-# Алтернативни имена на продукти за по-добро съпоставяне
-# Кашон и други магазини използват различни наименования
-PRODUCT_ALIASES = {
-    16: [  # Био сироп от бъз
-        "сироп от плод на бъз",
-        "сироп бъз",
-        "elderflower syrup",
-        "сироп от бъз harmonica"
-    ],
-    19: [  # Био пълнозърнести солети
-        "солети пълнозърнести",
-        "пълнозърнести солети harmonica",
-        "whole grain pretzels"
-    ],
-    20: [  # Био кисело пълномаслено мляко
-        "по-кисело кисело мляко",
-        "по-кисело мляко хармоника",
-        "кисело мляко пълномаслено",
-        "по-киселото мляко"
-    ],
-    5: [  # Био кисело мляко 3,6%
-        "кисело мляко 3,6%",
-        "кисело мляко 3.6%",
-        "кисело мляко harmonica 3,6"
-    ],
-    23: [  # Био кисело мляко 2%
-        "кисело мляко 2%",
-        "кисело мляко 2.0%",
-        "кисело мляко harmonica 2"
-    ],
-    11: [  # Био краве сирене
-        "сирене краве",
-        "краве сирене harmonica",
-        "cow cheese"
-    ],
-    7: [  # Био пълнозърнест сусамов тахан
-        "сусамов тахан",
-        "тахан сусамов",
-        "tahini",
-        "тахан harmonica"
-    ],
-    22: [  # Био студено пресовано слънчогледово масло
-        "слънчогледово олио за готвене",
-        "био слънчогледово олио",
-        "sunflower oil",
-        "олио за готвене"
-    ],
-    21: [  # Био извара - ВНИМАНИЕ: да не се бърка с крема сирене!
-        "извара harmonica",
-        "извара био",
-        "cottage cheese"
-        # НЕ включваме "сирене" защото се бърка с крема сирене
-    ],
-}
-
-# Продукти, които не се продават в определени магазини (потвърдено ръчно)
-PRODUCTS_NOT_AVAILABLE = {
-    "Kashon": [8, 16],  # Био кашкавал, Био сироп от бъз - не се продават в Кашон
-}
-
-# Флаг за включване/изключване на визуална верификация
-ENABLE_VISUAL_VERIFICATION = True
-VISUAL_VERIFICATION_CONFIDENCE_THRESHOLD = 0.7  # Минимална увереност за приемане
+    ANTHROPIC_AVAILABLE = False
+    logger.warning("anthropic not installed — Claude price validation disabled")
 
 
 # =============================================================================
-# ВАЛУТНА ДЕТЕКЦИЯ И КОНВЕРСИЯ
+# CONSTANTS
 # =============================================================================
 
-def detect_currency_from_text(text):
-    """
-    Детектира валутата от текст, търсейки индикатори за EUR или BGN.
-    
-    Логика:
-    - Ако намери €, EUR, eur → връща "EUR"
-    - Ако намери лв, лева, BGN, bgn → връща "BGN"
-    - Ако не намери нищо → връща None (неизвестно)
-    
-    Args:
-        text: Текст за анализ (може да е цял HTML или само ценова секция)
-    
-    Returns:
-        "EUR", "BGN" или None
-    """
-    if not text:
-        return None
-    
-    text_lower = text.lower()
-    
-    # EUR индикатори (по-често срещани след 01.01.2026)
-    eur_indicators = ['€', 'eur', ' е ', 'евро']
-    for indicator in eur_indicators:
-        if indicator in text_lower:
-            return "EUR"
-    
-    # BGN индикатори (legacy, все още възможни)
-    bgn_indicators = ['лв', 'лева', 'bgn', 'лв.']
-    for indicator in bgn_indicators:
-        if indicator in text_lower:
-            return "BGN"
-    
-    return None
+EUR_BGN_RATE = 1.9558  # Фиксиран курс
+PROXY_URL = os.environ.get("PROXY_URL")  # Optional: http://user:pass@host:port
+GLOVO_AUTH_TOKEN = os.environ.get("GLOVO_AUTH_TOKEN")  # Optional: Glovo Bearer token
+FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")  # Optional: Firecrawl API key
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")  # Optional: Claude API key за валидация
+
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5-20250929")
+
+PRODUCTS_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "data", "products", "harmonica_products.json")
 
 
-def detect_currency_from_price_pattern(price_str):
+def load_product_list():
     """
-    Детектира валутата от ценови стринг анализирайки числовата стойност.
-    
-    Хевристика: Ако цената е твърде ниска за BGN (< 0.5), вероятно е EUR.
-    Ако цената е твърде висока за EUR за обичаен продукт (> 50), вероятно е BGN.
-    
-    Това е backup метод когато няма явни валутни индикатори.
+    Зарежда референтен списък продукти от harmonica_products.json.
+    Връща списък от активни продукти с name, ref_eur, ref_bgn, status.
+    Fallback: ако файлът не съществува, връща празен списък.
     """
+    if not os.path.exists(PRODUCTS_JSON_PATH):
+        logger.warning(f"Продуктов файл не е намерен: {PRODUCTS_JSON_PATH}")
+        return []
+
     try:
-        # Извличаме числото
-        price_match = re.search(r'(\d+[.,]\d{2})', str(price_str))
-        if price_match:
-            price = float(price_match.group(1).replace(',', '.'))
-            # Много ниска цена (< 0.5) е почти сигурно EUR
-            if price < 0.5:
-                return "EUR"
-            # Много висока цена (> 50) е вероятно BGN за тези продукти
-            if price > 50:
-                return "BGN"
-    except:
-        pass
-    return None
+        with open(PRODUCTS_JSON_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
 
+        products = []
+        for p in data.get("products", []):
+            ref_eur = p.get("ref_eur")
+            ref_bgn = p.get("ref_bgn")
+            # Изчисляваме EUR от BGN ако липсва
+            if not ref_eur and ref_bgn:
+                ref_eur = round(ref_bgn / EUR_BGN_RATE, 2)
 
-def convert_to_eur(price, detected_currency):
-    """
-    Конвертира цена към EUR ако е необходимо.
-    
-    Args:
-        price: Числова стойност на цената
-        detected_currency: "EUR", "BGN" или None
-    
-    Returns:
-        Цена в EUR
-    """
-    if price is None:
-        return None
-    
-    if detected_currency == "BGN":
-        # Конвертираме BGN към EUR
-        return round(price / EUR_BGN_RATE, 2)
-    else:
-        # Вече е EUR или неизвестно (приемаме EUR по подразбиране след 01.01.2026)
-        return round(price, 2)
+            products.append({
+                "name": p["name"],
+                "ref_eur": ref_eur,
+                "ref_bgn": ref_bgn,
+                "status": p.get("status", "active"),
+                "active": p.get("active", True),
+            })
 
-
-def convert_to_bgn(price, detected_currency):
-    """
-    Конвертира цена към BGN ако е необходимо.
-    
-    Args:
-        price: Числова стойност на цената
-        detected_currency: "EUR", "BGN" или None
-    
-    Returns:
-        Цена в BGN
-    """
-    if price is None:
-        return None
-    
-    if detected_currency == "EUR" or detected_currency is None:
-        # Конвертираме EUR към BGN
-        return round(price * EUR_BGN_RATE, 2)
-    else:
-        # Вече е BGN
-        return round(price, 2)
-
-
-def detect_currency_by_reference(price_value, ref_price_bgn):
-    """
-    Детектира валутата чрез сравнение с референтната BGN цена.
-    
-    Логика:
-    - Изчисляваме очакваната EUR цена: ref_price_bgn / 1.95583
-    - Ако извлечената цена е по-близка до BGN референцията → BGN
-    - Ако извлечената цена е по-близка до EUR референцията → EUR
-    
-    Това е най-надеждният метод, защото не зависи от валутни символи.
-    
-    Args:
-        price_value: Извлечената цена (число)
-        ref_price_bgn: Референтната цена в BGN
-    
-    Returns:
-        "EUR" или "BGN"
-    """
-    if price_value is None or ref_price_bgn is None:
-        return "BGN"  # По подразбиране
-    
-    ref_price_eur = ref_price_bgn / EUR_BGN_RATE
-    
-    # Изчисляваме процентните отклонения
-    deviation_bgn = abs(price_value - ref_price_bgn) / ref_price_bgn
-    deviation_eur = abs(price_value - ref_price_eur) / ref_price_eur
-    
-    # Цената е в тази валута, от която отклонението е по-малко
-    if deviation_eur < deviation_bgn:
-        return "EUR"
-    else:
-        return "BGN"
-
-
-def normalize_price_to_bgn(price_value, ref_price_bgn):
-    """
-    Нормализира цена към BGN, автоматично детектирайки валутата.
-    
-    Args:
-        price_value: Извлечената цена
-        ref_price_bgn: Референтната BGN цена за сравнение
-    
-    Returns:
-        tuple: (price_in_bgn, detected_currency)
-    """
-    if price_value is None:
-        return None, None
-    
-    detected = detect_currency_by_reference(price_value, ref_price_bgn)
-    
-    if detected == "EUR":
-        price_bgn = round(price_value * EUR_BGN_RATE, 2)
-    else:
-        price_bgn = round(price_value, 2)
-    
-    return price_bgn, detected
-
-
-def smart_price_normalization(price_value, page_text, store_config):
-    """
-    Интелигентна нормализация на цена.
-    
-    За преходния период до юни 2026:
-    - Повечето сайтове все още показват BGN
-    - Само ако има explicit EUR индикатор (€), конвертираме
-    - По подразбиране приемаме BGN
-    
-    Args:
-        price_value: Числова стойност на извлечената цена
-        page_text: Пълен текст на страницата за контекст
-        store_config: Конфигурация на магазина с expected_currency
-    
-    Returns:
-        tuple: (price_in_bgn, detected_currency)
-    """
-    if price_value is None:
-        return None, None
-    
-    # Метод 1: Търсим explicit валутни индикатори в текста
-    detected = detect_currency_from_text(page_text)
-    
-    # Метод 2: Ако не намерихме explicit индикатор, използваме конфигурацията
-    if detected is None:
-        detected = store_config.get('expected_currency', 'BGN')
-    
-    # За преходния период: ако цената е разумна за BGN, приемаме BGN
-    # Типичен диапазон за Harmonica продукти в BGN: 1-20 лв
-    if detected == "EUR" and 1.0 <= price_value <= 25.0:
-        # Цената изглежда като BGN, не като EUR
-        # 0.71 EUR за вафла би било валидно, но 1.39 е по-вероятно BGN
-        detected = "BGN"
-    
-    # Конвертираме към BGN ако е необходимо
-    if detected == "EUR":
-        price_bgn = round(price_value * EUR_BGN_RATE, 2)
-    else:
-        price_bgn = round(price_value, 2)
-    
-    return price_bgn, detected
-# ВИЗУАЛНА ВЕРИФИКАЦИЯ С CLAUDE VISION
-# =============================================================================
-
-def capture_product_screenshot(page, product_selector, index=0):
-    """
-    Заснема screenshot на продуктова карта от страницата.
-    
-    Args:
-        page: Playwright page обект
-        product_selector: CSS селектор за продуктовите карти
-        index: Индекс на продукта (ако има множество елементи)
-    
-    Returns:
-        base64 encoded string на изображението или None при грешка
-    """
-    try:
-        # Намираме всички продуктови карти
-        elements = page.query_selector_all(product_selector)
-        
-        if not elements or index >= len(elements):
-            return None
-        
-        element = elements[index]
-        
-        # Скролираме до елемента за да е видим
-        element.scroll_into_view_if_needed()
-        page.wait_for_timeout(300)
-        
-        # Заснемаме screenshot само на този елемент
-        screenshot_bytes = element.screenshot()
-        
-        # Конвертираме в base64
-        screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
-        
-        return screenshot_base64
-        
+        active = [p for p in products if p["active"]]
+        logger.info(f"Заредени {len(active)} активни продукта от {os.path.basename(PRODUCTS_JSON_PATH)}")
+        return active
     except Exception as e:
-        logger.error(f"      [VISION] Грешка при screenshot: {str(e)[:50]}")
-        return None
-
-
-def verify_product_with_vision(client, screenshot_base64, text_name, text_price, store_name):
-    """
-    Използва Claude Vision за верификация на продукт по снимка.
-    
-    Args:
-        client: Anthropic клиент
-        screenshot_base64: base64 encoded изображение
-        text_name: Името на продукта от текста на сайта
-        text_price: Цената от текста на сайта
-        store_name: Име на магазина
-    
-    Returns:
-        dict с:
-            - product_id: Номер на съпоставения продукт (1-14) или None
-            - confidence: Увереност (high/medium/low)
-            - reason: Обяснение
-    """
-    if not client or not screenshot_base64:
-        return {"product_id": None, "confidence": "none", "reason": "Липсва изображение или клиент"}
-    
-    # Създаваме списък с продуктите и визуалните им описания
-    products_list = []
-    for p in PRODUCTS:
-        visual_desc = PRODUCT_VISUAL_DESCRIPTIONS.get(p['id'], '')
-        products_list.append(str(p['id']) + ". " + p['name'] + " (" + p['weight'] + ") - " + visual_desc)
-    
-    products_text = "\n".join(products_list)
-    
-    prompt = """Анализирай изображението на продукт от магазин и определи кой точно продукт от списъка е.
-
-ПРОДУКТИ ЗА ИДЕНТИФИКАЦИЯ:
-""" + products_text + """
-
-ТЕКСТ ОТ САЙТА: """ + text_name + """ - """ + str(text_price) + """ лв
-
-ИНСТРУКЦИИ:
-1. Разгледай ВИЗУАЛНАТА информация: опаковка, цветове, надписи, лого Harmonica
-2. Сравни с описанията на продуктите
-3. ГРАМАЖЪТ е критичен - 40г е различно от 30г!
-4. Ако не си сигурен - върни null
-
-ФОРМАТ (само JSON, без обяснения):
-{"product_id": NUMBER_OR_NULL, "confidence": "high/medium/low", "reason": "кратко обяснение"}
-
-Пример: {"product_id": 8, "confidence": "high", "reason": "Синя опаковка вафла Класика 40г"}"""
-    
-    try:
-        message = client.messages.create(
-            model=CLAUDE_MODEL_VISION,  # Haiku за визуална верификация
-            max_tokens=200,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/png",
-                            "data": screenshot_base64
-                        }
-                    },
-                    {
-                        "type": "text",
-                        "text": prompt
-                    }
-                ]
-            }]
-        )
-        
-        response_text = message.content[0].text.strip()
-        
-        # Парсване на JSON отговора
-        # Почистваме евентуални markdown маркери
-        cleaned = response_text
-        if "```" in cleaned:
-            cleaned = re.sub(r'```(?:json)?\s*', '', cleaned)
-            cleaned = cleaned.replace('```', '').strip()
-        
-        # Намираме JSON обекта
-        json_match = re.search(r'\{[^{}]+\}', cleaned)
-        if json_match:
-            result = json.loads(json_match.group())
-            return result
-        
-        return {"product_id": None, "confidence": "none", "reason": "Неуспешно парсване"}
-        
-    except Exception as e:
-        logger.error(f"      [VISION] API грешка: {str(e)[:50]}")
-        return {"product_id": None, "confidence": "none", "reason": str(e)[:50]}
-
-
-def get_product_card_selectors(store_name):
-    """
-    Връща CSS селектори за продуктови карти според магазина.
-    Подредени по приоритет - първо специфични, после общи.
-    """
-    selectors = {
-        "eBag": [
-            # eBag използва Tailwind CSS - article елементите са продуктовите карти
-            "article",
-            # Algolia InstantSearch специфични селектори (backup)
-            ".ais-InfiniteHits-item",
-            ".ais-Hits-item",
-            "[data-insights-object-id]",
-        ],
-        "Кашон": [
-            ".views-row",
-            ".product-teaser", 
-            ".node--type-product",
-            "article.product",
-        ],
-        "Balev": [
-            # Изключваме header/basket елементи - търсим в main content area
-            "main [class*='product']",
-            ".content [class*='product']",
-            "#content [class*='product']",
-            # Catalog/grid селектори
-            ".catalog-item",
-            ".product-tile",
-        ],
-        "Metro": [
-            # Metro shop.metro.bg - модерна e-commerce платформа
-            "[class*='product-card']",
-            "[class*='product-tile']",
-            "[class*='product-item']",
-            "[data-testid*='product']",
-            # Grid/list items
-            ".search-results [class*='item']",
-            ".products-list [class*='product']",
-            "[class*='search-result'] [class*='product']",
-            # Общи backup селектори
-            "article[class*='product']",
-            ".catalog-product",
-        ]
-    }
-    return selectors.get(store_name, [".product-card", ".product-item"])
-
-
-def debug_page_elements(page, store_name):
-    """
-    Debug функция за идентифициране на HTML елементи на страницата.
-    Помага при намиране на правилните CSS селектори.
-    """
-    try:
-        # Опитваме различни общи селектори
-        test_selectors = [
-            "article",
-            "[class*='product']",
-            "[class*='item']",
-            "[class*='card']",
-            "[class*='hit']",
-            "li",
-            "div[class]"
-        ]
-        
-        logger.debug("      [DEBUG] Търсене на елементи за " + store_name + ":")
-        
-        for sel in test_selectors:
-            try:
-                elements = page.query_selector_all(sel)
-                if elements and len(elements) > 0 and len(elements) < 200:
-                    # Вземаме класовете на първия елемент
-                    first_class = page.evaluate(
-                        "(sel) => document.querySelector(sel)?.className || 'no-class'",
-                        sel
-                    )
-                    logger.info("        " + sel + ": " + str(len(elements)) + " елемента, class='" + str(first_class)[:50] + "'")
-            except:
-                continue
-                
-    except Exception as e:
-        logger.debug("Грешка при debug_page_elements: " + str(e)[:50])
-
-
-def validate_visual_price(product_id, visual_price, tolerance_percent=50):
-    """
-    Валидира дали визуално намерената цена е в разумен диапазон
-    спрямо референтната цена на продукта.
-    
-    Args:
-        product_id: ID на продукта (1-14)
-        visual_price: Цената намерена визуално
-        tolerance_percent: Допустимо отклонение в проценти (default 50%)
-    
-    Returns:
-        tuple: (is_valid, reason)
-    """
-    # Намираме референтната цена
-    ref_price = None
-    for p in PRODUCTS:
-        if p['id'] == product_id:
-            ref_price = p['ref_price_bgn']
-            break
-    
-    if not ref_price:
-        return False, "Непознат продукт"
-    
-    if visual_price <= 0:
-        return False, "Невалидна цена"
-    
-    # Изчисляваме отклонението
-    deviation = abs(visual_price - ref_price) / ref_price * 100
-    
-    if deviation > tolerance_percent:
-        return False, "Цена извън диапазон ({:.1f}% отклонение, ref={:.2f}, visual={:.2f})".format(
-            deviation, ref_price, visual_price)
-    
-    return True, "OK"
-
-
-def get_product_keywords(product_id):
-    """
-    Връща ключови думи за търсене на продукт по ID.
-    Използва се за валидация на визуална идентификация.
-    Актуализирано за 24 продукта (v7.1).
-    """
-    keywords = {
-        1: ["вафла", "лимон", "крем", "30"],
-        2: ["вафла", "без", "захар", "30"],
-        3: ["козе", "сирене", "goat", "200"],
-        4: ["лютеница", "илиев", "260"],
-        5: ["кисело", "мляко", "3.6", "3,6", "400"],
-        6: ["лютеница", "хаджиев", "260"],
-        7: ["тахан", "сусам", "700"],
-        8: ["кашкавал", "краве", "300"],
-        9: ["крема", "сирене", "cream", "125"],
-        10: ["вафла", "лимец", "кокос", "30"],
-        11: ["краве", "сирене", "400"],
-        12: ["кори", "баница", "400"],
-        13: ["фъстъчено", "масло", "250"],
-        14: ["слънчогледово", "масло", "500"],
-        15: ["тунквана", "вафла", "chocobiotic", "40"],
-        16: ["сироп", "бъз", "750"],
-        17: ["прясно", "мляко", "1л", "1l"],
-        18: ["солети", "лимец", "50"],
-        19: ["пълнозърнести", "солети", "60"],
-        20: ["пълномаслено", "кисело", "400"],
-        21: ["извара", "500"],
-        22: ["студено", "пресовано", "слънчогледово", "500"],
-        23: ["кисело", "мляко", "2%", "400"],
-        24: ["кефир", "500"],
-    }
-    return keywords.get(product_id, [])
-
-
-def text_contains_product_keywords(text, product_id, min_matches=1):
-    """
-    Проверява дали текстът съдържа достатъчно ключови думи за продукта.
-    
-    Args:
-        text: Текст за проверка
-        product_id: ID на продукта
-        min_matches: Минимален брой съвпадения
-    
-    Returns:
-        bool: True ако има достатъчно съвпадения
-    """
-    text_lower = text.lower()
-    keywords = get_product_keywords(product_id)
-    
-    matches = sum(1 for kw in keywords if kw.lower() in text_lower)
-    return matches >= min_matches
-
-
-def visual_verify_products(page, client, store_name, text_products, max_verify=5):
-    """
-    Визуално верифицира продукти чрез screenshots.
-    
-    Включва валидация на цените, филтриране по ключови думи,
-    и филтриране на елементи по размер за по-точна идентификация.
-    """
-    if not ENABLE_VISUAL_VERIFICATION:
-        return {}
-    
-    if not client:
-        logger.info("      [VISION] Claude клиент не е наличен")
-        return {}
-    
-    verified = {}
-    selectors = get_product_card_selectors(store_name)
-    
-    # Опитваме различни селектори
-    product_elements = []
-    used_selector = None
-    for selector in selectors:
-        try:
-            elements = page.query_selector_all(selector)
-            if elements and len(elements) > 0:
-                # Филтрираме елементите по размер - продуктова карта е поне 80x80 пиксела
-                valid_elements = []
-                for el in elements:
-                    try:
-                        box = el.bounding_box()
-                        if box and box['width'] >= 80 and box['height'] >= 80:
-                            # Проверяваме дали елементът съдържа цена
-                            text = el.inner_text()
-                            if re.search(r'\d+[,.]\d{2}', text):
-                                valid_elements.append(el)
-                    except:
-                        continue
-                
-                if valid_elements:
-                    product_elements = valid_elements
-                    used_selector = selector
-                    logger.info("      [VISION] Намерени " + str(len(valid_elements)) + " валидни продуктови карти с '" + selector + "'")
-                    break
-        except:
-            continue
-    
-    if not product_elements:
-        logger.info("      [VISION] Не са намерени продуктови карти за screenshot")
-        debug_page_elements(page, store_name)
-        return {}
-    
-    # Верифицираме до max_verify продукта
-    verified_count = 0
-    skipped_price = 0
-    skipped_keywords = 0
-    
-    for i, element in enumerate(product_elements):
-        if verified_count >= max_verify:
-            break
-        
-        try:
-            # Заснемаме screenshot
-            element.scroll_into_view_if_needed()
-            page.wait_for_timeout(200)
-            screenshot_bytes = element.screenshot()
-            screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
-            
-            # Опитваме се да извлечем текста от елемента
-            element_text = element.inner_text()
-            
-            # Подобрено извличане на цена - търсим различни формати
-            # Формати: "2.99", "2,99", "2.99 лв", "2,99лв", "BGN 2.99"
-            price = 0
-            price_patterns = [
-                r'(\d+)[,.](\d{2})\s*(?:лв|BGN|EUR)?',  # Стандартен формат
-                r'(?:лв|BGN|EUR)\s*(\d+)[,.](\d{2})',   # Валута отпред
-            ]
-            for pattern in price_patterns:
-                price_match = re.search(pattern, element_text)
-                if price_match:
-                    price = float(price_match.group(1) + "." + price_match.group(2))
-                    break
-            
-            # Пропускаме ако няма цена
-            if price == 0:
-                continue
-            
-            # Извличаме име (първия ред с текст, който не е цена)
-            lines = [l.strip() for l in element_text.split('\n') if l.strip()]
-            product_name = "Неизвестен"
-            for line in lines:
-                if not re.match(r'^[\d,.]+\s*(лв|BGN|EUR)?$', line):
-                    product_name = line
-                    break
-            
-            # Верифицираме с Claude Vision
-            result = verify_product_with_vision(
-                client, 
-                screenshot_base64, 
-                product_name[:100],
-                price, 
-                store_name
-            )
-            
-            # Логваме резултата ако няма разпознат продукт (за debug)
-            if not result.get('product_id'):
-                # Показваме само първите няколко неразпознати за да не спамим лога
-                if i < 3:
-                    reason = result.get('reason', 'няма причина')
-                    logger.info("      [VISION] Неразпознат: " + product_name[:30] + " (" + str(price) + " лв) - " + reason[:40])
-                continue
-            
-            if result.get('confidence') not in ['high', 'medium']:
-                if i < 3:
-                    logger.info("      [VISION] Ниска увереност за #" + str(result.get('product_id')) + ": " + result.get('confidence', 'none'))
-                continue
-            
-            product_id = result['product_id']
-            
-            # ВАЛИДАЦИЯ 1: Проверка на цената
-            price_valid, price_reason = validate_visual_price(product_id, price)
-            if not price_valid:
-                skipped_price += 1
-                logger.info("      [VISION] Отхвърлен #" + str(product_id) + ": " + price_reason[:50])
-                continue
-            
-            # ВАЛИДАЦИЯ 2: Проверка на ключови думи (поне 1 съвпадение)
-            if not text_contains_product_keywords(element_text, product_id, min_matches=1):
-                skipped_keywords += 1
-                logger.info("      [VISION] Отхвърлен #" + str(product_id) + ": липсват ключови думи в текста")
-                continue
-            
-            # Всичко е OK - добавяме към верифицираните
-            verified[product_id] = {
-                'price': price,
-                'confidence': result.get('confidence'),
-                'reason': result.get('reason', ''),
-                'text_name': product_name[:50]
-            }
-            verified_count += 1
-            logger.info("      [VISION] #" + str(product_id) + ": " + result.get('confidence', '') + " - " + result.get('reason', '')[:40])
-        
-        except Exception as e:
-            continue
-    
-    logger.info("      [VISION] Верифицирани: " + str(len(verified)) + ", Отхвърлени (цена): " + str(skipped_price) + ", Отхвърлени (ключови думи): " + str(skipped_keywords))
-    
-    # Освобождаваме паметта след визуалната верификация
-    gc.collect()
-    
-    return verified
-
-
-# =============================================================================
-# CLAUDE API - ДВУФАЗЕН АНАЛИЗ
-# =============================================================================
-
-def get_claude_client():
-    """Създава Claude API клиент."""
-    api_key = os.environ.get('ANTHROPIC_API_KEY')
-    if not api_key:
-        logger.error("    [CLAUDE] API ключ не е зададен")
-        return None
-    try:
-        return anthropic.Anthropic(api_key=api_key)
-    except Exception as e:
-        logger.error(f"    [CLAUDE] Грешка при създаване на клиент: {str(e)[:50]}")
-        return None
-
-
-def phase1_extract_all_products(client, page_text, store_name):
-    """
-    ФАЗА 1: Груба екстракция
-    Намира ВСИЧКИ ХРАНИТЕЛНИ продукти на Harmonica от текста.
-    Връща списък с продукти точно както са изписани в сайта.
-    """
-    
-    # Ограничаваме текста
-    if len(page_text) > 14000:
-        page_text = page_text[:14000]
-    
-    prompt = f"""Анализирай текста от българския онлайн магазин "{store_name}" и извлечи САМО ХРАНИТЕЛНИТЕ продукти на марката Harmonica (Хармоника) с техните цени.
-
-ТЕКСТ ОТ СТРАНИЦАТА:
-{page_text}
-
-ИЗВЛИЧАЙ САМО ХРАНИ:
-- Млечни продукти (айран, кисело мляко, сирене, крема сирене)
-- Сладкарски изделия (локум, бисквити, вафли, топчета)
-- Напитки (лимонада, сиропи)
-- Консерви (пасирани домати, passata)
-- Снаксове (претцели, smiles, чипс)
-
-НЕ ИЗВЛИЧАЙ: дрехи, аксесоари, козметика, нехранителни продукти.
-
-ИНСТРУКЦИИ:
-1. Намери ХРАНИТЕЛНИ продукти на Harmonica/Хармоника
-2. Извлечи ТОЧНОТО име + цена в лева (BGN)
-3. Включи грамажа/обема
-
-КРИТИЧНО - ФОРМАТ НА ОТГОВОРА:
-- Върни САМО JSON масив
-- БЕЗ ```json``` маркери
-- БЕЗ обяснения преди или след JSON
-- БЕЗ коментари
-- Само чист JSON!
-
-Пример за правилен отговор:
-[{{"name": "Био Айран 500мл", "price": 2.99}}, {{"name": "Вафла класик 40г", "price": 2.19}}]
-
-Ако няма продукти: []"""
-
-    try:
-        message = client.messages.create(
-            model=CLAUDE_MODEL_PHASE1,
-            max_tokens=4000,  # Увеличено от 2000 за магазини с много продукти (eBag: 57, Кашон: 64)
-            messages=[{"role": "user", "content": prompt}]
-        )
-        
-        response_text = message.content[0].text.strip()
-        logger.info(f"    [ФАЗА 1] Отговор: {response_text[:200]}...")
-        
-        # Почистване
-        cleaned = response_text
-        if "```" in cleaned:
-            cleaned = re.sub(r'```(?:json)?\s*', '', cleaned)
-            cleaned = re.sub(r'\s*```', '', cleaned)
-        
-        # Търсим JSON масив
-        array_match = re.search(r'\[[\s\S]*\]', cleaned)
-        if array_match:
-            cleaned = array_match.group(0)
-        
-        # Поправяме често срещани JSON грешки
-        # 1. Trailing commas преди ] или }
-        cleaned = re.sub(r',\s*]', ']', cleaned)
-        cleaned = re.sub(r',\s*}', '}', cleaned)
-        # 2. Single quotes вместо double quotes
-        # (по-сложно, правим го само ако има грешка)
-        
-        try:
-            products = json.loads(cleaned)
-        except json.JSONDecodeError as e:
-            logger.error(f"    [ФАЗА 1] JSON грешка, опитваме поправка: {str(e)[:50]}")
-            # Опитваме да поправим single quotes
-            try:
-                # Заменяме single quotes с double quotes (внимателно)
-                fixed = re.sub(r"'([^']*)':", r'"\1":', cleaned)
-                fixed = re.sub(r":\s*'([^']*)'", r': "\1"', fixed)
-                products = json.loads(fixed)
-            except:
-                # Последен опит - извличаме продукти с regex
-                logger.info(f"    [ФАЗА 1] Използваме regex екстракция")
-                products = []
-                # Pattern 1: "price": число (без кавички)
-                pattern1 = r'"name"\s*:\s*"([^"]+)"\s*,\s*"price"\s*:\s*(\d+\.?\d*)'
-                matches = re.findall(pattern1, cleaned)
-                for name, price in matches:
-                    try:
-                        products.append({"name": name, "price": float(price)})
-                    except:
-                        pass
-                
-                # Pattern 2: "price": "X.XX лв." (string с валутен символ)
-                if not products:
-                    pattern2 = r'"name"\s*:\s*"([^"]+)"\s*,\s*"price"\s*:\s*"(\d+[.,]?\d*)\s*(?:лв\.?|BGN|EUR|€)?"'
-                    matches = re.findall(pattern2, cleaned)
-                    for name, price in matches:
-                        try:
-                            price_clean = price.replace(',', '.')
-                            products.append({"name": name, "price": float(price_clean)})
-                        except:
-                            pass
-        
-        # Валидираме структурата
-        valid_products = []
-        for p in products:
-            if isinstance(p, dict) and 'name' in p and 'price' in p:
-                try:
-                    # Обработваме цената - може да е число или string
-                    price_raw = p['price']
-                    if isinstance(price_raw, str):
-                        # Извличаме числото от string-а (напр. "4.28 лв." -> 4.28)
-                        # Търсим десетично число или цяло число
-                        price_match = re.search(r'(\d+)[.,](\d+)', price_raw)
-                        if price_match:
-                            # Десетично число: "4.28" или "4,28"
-                            price = float(f"{price_match.group(1)}.{price_match.group(2)}")
-                        else:
-                            # Цяло число: "4"
-                            int_match = re.search(r'(\d+)', price_raw)
-                            if int_match:
-                                price = float(int_match.group(1))
-                            else:
-                                continue
-                    else:
-                        price = float(price_raw)
-                    
-                    if 0.5 < price < 200:
-                        valid_products.append({
-                            "name": str(p['name']),
-                            "price": price
-                        })
-                except:
-                    pass
-        
-        logger.info(f"    [ФАЗА 1] Намерени: {len(valid_products)} продукта")
-        return valid_products
-        
-    except Exception as e:
-        logger.error(f"    [ФАЗА 1] Грешка: {str(e)[:80]}")
+        logger.error(f"Грешка при зареждане на продуктов файл: {e}")
         return []
 
 
-def phase2_match_products(client, extracted_products, store_name):
+def update_product_list_with_new(reference_products, kashon_products):
     """
-    ФАЗА 2: Интелигентно съпоставяне
-    Съпоставя намерените продукти от Фаза 1 с нашия списък.
-    Използва номера на продуктите за еднозначна идентификация.
-    ВАЖНО: НЕ показваме референтните цени на Claude, за да избегнем халюцинации!
-    Актуализирано за 24 продукта (v7.1).
+    Сравнява референтния списък (от JSON) с извлечените от Кашон продукти.
+    Добавя нови продукти с status='new'. Връща обновен reference list.
     """
-    
-    if not extracted_products:
-        logger.info(f"    [ФАЗА 2] Няма продукти за съпоставяне")
-        return {}
-    
-    # Подготвяме списъка с нашите продукти - БЕЗ РЕФЕРЕНТНИ ЦЕНИ!
-    our_products_text = "\n".join([
-        f"{p['id']}. {p['name']} ({p['weight']})"
-        for p in PRODUCTS
-    ])
-    
-    # Подготвяме списъка с намерените продукти
-    found_products_text = "\n".join([
-        f"- \"{p['name']}\" → {p['price']:.2f} лв"
-        for p in extracted_products
-    ])
-    
-    prompt = f"""Съпостави продуктите от магазин "{store_name}" с нашия списък от 27 продукта.
+    ref_names_lower = {p["name"].lower() for p in reference_products}
+    new_count = 0
 
-НАШИЯТ СПИСЪК:
-{our_products_text}
+    for kp in kashon_products:
+        if kp["name"].lower() not in ref_names_lower:
+            reference_products.append({
+                "name": kp["name"],
+                "ref_eur": kp.get("eur"),
+                "ref_bgn": kp.get("bgn"),
+                "status": "new",
+                "active": True,
+            })
+            ref_names_lower.add(kp["name"].lower())
+            new_count += 1
 
-ПРОДУКТИ ОТ САЙТА:
-{found_products_text}
+    if new_count:
+        logger.info(f"Открити {new_count} нови продукта от Кашон (маркирани като 'new')")
 
-ПРАВИЛА:
-1. ГРАМАЖЪТ Е ЗАДЪЛЖИТЕЛЕН - "750мл" ≠ "500мл", "40г" ≠ "30г"
-2. ВНИМАВАЙ ЗА ПОДОБНИ: "3.6%" ≠ "2%", "Илиеви" ≠ "Хаджиеви"
-3. ИЗПОЛЗВАЙ САМО цени от списъка "ПРОДУКТИ ОТ САЙТА"
-4. Ако не си 100% сигурен - ПРОПУСНИ
+    return reference_products
 
-АЛТЕРНАТИВНИ ИМЕНА (разпознай ги като същите продукти):
-- #8 "Локум натурален" = "Био Локум натурален" (140г)
-- #15 "Локум роза" = "Локум със сироп от роза" (140г)
-- #18 "Сироп от плод на бъз" = "Био сироп от бъз" (750мл)
-- #21 "Обикновени бисквити с масло и какао" = "Био бисквити с масло и какао" (150г)
-- #22 "Солети пълнозърнести" = "Био пълнозърнести солети" (60г)
-- #23 "По-кисело кисело мляко" = "Био кисело пълномаслено мляко" (400г)
-- #12 "Сирене краве" = "Био краве сирене" (400г)
-- #7 "Тахан сусамов" = "Био пълнозърнест сусамов тахан" (700г)
-- #25 "Слънчогледово олио за готвене" = "Био студено пресовано слънчогледово масло" (500мл)
 
-ВНИМАНИЕ - НЕ БЪРКАЙ ТЕЗИ ПРОДУКТИ:
-- #24 "Био извара" (500г, ~3.69лв) ≠ #10 "Био крема сирене" (125г, ~5.69лв)
-- Извара е 500г, крема сирене е 125г - ГРАМАЖЪТ е ключов!
-
-ПРИМЕРИ ЗА СЪВПАДЕНИЯ (v8.6 номерация):
-#1=вафла+лимонов крем+30г, #2=вафла+без захар+30г, #3=козе сирене+200г
-#4=лютеница+Илиеви+260г, #5=кисело мляко+3.6%+400г, #6=лютеница+Хаджиеви+260г
-#7=тахан+сусамов+700г, #8=локум+натурален+140г, #9=кашкавал+краве+300г
-#10=крема сирене+125г, #11=вафла+лимец+кокос+30г, #12=краве сирене+400г
-#13=кори баница+400г, #14=фъстъчено масло+250г, #15=локум+роза+140г
-#16=слънчогледово масло+500мл, #17=Chocobiotic+40г, #18=сироп бъз+750мл
-#19=прясно мляко+1л, #20=солети лимец+50г, #21=бисквити+масло+какао+150г
-#22=пълнозърнести солети+60г, #23=пълномаслено мляко+400г, #24=извара+500г
-#25=студено пресовано масло+500мл, #26=кисело мляко+2%+400г, #27=кефир+500мл
-
-КРИТИЧНО - ФОРМАТ НА ОТГОВОРА:
-- Върни САМО JSON обект
-- БЕЗ ```json``` маркери
-- БЕЗ обяснения преди или след JSON
-- БЕЗ коментари или текст
-- Само чист JSON!
-
-Пример за правилен отговор: {{"3": 10.99, "5": 2.79, "10": 5.69}}
-Ако няма съвпадения: {{}}"""
-
-    # Опитваме първо с предпочитания модел (Sonnet), с fallback към Haiku ако не е наличен
-    model_to_use = CLAUDE_MODEL_PHASE2
+def save_product_list(reference_products):
+    """Записва обновения списък обратно в harmonica_products.json."""
     try:
-        message = client.messages.create(
-            model=model_to_use,
-            max_tokens=1000,
-            messages=[{"role": "user", "content": prompt}]
-        )
-    except Exception as model_error:
-        # Ако Sonnet не е наличен (404), използваме Haiku като резервен вариант
-        if "404" in str(model_error) or "not_found" in str(model_error):
-            logger.info(f"    [ФАЗА 2] Моделът {model_to_use} не е наличен, използваме Haiku...")
-            model_to_use = CLAUDE_MODEL_PHASE1  # Fallback към Haiku
-            message = client.messages.create(
-                model=model_to_use,
-                max_tokens=1000,
-                messages=[{"role": "user", "content": prompt}]
-            )
-        else:
-            raise model_error
-    
-    try:
-        response_text = message.content[0].text.strip()
-        logger.info(f"    [ФАЗА 2] Отговор: {response_text[:150]}...")
-        
-        # Почистване
-        cleaned = response_text
-        if "```" in cleaned:
-            cleaned = re.sub(r'```(?:json)?\s*', '', cleaned)
-            cleaned = re.sub(r'\s*```', '', cleaned)
-        
-        # Търсим JSON обект
-        obj_match = re.search(r'\{[^{}]*\}', cleaned)
-        if obj_match:
-            cleaned = obj_match.group(0)
-        
-        matches = json.loads(cleaned)
-        
-        # Конвертираме номера към имена на продукти
-        result = {}
-        for product_id_str, price in matches.items():
-            try:
-                product_id = int(product_id_str)
-                
-                # Почистваме цената ако е текст (напр. "1.49 лв." или "1,49")
-                if isinstance(price, str):
-                    # Извличаме само числото от текста
-                    price_match = re.search(r'(\d+)[.,](\d{1,2})', price)
-                    if price_match:
-                        price = float(f"{price_match.group(1)}.{price_match.group(2)}")
-                    else:
-                        # Опитваме да намерим цяло число
-                        int_match = re.search(r'(\d+)', price)
-                        if int_match:
-                            price = float(int_match.group(1))
-                        else:
-                            continue
-                else:
-                    price = float(price)
-                
-                # Намираме продукта по ID
-                product = next((p for p in PRODUCTS if p['id'] == product_id), None)
-                if product:
-                    # Валидираме цената - използваме толеранс от store config ако има
-                    ref_price = product['ref_price_bgn']
-                    store_config = STORES.get(store_name, {})
-                    tolerance = store_config.get('price_tolerance', 0.50)  # По подразбиране 50%
-                    min_valid = (1 - tolerance) * ref_price
-                    max_valid = (1 + tolerance) * ref_price
-                    if min_valid <= price <= max_valid:
-                        result[product['name']] = price
-                    else:
-                        logger.info(f"    [ФАЗА 2] Отхвърлена: #{product_id} цена {price:.2f} (валидно: {min_valid:.2f}-{max_valid:.2f})")
-            except (ValueError, TypeError):
-                continue
-        
-        logger.info(f"    [ФАЗА 2] Съпоставени: {len(result)} продукта")
-        return result
-        
+        os.makedirs(os.path.dirname(PRODUCTS_JSON_PATH), exist_ok=True)
+        products_data = []
+        for i, p in enumerate(reference_products, 1):
+            ref_eur = p.get("ref_eur")
+            ref_bgn = p.get("ref_bgn")
+            name = p["name"]
+            # Генериране на keywords от името
+            words = re.findall(r'[а-яА-Яa-zA-Z]+|\d+[.,]?\d*\s*(?:г|мл|ml|g|kg|кг|л|l|%)',
+                               name.lower())
+            keywords = [w.strip() for w in words if len(w.strip()) > 1]
+
+            products_data.append({
+                "id": i,
+                "name": name,
+                "keywords": keywords,
+                "ref_eur": ref_eur,
+                "ref_bgn": ref_bgn,
+                "url_slug": "",
+                "active": p.get("active", True),
+                "status": p.get("status", "active"),
+                "added_date": p.get("added_date", datetime.now().strftime("%Y-%m-%d")),
+            })
+
+        output = {
+            "version": "2.0",
+            "last_sync": datetime.now().strftime("%Y-%m-%d"),
+            "source": "kashonharmonica.bg",
+            "total_products": len(products_data),
+            "products": products_data,
+        }
+
+        with open(PRODUCTS_JSON_PATH, 'w', encoding='utf-8') as f:
+            json.dump(output, f, ensure_ascii=False, indent=2)
+        logger.info(f"Продуктов файл обновен: {len(products_data)} продукта")
     except Exception as e:
-        logger.error(f"    [ФАЗА 2] Грешка: {str(e)[:80]}")
-        return {}
+        logger.error(f"Грешка при запис на продуктов файл: {e}")
 
 
-def extract_prices_with_claude_two_phase(page_text, store_name):
-    """
-    Главна функция за двуфазно извличане на цени с Claude.
-    Фаза 1: Груба екстракция на всички Harmonica продукти
-    Фаза 2: Интелигентно съпоставяне с нашия списък
-    """
-    if not CLAUDE_AVAILABLE:
-        return {}
-    
-    client = get_claude_client()
-    if not client:
-        return {}
-    
-    logger.info(f"    [CLAUDE] Стартиране на двуфазен анализ...")
-    
-    # Фаза 1: Груба екстракция
-    extracted = phase1_extract_all_products(client, page_text, store_name)
-    
-    if not extracted:
-        return {}
-    
-    # Фаза 2: Съпоставяне с retry логика
-    matched = phase2_match_products(client, extracted, store_name)
-    
-    # Retry: Ако Sonnet върна празен резултат и имаме поне 5 извлечени продукта,
-    # опитваме отново с Haiku като fallback
-    if len(matched) == 0 and len(extracted) >= 5:
-        logger.info(f"    [ФАЗА 2] Retry: Sonnet върна 0 резултата, опитваме с Haiku...")
-        # Временно сменяме модела на Haiku
-        original_model = globals().get('CLAUDE_MODEL_PHASE2')
+def _parse_proxy_url(proxy_url):
+    """Парсва proxy URL за Playwright proxy_config (server, username, password)."""
+    if not proxy_url:
+        return None
+    from urllib.parse import urlparse
+    parsed = urlparse(proxy_url)
+    if parsed.username:
+        return {
+            "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
+            "username": parsed.username,
+            "password": parsed.password or "",
+        }
+    return {"server": proxy_url}
+
+
+# =============================================================================
+# STORES
+# =============================================================================
+
+STORES = {
+    "kashon": {
+        "name": "Кашон",
+        "url": "https://kashonharmonica.bg/bg/products/field_producer/harmonica-144",
+        "scroll_times": 20,
+        "scroll_delay": 2000,
+        "is_master": True,
+    },
+    "ebag": {
+        "name": "eBag",
+        "url": "https://www.ebag.bg/search/?products%5BrefinementList%5D%5Bbrand_name_bg%5D%5B0%5D=%D0%A5%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
+        "scroll_times": 12,
+    },
+    "balev": {
+        "name": "Balev Bio",
+        "url": "https://balevbiomarket.com/productBrands/harmonica",
+        "scroll_times": 8,
+    },
+    "lilly": {
+        "name": "Lilly",
+        "url": "https://lillydrogerie.bg/brands/harmonica",
+        "scroll_times": 4,
+        "brand_page": True,
+        "use_magic": True,
+    },
+    "dm": {
+        "name": "DM",
+        "url": "https://www.dm-drogeriemarkt.bg/search?query=harmonica&searchType=product",
+        "scroll_times": 5,
+        "needs_captcha_solver": True,
+        "algolia_enabled": True,
+    },
+    "tmarket": {
+        "name": "T-Market",
+        "url": "https://tmarketonline.bg/vendor/harmonica-1881705916",
+        "scroll_times": 8,
+        "brand_page": True,
+        "needs_captcha_solver": True,
+    },
+    "metro": {
+        "name": "Metro",
+        "url": "https://shop.metro.bg/shop/search?q=%D1%85%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
+        "scroll_times": 15,
+    },
+    "zelen": {
+        "name": "Zelen",
+        "url": "https://zelen.bg/brand/94/harmonica",
+        "scroll_times": 10,
+        "brand_page": True,
+    },
+    "randi": {
+        "name": "Randi",
+        "url": "https://randi.bg/search?search=harmonica",
+        "scroll_times": 10,
+    },
+    "biomarket": {
+        "name": "Bio-Market",
+        "url": "https://bio-market.bg/brand/harmonica",
+        "scroll_times": 10,
+        "brand_page": True,
+    },
+    "befit": {
+        "name": "BeFit",
+        "url": "https://befit.bg/brands/harmonica",
+        "scroll_times": 10,
+        "brand_page": True,
+    },
+    "laika": {
+        "name": "Laika",
+        "url": "https://laika.bg/harmonica-bio-bulgaria-proizvodstvo-magi-maleeva-shoko-ghi-kefir-boza-koze-sirene-ovche-izvara-bulgarska-tzena-kade-da-kupia-magazin-online",
+        "scroll_times": 10,
+        "brand_page": True,
+    },
+}
+
+# Glovo магазини в София — ще се сканират чрез Glovo API
+GLOVO_STORES = {
+    "glovo_kaufland": {
+        "name": "Kaufland",
+        "slug": "kaufland-sof",
+        "city_code": "SOF",
+    },
+    "glovo_billa": {
+        "name": "Billa",
+        "slug": "billa-sof1",
+        "city_code": "SOF",
+    },
+    "glovo_cba": {
+        "name": "CBA",
+        "slug": "cba-supermarket-cherni-vruh-sof",
+        "city_code": "SOF",
+    },
+    "glovo_fantastico": {
+        "name": "Fantastico",
+        "slug": "coca-cola-real-magic-sof",
+        "city_code": "SOF",
+    },
+}
+
+GLOVO_API_BASE = "https://api.glovoapp.com/v3"
+
+
+# =============================================================================
+# FOOD FILTERING
+# =============================================================================
+
+FOOD_KEYWORDS = [
+    "мляко", "айран", "кефир", "сирене", "кашкавал", "масло", "сметана",
+    "извара", "йогурт", "крема", "сок", "лимонада", "боза", "сироп",
+    "локум", "бисквит", "вафла", "шоколад", "бонбон", "сладко", "халва",
+    "претцел", "солет", "крекер", "соленки", "лешник", "бадем", "орех",
+    "домат", "кетчуп", "лютеница", "пюре", "паста", "хляб", "кори",
+    "олио", "оцет", "зехтин", "мед", "чай", "smiles", "топчета",
+    "нахут", "хумус", "яйца", "тахан", "фъстъчено",
+    "мармалад", "леща", "киноа", "боб", "мунг", "ориз",
+    "гранола", "овесено",
+]
+
+NON_FOOD_KEYWORDS = [
+    "потник", "тениска", "блуза", "дреха", "шапка", "чанта", "раница",
+    "козметика", "крем", "шампоан", "сапун", "гел", "лосион",
+    "загадки", "книга", "игра", "пъзел", "играчка",
+]
+
+# Приоритетни пренасочвания: (подниз, категория) — проверяват се преди основните
+# ключови думи, за да решат конфликти като "фъстъчено масло" ≠ "масло" (млечно).
+CATEGORY_OVERRIDES = [
+    ("гранола", "Други"),
+    ("smiles", "Други"),
+    ("бисквит", "Вафли и сладки"),
+    ("фъстъчено масло", "Тахани, ядки и бобови"),
+    ("кокосово масло", "Тахани, ядки и бобови"),
+]
+
+# Категории за групиране на продуктите в таблицата
+PRODUCT_CATEGORIES = [
+    ("Млечни продукти", [
+        "мляко", "айран", "кефир", "сирене", "кашкавал", "масло", "сметана",
+        "извара", "йогурт", "крема", "кисело",
+    ]),
+    ("Вафли и сладки", [
+        "вафла", "бисквит", "шоколад", "бонбон", "сладко", "халва",
+        "локум", "мармалад", "smiles", "топчета",
+    ]),
+    ("Тахани, ядки и бобови", [
+        "тахан", "фъстъчено", "лешник", "бадем", "орех",
+        "хумус", "нахут", "леща", "киноа", "боб", "мунг",
+    ]),
+    ("Зеленчукови и сосове", [
+        "домат", "кетчуп", "лютеница", "пюре",
+    ]),
+    ("Напитки", [
+        "сок", "лимонада", "боза", "сироп", "чай",
+    ]),
+    ("Хляб, тесто и зърнени", [
+        "кори", "хляб", "паста", "ориз",
+    ]),
+    ("Други", [
+        "олио", "оцет", "зехтин", "мед", "яйца",
+        "претцел", "солет", "крекер", "соленки",
+    ]),
+]
+
+
+def categorize_product(name):
+    """Определя категорията на продукт по име. Връща (индекс, име на категория)."""
+    name_lower = name.lower()
+    # Приоритетни пренасочвания (решават конфликти между категории)
+    for override_kw, override_cat in CATEGORY_OVERRIDES:
+        if override_kw in name_lower:
+            for idx, (cat_name, _) in enumerate(PRODUCT_CATEGORIES):
+                if cat_name == override_cat:
+                    return (idx, cat_name)
+    for idx, (cat_name, keywords) in enumerate(PRODUCT_CATEGORIES):
+        for kw in keywords:
+            if kw in name_lower:
+                return (idx, cat_name)
+    return (len(PRODUCT_CATEGORIES), "Други")
+
+
+# Продукти на Кашон страницата, които не са Harmonica бранд
+KASHON_BRAND_BLACKLIST = [
+    "черноморски улов",
+]
+
+
+def is_food_product(name):
+    """Проверява дали е храна."""
+    name_lower = name.lower()
+    for kw in NON_FOOD_KEYWORDS:
+        if kw in name_lower:
+            return False
+    for kw in FOOD_KEYWORDS:
+        if kw in name_lower:
+            return True
+    if re.search(r'\d+\s*(?:г|мл|ml|g|kg|л)\b', name_lower):
+        return True
+    return True
+
+
+def is_harmonica_product(name):
+    """Проверява дали е Harmonica продукт."""
+    name_lower = name.lower()
+    return "harmonica" in name_lower or "хармоника" in name_lower
+
+
+# =============================================================================
+# RETRY DECORATOR
+# =============================================================================
+
+def retry_async(max_retries=3, backoff_base=2):
+    """Декоратор за автоматичен retry при мрежови грешки."""
+    # Грешки, които заслужават retry (мрежови проблеми)
+    RETRYABLE = (ConnectionError, TimeoutError, OSError)
+
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            last_error = None
+            for attempt in range(max_retries + 1):
+                try:
+                    return await func(*args, **kwargs)
+                except RETRYABLE as e:
+                    last_error = e
+                    if attempt < max_retries:
+                        wait = backoff_base ** attempt
+                        logger.warning(
+                            f"Retry {attempt+1}/{max_retries} за {func.__name__} "
+                            f"след {wait}s: {str(e)[:60]}"
+                        )
+                        await asyncio.sleep(wait)
+                except Exception as e:
+                    # Програмни грешки не се retry-ват
+                    logger.error(f"{func.__name__}: {e}")
+                    return {"success": False, "error": str(e)}
+            logger.error(f"Всички {max_retries} retry-а неуспешни за {func.__name__}: {last_error}")
+            return {"success": False, "error": str(last_error)}
+        return wrapper
+    return decorator
+
+
+# =============================================================================
+# UTILITY FUNCTIONS — споделени между всички extractors
+# =============================================================================
+
+# Ценови граници
+PRICE_RANGE_EUR = (0.20, 100)
+PRICE_RANGE_BGN = (0.40, 200)
+
+
+def extract_eur_price(text):
+    """Извлича EUR цена от текст. Поддържа формати: 2.50€, 2,50 €, 2.5€"""
+    # Опит 1: стандартен формат с 2 десетични
+    match = re.search(r'(\d+)[,.](\d{1,2})\s*€', text)
+    if match:
         try:
-            # Използваме директно Haiku за retry
-            globals()['CLAUDE_MODEL_PHASE2'] = CLAUDE_MODEL_PHASE1
-            matched = phase2_match_products(client, extracted, store_name)
-            if len(matched) > 0:
-                logger.info(f"    [ФАЗА 2] Retry успешен: {len(matched)} продукта с Haiku")
-        finally:
-            # Възстановяваме оригиналния модел
-            globals()['CLAUDE_MODEL_PHASE2'] = original_model
-    
-    return matched
+            decimals = match.group(2).ljust(2, '0')  # "5" -> "50"
+            price = float(f"{match.group(1)}.{decimals}")
+            if PRICE_RANGE_EUR[0] <= price <= PRICE_RANGE_EUR[1]:
+                return round(price, 2)
+        except ValueError:
+            logger.debug(f"EUR parse error: {match.group()}")
+    # Опит 2: формат €2.50 (валута отпред)
+    match = re.search(r'€\s*(\d+)[,.](\d{1,2})', text)
+    if match:
+        try:
+            decimals = match.group(2).ljust(2, '0')
+            price = float(f"{match.group(1)}.{decimals}")
+            if PRICE_RANGE_EUR[0] <= price <= PRICE_RANGE_EUR[1]:
+                return round(price, 2)
+        except ValueError:
+            logger.debug(f"EUR parse error: {match.group()}")
+    return None
 
 
-# =============================================================================
-# FALLBACK ТЪРСЕНЕ (резервен метод)
-# =============================================================================
+def extract_bgn_price(text):
+    """Извлича BGN цена от текст. Поддържа формати: 2.50лв, 2,50 лв, 2.5лв"""
+    match = re.search(r'(\d+)[,.](\d{1,2})\s*лв', text)
+    if match:
+        try:
+            decimals = match.group(2).ljust(2, '0')
+            price = float(f"{match.group(1)}.{decimals}")
+            if PRICE_RANGE_BGN[0] <= price <= PRICE_RANGE_BGN[1]:
+                return round(price, 2)
+        except ValueError:
+            logger.debug(f"BGN parse error: {match.group()}")
+    return None
 
-def fuzzy_match(text, pattern, threshold=0.7):
-    """
-    Прост fuzzy matching - връща True ако pattern се съдържа в text
-    с позволени дребни разлики (транслитерация, малки/големи букви).
-    """
-    text = text.lower()
-    pattern = pattern.lower()
-    
-    # Директно съвпадение
-    if pattern in text:
+
+def extract_price_fallback(text):
+    """Извлича цена без валутен символ. Връща (price, 'BGN') или None."""
+    match = re.search(r'(?:^|\s)(\d+)[,.](\d{2})(?:\s|$)', text)
+    if match:
+        try:
+            price = float(f"{match.group(1)}.{match.group(2)}")
+            if PRICE_RANGE_BGN[0] <= price <= PRICE_RANGE_BGN[1]:
+                return round(price, 2)
+        except ValueError:
+            pass
+    return None
+
+
+def clean_product_name(name):
+    """Почиства име на продукт от markdown, URL-и, bold и префикси."""
+    name = re.sub(r'!\[[^\]]*\]\([^\)]*\)', '', name)        # ![alt](url) -> "" (ПРЕДИ links!)
+    name = re.sub(r'\[([^\]]*)\]\([^\)]*\)', r'\1', name)   # [text](url) -> text
+    name = re.sub(r'https?://[^\s]+', '', name)               # URL-и
+    name = re.sub(r'\*\*([^\*]+)\*\*', r'\1', name)           # **bold** -> bold
+    name = re.sub(r'^\s*[\-\*\#\|\>]+\s*', '', name)          # Markdown префикси
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name
+
+
+def deduplicate_check(name, seen_set, key_length=30):
+    """Проверява за дубликат. Връща True ако е дубликат (вече видян)."""
+    key = name.lower()[:key_length]
+    if key in seen_set:
         return True
-    
-    # Транслитерация вариации
-    transliterations = {
-        'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e',
-        'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l',
-        'м': 'm', 'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's',
-        'т': 't', 'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch',
-        'ш': 'sh', 'щ': 'sht', 'ъ': 'a', 'ь': '', 'ю': 'yu', 'я': 'ya'
-    }
-    
-    # Конвертираме pattern към латиница
-    pattern_latin = ''
-    for char in pattern:
-        pattern_latin += transliterations.get(char, char)
-    
-    if pattern_latin in text:
-        return True
-    
+    seen_set.add(key)
     return False
 
 
-def extract_prices_with_fallback(page_text):
-    """
-    Резервен метод с ключови думи и fuzzy matching.
-    Използва се само ако Claude не намери нищо.
-    По-стриктен - изисква съвпадение на грамаж.
-    Актуализирано за 27 продукта (v8.8) с Zelen продуктите.
-    """
-    prices = {}
-    page_lower = page_text.lower()
-    
-    # Специфични ключови думи с грамаж за 27 продукта
-    # Включени са алтернативни имена от различни магазини
-    keywords_map = {
-        "Био вафла с лимонов крем": [("вафла", "лимон", "30"), ("вафла", "крем", "30")],
-        "Био вафла без добавена захар": [("вафла", "без", "захар", "30")],
-        "Био сирене козе": [("козе", "сирене", "200"), ("goat", "cheese", "200")],
-        "Био лютеница Илиеви": [("лютеница", "илиев", "260")],
-        "Био кисело мляко 3,6%": [("кисело", "мляко", "3.6", "400"), ("кисело", "мляко", "3,6", "400")],
-        "Био лютеница Хаджиеви": [("лютеница", "хаджиев", "260")],
-        "Био пълнозърнест сусамов тахан": [("тахан", "сусам", "700"), ("tahini", "700")],
-        # Zelen продукт #8 - Био локум натурален
-        "Био локум натурален": [("локум", "натурален", "140"), ("локум", "natural", "140")],
-        "Био кашкавал от краве мляко": [("кашкавал", "краве", "300")],
-        "Био крема сирене": [("крема", "сирене", "125"), ("cream", "cheese", "125")],
-        "Био вафла с лимец и кокос": [("вафла", "лимец", "кокос", "30")],
-        "Био краве сирене": [("краве", "сирене", "400"), ("сирене", "краве", "400")],
-        "Био пълнозърнести кори за баница": [("кори", "баница", "400")],
-        "Био фъстъчено масло": [("фъстъчено", "масло", "250"), ("peanut", "butter", "250")],
-        # Zelen продукт #15 - Био локум роза
-        "Био локум роза": [("локум", "роза", "140"), ("локум", "rose", "140")],
-        "Био слънчогледово масло": [("слънчогледово", "масло", "500"), ("слънчогледово", "олио", "500"), ("олио", "готвене", "500")],
-        "Био тунквана вафла Chocobiotic": [("chocobiotic", "40"), ("тунквана", "вафла", "40")],
-        # Сироп от бъз - Кашон го нарича "Сироп от плод на бъз"
-        "Био сироп от бъз": [("сироп", "бъз", "750"), ("сироп", "плод", "бъз", "750")],
-        "Био прясно мляко 3,6%": [("прясно", "мляко", "1л"), ("прясно", "мляко", "1l")],
-        "Био солети от лимец": [("солети", "лимец", "50")],
-        # Zelen продукт #21 - Био бисквити с масло и какао
-        "Био бисквити с масло и какао": [("бисквити", "масло", "какао", "150"), ("бисквити", "какао", "150"), ("обикновени", "бисквити", "150")],
-        # Пълнозърнести солети - Кашон го нарича "Солети пълнозърнести"
-        "Био пълнозърнести солети": [("пълнозърнести", "солети", "60"), ("солети", "пълнозърнести", "60")],
-        # Пълномаслено мляко - Кашон го нарича "По-кисело кисело мляко"
-        "Био кисело пълномаслено мляко": [("пълномаслено", "мляко", "400"), ("по-кисело", "мляко", "400"), ("по-кисело", "кисело", "400")],
-        # Извара - ВАЖНО: търсим "извара" БЕЗ "сирене" за да не се бърка с крема сирене
-        "Био извара": [("извара", "500"), ("извара", "harmonica")],
-        # Студено пресовано масло - различно от обикновеното слънчогледово
-        "Био студено пресовано слънчогледово масло": [("студено", "пресовано", "500"), ("студено", "пресовано", "слънчогледово")],
-        "Био кисело мляко 2%": [("кисело", "мляко", "2%", "400"), ("кисело", "мляко", "2.0", "400")],
-        "Био кефир": [("кефир", "500")],
-    }
-    
-    for product in PRODUCTS:
-        name = product['name']
-        ref_price = product['ref_price_bgn']
-        keywords_list = keywords_map.get(name, [])
-        
-        for keywords in keywords_list:
-            # Проверяваме дали ВСИЧКИ ключови думи са в текста (с fuzzy matching)
-            all_found = all(
-                kw in page_lower or fuzzy_match(page_lower, kw) 
-                for kw in keywords
-            )
-            
-            if not all_found:
-                continue
-            
-            # Намираме позицията на първата ключова дума
-            idx = page_lower.find(keywords[0])
-            if idx == -1:
-                # Опитваме с fuzzy
-                for i, char in enumerate(page_lower):
-                    if page_lower[i:i+len(keywords[0])] == keywords[0]:
-                        idx = i
-                        break
-                if idx == -1:
-                    continue
-            
-            # Извличаме контекст (по-голям за по-добро намиране на цена)
-            context = page_text[max(0, idx-100):idx+200]
-            
-            # Търсим цена - избираме НАЙ-БЛИЗКАТА до референцията
-            price_matches = re.findall(r'(\d+)[,.](\d{2})', context)
-            best_price = None
-            best_deviation = float('inf')
-            
-            for m in price_matches:
-                try:
-                    price = float(f"{m[0]}.{m[1]}")
-                    # Проверка: ±50% от референтната (стеснен диапазон)
-                    if 0.5 * ref_price <= price <= 1.5 * ref_price:
-                        # Избираме цената с най-малко отклонение
-                        deviation = abs(price - ref_price) / ref_price
-                        if deviation < best_deviation:
-                            best_deviation = deviation
-                            best_price = price
-                except:
-                    continue
-            
-            if best_price is not None:
-                prices[name] = best_price
-            
-            if name in prices:
-                break
-    
-    return prices
-
-
 # =============================================================================
-# SCRAPING С ПОДОБРЕНО СКРОЛИРАНЕ
+# KASHON EXTRACTION
 # =============================================================================
 
-def scroll_for_all_products(page, scroll_times):
-    """
-    Подобрено скролиране за зареждане на всички продукти.
-    Следи дали се появяват нови продукти при скролиране.
-    Адаптирано за работа с изображения (когато визуална верификация е активна).
-    """
-    previous_height = 0
-    no_change_count = 0
-    
-    # По-дълго чакане когато изображенията се зареждат
-    wait_time = 800 if ENABLE_VISUAL_VERIFICATION else 500
-    
-    for i in range(scroll_times):
-        # Скролираме
-        page.evaluate("window.scrollBy(0, 800)")
-        page.wait_for_timeout(wait_time)
-        
-        # Проверяваме дали страницата се е удължила
-        current_height = page.evaluate("document.body.scrollHeight")
-        
-        if current_height == previous_height:
-            no_change_count += 1
-            # Ако 4 пъти няма промяна, спираме (увеличено от 3)
-            if no_change_count >= 4:
-                logger.info("    Скролиране: спряно след " + str(i+1) + " опита (няма нови продукти)")
-                break
-        else:
-            no_change_count = 0
-            previous_height = current_height
-    
-    # Връщаме се в началото
-    page.evaluate("window.scrollTo(0, 0)")
-    page.wait_for_timeout(300)
+def extract_kashon_products(markdown):
+    """Извлича продукти от Кашон. Формат: [Име](URL) с цени наблизо."""
+    products = []
+    seen = set()
 
+    pattern = r'\[([^\]]{5,80})\]\(https://kashonharmonica\.bg/bg/products/([^\)]+)\)'
 
-def click_load_more_until_done(page, selector, max_clicks=20):
-    """
-    Кликва върху бутона "покажи повече" докато вече не е наличен.
-    Връща броя на успешните кликвания.
-    """
-    clicks = 0
-    
-    for i in range(max_clicks):
-        # Скролираме до долу, за да се покаже бутонът
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        page.wait_for_timeout(1000)
-        
-        # Търсим бутона с различни селектори
-        button = None
-        selectors_to_try = [
-            'button:has-text("покажи повече")',
-            'button:has-text("Покажи повече")',
-            'button:has-text("Show more")',
-            '.ais-InfiniteHits-loadMore',
-            '[class*="load-more"]',
-            '[class*="loadMore"]',
-            'button[class*="more"]'
-        ]
-        
-        for sel in selectors_to_try:
-            try:
-                btn = page.query_selector(sel)
-                if btn and btn.is_visible():
-                    button = btn
-                    break
-            except:
-                continue
-        
-        if not button:
-            # Няма повече бутон - готово!
-            if clicks > 0:
-                logger.info(f"    ✓ Заредени всички продукти след {clicks} клика")
-            else:
-                logger.info(f"    Бутон 'покажи повече' не е намерен")
-            break
-        
-        try:
-            button.click()
-            clicks += 1
-            logger.info(f"    Клик #{clicks} на 'покажи повече'...")
-            page.wait_for_timeout(2000)  # Изчакваме зареждане
-        except Exception as e:
-            logger.error(f"    Грешка при клик: {str(e)[:50]}")
-            break
-    
-    # Връщаме се в началото
-    page.evaluate("window.scrollTo(0, 0)")
-    page.wait_for_timeout(500)
-    
-    return clicks
+    for match in re.finditer(pattern, markdown):
+        name = match.group(1).strip()
 
-
-def scrape_store(page, store_key, store_config, vision_client=None):
-    """Извлича цени от един магазин с двуфазен Claude анализ, pagination, load-more и визуална верификация."""
-    prices = {}
-    url = store_config['url']
-    store_name = store_config['name_in_sheet']
-    scroll_times = store_config.get('scroll_times', 10)
-    has_pagination = store_config.get('has_pagination', False)
-    has_load_more = store_config.get('has_load_more', False)
-    max_pages = store_config.get('max_pages', 1)
-    all_body_text = ""
-    
-    logger.info(f"\n{'='*60}")
-    logger.info(f"{store_name}: Зареждане")
-    logger.info(f"{'='*60}")
-    
-    # Определяме колко страници да заредим
-    pages_to_load = max_pages if has_pagination else 1
-    
-    for page_num in range(pages_to_load):
-        # Формираме URL-а за съответната страница
-        if page_num == 0:
-            current_url = url
-        else:
-            # Проверяваме дали URL-ът вече има query параметри
-            if '?' in url:
-                # URL вече има параметри (напр. ?search=harmonica), добавяме &page=N
-                current_url = f"{url}&page={page_num + 1}"
-            else:
-                # URL няма параметри, добавяме ?page=N
-                current_url = f"{url}?page={page_num}"
-        
-        if pages_to_load > 1:
-            logger.info(f"  Страница {page_num + 1}/{pages_to_load}...")
-        
-        try:
-            page.goto(current_url, timeout=60000, wait_until="domcontentloaded")
-            page.wait_for_timeout(2500)
-            
-            # Приемане на бисквитки (само на първата страница)
-            if page_num == 0:
-                cookie_selectors = [
-                    'button:has-text("Приемам")',
-                    'button:has-text("Разбрах")',
-                    'button:has-text("Съгласен")',
-                    'button:has-text("Accept")',
-                    'button:has-text("OK")',
-                    '.cc-btn',
-                    '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll'
-                ]
-                for sel in cookie_selectors:
-                    try:
-                        btn = page.query_selector(sel)
-                        if btn and btn.is_visible():
-                            btn.click()
-                            page.wait_for_timeout(1500)
-                            logger.info(f"  ✓ Бисквитки приети")
-                            break
-                    except:
-                        pass
-            
-            # Зареждане на всички продукти - зависи от типа на сайта
-            if has_load_more and page_num == 0:
-                # eBag: кликаме "покажи повече" докато бутонът изчезне
-                logger.info(f"  Кликане на 'покажи повече' за зареждане на всички продукти...")
-                click_load_more_until_done(page, store_config.get('load_more_selector', ''))
-            else:
-                # Стандартно скролиране
-                if page_num == 0:
-                    logger.info(f"  Скролиране за зареждане на всички продукти...")
-                scroll_for_all_products(page, scroll_times)
-            
-            page_text = page.inner_text('body')
-            
-            # Проверяваме дали страницата съдържа продукти (за странициране)
-            if page_num > 0 and len(page_text) < 1000:
-                logger.info(f"    Страница {page_num + 1} е празна или няма повече продукти")
-                break
-            
-            all_body_text += "\n" + page_text
-            
-            if page_num == 0:
-                logger.info(f"  Заредени {len(page_text)} символа")
-            else:
-                logger.info(f"    +{len(page_text)} символа от страница {page_num + 1}")
-            
-        except Exception as e:
-            logger.error(f"  ✗ Грешка при зареждане на страница {page_num + 1}: {str(e)[:60]}")
-            if page_num == 0:
-                return prices  # Ако първата страница не се зареди, спираме
-            # Ако е следваща страница, просто продължаваме
-    
-    body_text = all_body_text.strip()
-    
-    if has_pagination and pages_to_load > 1:
-        logger.info(f"  Общо заредени: {len(body_text)} символа от {pages_to_load} страници")
-    
-    # Debug: показваме малко от текста ако е твърде кратък
-    if len(body_text) < 2000:
-        logger.debug(f"  [DEBUG] Малко текст! Първи 300 символа:")
-        logger.info(f"  {body_text[:300]}")
-    
-    # Двуфазен Claude анализ
-    try:
-        claude_prices = extract_prices_with_claude_two_phase(body_text, store_name)
-        logger.info(f"  Claude (двуфазен): {len(claude_prices)} продукта")
-        prices.update(claude_prices)
-    except Exception as e:
-        logger.error(f"  Claude грешка: {str(e)[:50]}")
-    
-    # Fallback само за липсващи продукти
-    try:
-        logger.info(f"  Fallback търсене...")
-        fallback_prices = extract_prices_with_fallback(body_text)
-        added = 0
-        for name, price in fallback_prices.items():
-            if name not in prices:
-                prices[name] = price
-                added += 1
-        logger.info(f"    Fallback добави: {added} продукта")
-    except Exception as e:
-        logger.error(f"  Fallback грешка: {str(e)[:50]}")
-    
-    # Визуална верификация (ако е активирана и има клиент)
-    if ENABLE_VISUAL_VERIFICATION and vision_client:
-        try:
-            logger.info(f"  [VISION] Стартиране на визуална верификация...")
-            
-            # Връщаме се на първата страница за screenshots
-            page.goto(url, timeout=60000, wait_until="domcontentloaded")
-            page.wait_for_timeout(2000)
-            
-            # Ако има load_more, трябва да заредим продуктите отново
-            if has_load_more:
-                click_load_more_until_done(page, store_config.get('load_more_selector', ''), max_clicks=5)
-            else:
-                scroll_for_all_products(page, 5)
-            
-            # Верифицираме до 5 продукта визуално
-            visual_results = visual_verify_products(page, vision_client, store_name, prices, max_verify=5)
-            
-            # Интегрираме резултатите
-            visual_confirmed = 0
-            visual_corrected = 0
-            for product_id, visual_data in visual_results.items():
-                product_name = None
-                for p in PRODUCTS:
-                    if p['id'] == product_id:
-                        product_name = p['name']
-                        break
-                
-                if product_name:
-                    visual_price = visual_data.get('price')
-                    text_price = prices.get(product_name)
-                    
-                    if text_price and visual_price:
-                        # Проверяваме дали цените съвпадат (с толеранс от 5%)
-                        diff_pct = abs(visual_price - text_price) / text_price * 100 if text_price > 0 else 100
-                        if diff_pct < 5:
-                            visual_confirmed += 1
-                        else:
-                            # Визуалната цена е различна - логваме за внимание
-                            logger.info(f"      [VISION] Разлика за #{product_id}: текст={text_price:.2f}, визуално={visual_price:.2f}")
-                    elif visual_price and not text_price:
-                        # Намерихме цена визуално, която липсваше от текста
-                        prices[product_name] = visual_price
-                        visual_corrected += 1
-                        logger.info(f"      [VISION] Добавен #{product_id} {product_name}: {visual_price:.2f} лв")
-            
-            if visual_confirmed > 0 or visual_corrected > 0:
-                logger.info(f"      [VISION] Потвърдени: {visual_confirmed}, Коригирани: {visual_corrected}")
-                
-        except Exception as e:
-            logger.error(f"  [VISION] Грешка: {str(e)[:50]}")
-    
-    logger.info(f"  Общо намерени: {len(prices)} продукта")
-    return prices
-
-
-def collect_prices_firecrawl():
-    """
-    Събира цени от всички магазини чрез Firecrawl API (v10.0).
-
-    Процес:
-    1. Firecrawl скрейпва всеки магазин и връща markdown
-    2. Claude Phase 1 (Haiku) извлича продукти от markdown (по-малко токени)
-    3. Claude Phase 2 (Sonnet) съпоставя с нашия списък
-    4. Fallback regex екстракция за липсващи продукти
-
-    Предимства спрямо Playwright:
-    - Без локален browser (по-бързо, по-надеждно)
-    - Markdown вместо HTML = 3-5x по-малко токени
-    - Firecrawl управлява JS rendering, proxy-та, anti-bot
-    """
-    all_prices = {}
-    store_currencies = {}
-
-    # Скрейпваме всички магазини с Firecrawl
-    firecrawl_results = scrape_all_stores_firecrawl(STORES)
-
-    if not firecrawl_results:
-        logger.error("  [FIRECRAWL] Не са получени резултати, fallback към Playwright")
-        return None  # Сигнализираме за fallback
-
-    # Обработваме резултатите за всеки магазин
-    for store_key, config in STORES.items():
-        store_name = config['name_in_sheet']
-        fc_result = firecrawl_results.get(store_key, {})
-
-        if not fc_result.get('success'):
-            logger.warning(f"  [FIRECRAWL] {store_name}: Неуспешно скрейпване")
-            all_prices[store_key] = {}
-            store_currencies[store_key] = config.get('expected_currency', 'BGN')
+        if name.startswith('!') or 'logo' in name.lower():
+            continue
+        if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
+            continue
+        if deduplicate_check(name, seen):
+            continue
+        if not is_food_product(name):
+            continue
+        if any(bl in name.lower() for bl in KASHON_BRAND_BLACKLIST):
             continue
 
-        markdown_text = fc_result.get('markdown', '')
+        idx = match.end()
+        # Търсим цена напред (500 chars) — покрива повече layout варианти
+        context_forward = markdown[idx:idx+500]
+        eur = extract_eur_price(context_forward)
+        bgn = extract_bgn_price(context_forward)
 
-        # Детектиране на валута от markdown текста
-        detected_currency = detect_currency_from_text(markdown_text)
-        if detected_currency:
-            store_currencies[store_key] = detected_currency
-            logger.info(f"  [ВАЛУТА] {store_name}: Детектирана {detected_currency}")
-        else:
-            store_currencies[store_key] = config.get('expected_currency', 'BGN')
-            logger.info(f"  [ВАЛУТА] {store_name}: Приета {store_currencies[store_key]} (по подразбиране)")
+        # Ако не намерим напред, търсим и назад (150 chars — цената може да е преди линка)
+        if not eur and not bgn:
+            context_back = markdown[max(0, match.start()-150):match.start()]
+            eur = extract_eur_price(context_back)
+            bgn = extract_bgn_price(context_back)
 
-        # Извличаме цени с Claude двуфазен анализ върху markdown
-        # Markdown е 3-5x по-малък от HTML = по-евтин Claude анализ
-        prices = {}
+        if not eur and bgn:
+            eur = round(bgn / EUR_BGN_RATE, 2)
 
-        if CLAUDE_AVAILABLE and markdown_text:
-            try:
-                claude_prices = extract_prices_with_claude_two_phase(markdown_text, store_name)
-                logger.info(f"  Claude (markdown): {len(claude_prices)} продукта")
-                prices.update(claude_prices)
-            except Exception as e:
-                logger.error(f"  Claude грешка: {str(e)[:50]}")
+        if eur or bgn:
+            products.append({"name": name, "eur": eur, "bgn": bgn})
 
-        # Fallback: regex екстракция от markdown
-        if len(prices) < 5 and markdown_text:
-            try:
-                fallback_prices = extract_prices_with_fallback(markdown_text)
-                added = 0
-                for name, price in fallback_prices.items():
-                    if name not in prices:
-                        prices[name] = price
-                        added += 1
-                if added > 0:
-                    logger.info(f"    Fallback добави: {added} продукта")
-            except Exception as e:
-                logger.error(f"  Fallback грешка: {str(e)[:50]}")
-
-        all_prices[store_key] = prices
-        logger.info(f"  {store_name}: Общо {len(prices)} продукта")
-
-    logger.info("\n  [ВАЛУТА] Обобщение:")
-    for store_key, currency in store_currencies.items():
-        store_name = STORES[store_key]['name_in_sheet']
-        logger.info(f"    - {store_name}: {currency}")
-
-    # Обработка на резултатите (същата логика като collect_prices)
-    results = []
-    currency_corrections = {"EUR->BGN": 0, "BGN": 0}
-
-    for product in PRODUCTS:
-        name = product['name']
-        ref_bgn = product['ref_price_bgn']
-        ref_eur = product['ref_price_eur']
-
-        normalized_prices = {}
-        for store_key in STORES:
-            raw_price = all_prices.get(store_key, {}).get(name)
-            if raw_price is not None:
-                detected = detect_currency_by_reference(raw_price, ref_bgn)
-                if detected == "EUR":
-                    normalized_prices[store_key] = round(raw_price * EUR_BGN_RATE, 2)
-                    currency_corrections["EUR->BGN"] += 1
-                else:
-                    normalized_prices[store_key] = round(raw_price, 2)
-                    currency_corrections["BGN"] += 1
-            else:
-                normalized_prices[store_key] = None
-
-        valid_prices = [p for p in normalized_prices.values() if p is not None]
-
-        store_deviations = {}
-        max_deviation = None
-        max_deviation_store = None
-        has_anomaly = False
-
-        if valid_prices:
-            avg_bgn = sum(valid_prices) / len(valid_prices)
-            avg_eur = avg_bgn / EUR_BGN_RATE
-
-            for store_key in STORES:
-                store_price = normalized_prices.get(store_key)
-                if store_price is not None:
-                    deviation_pct = ((store_price - avg_bgn) / avg_bgn) * 100
-                    store_deviations[store_key] = round(deviation_pct, 1)
-
-                    if abs(deviation_pct) > ALERT_THRESHOLD:
-                        has_anomaly = True
-
-                    if max_deviation is None or abs(deviation_pct) > abs(max_deviation):
-                        max_deviation = deviation_pct
-                        max_deviation_store = store_key
-                else:
-                    store_deviations[store_key] = None
-
-            status = "ВНИМАНИЕ" if has_anomaly else "OK"
-        else:
-            avg_bgn = avg_eur = max_deviation = None
-            status = "НЯМА ДАННИ"
-
-        results.append({
-            "name": name,
-            "weight": product['weight'],
-            "ref_bgn": ref_bgn,
-            "ref_eur": ref_eur,
-            "prices": normalized_prices,
-            "store_deviations": store_deviations,
-            "avg_bgn": round(avg_bgn, 2) if avg_bgn else None,
-            "avg_eur": round(avg_eur, 2) if avg_eur else None,
-            "max_deviation": round(max_deviation, 1) if max_deviation is not None else None,
-            "max_deviation_store": max_deviation_store,
-            "has_anomaly": has_anomaly,
-            "status": status
-        })
-
-    logger.info(f"  [ВАЛУТА] Корекции: {currency_corrections['EUR->BGN']} EUR->BGN, {currency_corrections['BGN']} BGN (без промяна)")
-
-    return results
+    return products
 
 
-def collect_prices():
-    """
-    Събира цени от всички магазини с интелигентна валутна детекция.
+# =============================================================================
+# EBAG EXTRACTION
+# =============================================================================
 
-    Процес:
-    1. Скрейпва всеки магазин и запазва суровите цени
-    2. Детектира валутата на всеки магазин от текста
-    3. Нормализира всички цени към BGN (за преходния период)
-    4. Изчислява средни стойности и отклонения спрямо BGN референцията
+def extract_ebag_products(markdown):
+    """Извлича продукти от eBag. Два формата: image links + title pattern."""
+    products = []
+    seen = set()
 
-    ВАЖНО: Браузърът се рестартира между магазините за да освобождава памет
-    и да предотврати "Page crashed" грешки при дълги сесии.
+    img_pattern = r'\[!\[([^\]]+)\]\([^\)]+\)\]\([^\)]+\)'
 
-    За магазини с Cloudflare защита се използва playwright-stealth.
-    """
-    all_prices = {}
-    store_currencies = {}
-    store_raw_texts = {}
-    
-    # Обработваме всеки магазин с отделен браузър
-    for key, config in STORES.items():
-        store_name = config['name_in_sheet']
-        needs_stealth = config.get('needs_stealth', False)
-        
+    for match in re.finditer(img_pattern, markdown):
+        name = match.group(1).strip()
+
+        if len(name) < 5 or 'flag' in name.lower():
+            continue
+        if not is_harmonica_product(name):
+            continue
+        if deduplicate_check(name, seen):
+            continue
+
+        idx = match.start()
+        context = markdown[max(0, idx-50):idx+500]
+
+        eur = extract_eur_price(context)
+        bgn = extract_bgn_price(context)
+
+        if eur or bgn:
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    title_pattern = r'###\s*\[\s*([^\]]+?)\s+Годно до:[^\]]*?(\d+[,\.]\d{2})\s*€[^\]]*?(\d+[,\.]\d{2})\s*лв'
+
+    for match in re.finditer(title_pattern, markdown):
+        name = match.group(1).strip()
+
+        if len(name) < 5 or not is_harmonica_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
         try:
-            with sync_playwright() as p:
-                # За Cloudflare сайтове използваме различни настройки
-                if needs_stealth:
-                    browser = p.chromium.launch(
-                        headless=True,
-                        args=[
-                            '--disable-blink-features=AutomationControlled',
-                            '--disable-dev-shm-usage',
-                            '--no-sandbox'
-                        ]
-                    )
-                else:
-                    browser = p.chromium.launch(headless=True)
-                
-                context = browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-                    locale="bg-BG",
-                    viewport={"width": 1920, "height": 1080},
-                    java_script_enabled=True
-                )
-                
-                if not ENABLE_VISUAL_VERIFICATION:
-                    context.route("**/*.{png,jpg,jpeg,gif,webp,svg}", lambda r: r.abort())
-                
-                page = context.new_page()
-                
-                # Прилагаме stealth ако е наличен и необходим
-                if needs_stealth and STEALTH_AVAILABLE:
-                    stealth_sync(page)
-                    logger.info(f"  [STEALTH] Активиран за {store_name}")
-                
-                vision_client = None
-                if ENABLE_VISUAL_VERIFICATION and CLAUDE_AVAILABLE:
-                    vision_client = get_claude_client()
-                    if key == list(STORES.keys())[0]:  # Само за първия магазин
-                        logger.info("  [VISION] Claude Vision активиран")
-                
-                prices = scrape_store(page, key, config, vision_client)
-                
+            eur = float(match.group(2).replace(",", "."))
+            bgn = float(match.group(3).replace(",", "."))
+
+            if 0.20 <= eur <= 100 and 0.50 <= bgn <= 200:
+                seen.add(name_key)
+                products.append({"name": name, "eur": round(eur, 2), "bgn": round(bgn, 2)})
+        except ValueError:
+            pass
+
+    return products
+
+
+# =============================================================================
+# BALEV EXTRACTION
+# =============================================================================
+
+def extract_balev_products(markdown):
+    """Извлича продукти от Balev. Формат: редове с грамаж + контекстни цени."""
+    products = []
+    seen = set()
+
+    lines = markdown.split('\n')
+
+    for i, line in enumerate(lines):
+        line = line.strip()
+
+        if not re.search(r'\d+\s*(?:г|мл|ml|g)\b', line, re.IGNORECASE):
+            continue
+
+        name = clean_product_name(line)
+
+        if len(name) < 5 or len(name) > 80:
+            continue
+        if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
+            continue
+
+        if not (is_harmonica_product(name) or 'harmonica' in markdown[max(0,i-5):i+5].lower()):
+            context_lines = '\n'.join(lines[max(0,i-3):i+3])
+            if not ('harmonica' in context_lines.lower() or 'хармоника' in context_lines.lower()):
+                continue
+
+        if deduplicate_check(name, seen):
+            continue
+        if not is_food_product(name):
+            continue
+
+        # Търсим цена НАПРЕД от името (тесен прозорец), за да не хванем
+        # цена от предходен продукт. Разширяваме само ако не намерим.
+        eur, bgn = None, None
+        for ctx_start, ctx_end in [(i, i + 5), (max(0, i - 1), i + 8)]:
+            ctx = '\n'.join(lines[ctx_start:min(len(lines), ctx_end)])
+            eur = extract_eur_price(ctx)
+            bgn = extract_bgn_price(ctx)
+            if not bgn and not eur:
+                bgn = extract_price_fallback(ctx)
+            if bgn or eur:
+                break
+
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+
+        if eur or bgn:
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    return products
+
+
+# =============================================================================
+# GENERIC EXTRACTION — универсален fallback за нови магазини
+# =============================================================================
+
+def _extract_generic_products(markdown, brand_page=False):
+    """
+    Универсален fallback extractor. Работи с всякакъв markdown.
+
+    Стратегия:
+    1. Разделя markdown на блокове (двоен нов ред)
+    2. Търси блокове с BGN цена (X,XX лв)
+    3. Извлича най-подходящия текст като име на продукт
+    4. Ако brand_page=True, не проверява за "harmonica" в името
+    5. Винаги пробва и двата подхода, взима по-добрия резултат
+    """
+    block_products = _extract_generic_block_based(markdown, brand_page)
+    line_products = _extract_generic_line_by_line(markdown, brand_page)
+
+    # Взимаме подхода с повече продукти
+    if len(line_products) > len(block_products):
+        return line_products
+    return block_products
+
+
+def _extract_generic_block_based(markdown, brand_page=False):
+    """Block-based extraction: разделя по двоен нов ред."""
+    products = []
+    seen = set()
+
+    blocks = re.split(r'\n{2,}', markdown)
+
+    for block in blocks:
+        if not brand_page and not is_harmonica_product(block):
+            continue
+
+        bgn = extract_bgn_price(block)
+        eur = extract_eur_price(block)
+        if not bgn and not eur:
+            bgn = extract_price_fallback(block)
+        if not bgn and not eur:
+            continue
+
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+
+        name = None
+
+        link_match = re.search(r'(?<!!)\[([^\]]{5,100})\]\([^\)]+\)', block)
+        if link_match:
+            candidate = link_match.group(1).strip()
+            if len(candidate) > 5 and is_food_product(candidate):
+                name = candidate
+
+        if not name:
+            heading_match = re.search(r'#+\s*(.{5,80})', block)
+            if heading_match:
+                candidate = heading_match.group(1).strip()
+                if is_food_product(candidate):
+                    name = candidate
+
+        if not name:
+            # Image alt текст: ![Продукт 400g](img.jpg) — clean_product_name го изтрива
+            img_match = re.search(r'!\[([^\]]{8,120})\]\([^\)]+\)', block)
+            if img_match:
+                candidate = img_match.group(1).strip()
+                if is_food_product(candidate):
+                    name = candidate
+
+        if not name:
+            for line in block.split('\n'):
+                line = clean_product_name(line)
+                if (len(line) > 10 and
+                        len(re.findall(r'[а-яА-Яa-zA-Z]', line)) >= 3 and
+                        is_food_product(line)):
+                    name = line
+                    break
+
+        if not name:
+            continue
+        if deduplicate_check(name, seen):
+            continue
+
+        products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    return products
+
+
+def _extract_generic_line_by_line(markdown, brand_page=False):
+    """Line-by-line extraction: сканира ред по ред (за сайтове без двойни нови редове)."""
+    products = []
+    seen = set()
+    lines = markdown.split('\n')
+
+    for i, line in enumerate(lines):
+        line_stripped = line.strip()
+        if not line_stripped or len(line_stripped) < 5:
+            continue
+
+        name = None
+
+        # Опит 1: Link текст
+        link_match = re.search(r'(?<!!)\[([^\]]{5,120})\]\(([^\)]+)\)', line_stripped)
+        if link_match:
+            candidate = link_match.group(1).strip()
+            if is_food_product(candidate) and len(candidate) >= 8:
+                name = candidate
+        else:
+            # Опит 2: Текстов ред с грамаж (признак за продукт)
+            if re.search(r'\d+\s*(?:г|мл|ml|g|kg|кг|л)\b', line_stripped, re.IGNORECASE):
+                candidate = clean_product_name(line_stripped)
+                if is_food_product(candidate) and 8 <= len(candidate) <= 150:
+                    name = candidate
+
+        if not name:
+            # Опит 3: Image alt текст (![Продукт 400g](img.jpg))
+            # clean_product_name() изтрива image alt, затова го извличаме директно
+            img_match = re.search(r'!\[([^\]]{8,120})\]\([^\)]+\)', line_stripped)
+            if img_match:
+                candidate = img_match.group(1).strip()
+                if is_food_product(candidate):
+                    name = candidate
+
+        if not name and brand_page:
+            # Опит 4 (само за brand pages): plain text с food keywords
+            # На brand pages имената може да са без линкове и без грамаж
+            candidate = clean_product_name(line_stripped)
+            if (10 <= len(candidate) <= 150 and
+                    len(re.findall(r'[а-яА-Яa-zA-Z]', candidate)) >= 5 and
+                    is_food_product(candidate) and
+                    not re.match(r'^[\d\s,.€лв]+$', candidate)):  # не е чисто цена
+                name = candidate
+
+        if not name:
+            continue
+
+        # Проверка за harmonica (освен при brand_page)
+        if not brand_page:
+            if not is_harmonica_product(name):
+                context_lines = '\n'.join(lines[max(0, i - 5):i + 5])
+                if not is_harmonica_product(context_lines):
+                    continue
+
+        if deduplicate_check(name, seen):
+            continue
+
+        # Търсим цена НАПРЕД от името, после разширяваме (като Balev/Metro fix)
+        bgn, eur = None, None
+        for ctx_start, ctx_end in [(i, i + 5), (max(0, i - 1), i + 8)]:
+            ctx = '\n'.join(lines[ctx_start:min(len(lines), ctx_end)])
+            bgn = extract_bgn_price(ctx)
+            if not bgn:
+                bgn = extract_price_fallback(ctx)
+            eur = extract_eur_price(ctx)
+            if bgn or eur:
+                break
+
+        if bgn or eur:
+            if bgn and not eur:
+                eur = round(bgn / EUR_BGN_RATE, 2)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    return products
+
+
+# =============================================================================
+# METRO EXTRACTION
+# =============================================================================
+
+def extract_metro_products(markdown):
+    """
+    Извлича продукти от Metro markdown.
+
+    Metro формат: продуктите са line-by-line, често с формат:
+    - Линк или текст с име + грамаж
+    - Цена X,XX лв на близък ред (понякога на същия ред)
+    Блоковете не са разделени с двоен нов ред (generic extractor не работи).
+    """
+    products = []
+    seen = set()
+
+    lines = markdown.split('\n')
+
+    for i, line in enumerate(lines):
+        line_stripped = line.strip()
+        if not line_stripped:
+            continue
+
+        # Търсим линкове с продуктови имена
+        link_match = re.search(r'(?<!!)\[([^\]]{5,120})\]\(([^\)]+)\)', line_stripped)
+        name = None
+
+        if link_match:
+            candidate = link_match.group(1).strip()
+            if is_food_product(candidate) and len(candidate) >= 8:
+                name = candidate
+        else:
+            # Пробваме текстов ред с грамаж
+            if re.search(r'\d+\s*(?:г|мл|ml|g)\b', line_stripped, re.IGNORECASE):
+                candidate = clean_product_name(line_stripped)
+                if is_food_product(candidate) and 8 <= len(candidate) <= 120:
+                    name = candidate
+
+        if not name:
+            continue
+
+        if not is_harmonica_product(name):
+            context_lines = '\n'.join(lines[max(0, i - 5):i + 5])
+            if 'harmonica' not in context_lines.lower() and 'хармоника' not in context_lines.lower():
+                continue
+
+        if deduplicate_check(name, seen):
+            continue
+
+        # Търсим цена НАПРЕД от името (тесен прозорец), за да не хванем
+        # цена от съседен продукт. Разширяваме само ако не намерим.
+        bgn, eur = None, None
+        for ctx_start, ctx_end in [(i, i + 5), (max(0, i - 1), i + 8)]:
+            ctx = '\n'.join(lines[ctx_start:min(len(lines), ctx_end)])
+            bgn = extract_bgn_price(ctx)
+            if not bgn:
+                bgn = extract_price_fallback(ctx)
+            eur = extract_eur_price(ctx)
+            if bgn or eur:
+                break
+
+        if bgn or eur:
+            if bgn and not eur:
+                eur = round(bgn / EUR_BGN_RATE, 2)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    return products
+
+
+# =============================================================================
+# T-MARKET EXTRACTION
+# =============================================================================
+
+def extract_tmarket_products(markdown, html_text=None, brand_page=True):
+    """
+    Извлича Harmonica продукти от T-Market Online.
+
+    T-Market vendor page: tmarketonline.bg/vendor/harmonica-1881705916
+    На vendor page всички продукти са Harmonica → skip harmonica name check.
+    Цени в BGN.
+    """
+    products = []
+    seen = set()
+
+    # Pattern 1: Всички links с продуктови имена
+    link_pattern = r'\[([^\]]{5,120})\]\(((?:https?://[^\)]+|/[^\)]+))\)'
+    for match in re.finditer(link_pattern, markdown):
+        name = match.group(1).strip()
+
+        if name.startswith('!') or 'logo' in name.lower():
+            continue
+        if len(re.findall(r'[а-яА-Яa-zA-Z]', name)) < 3:
+            continue
+        if not brand_page and not is_harmonica_product(name):
+            continue
+        if not is_food_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        idx = match.end()
+        context = markdown[max(0, idx - 150):idx + 400]
+
+        bgn = extract_bgn_price(context)
+        eur = extract_eur_price(context)
+
+        if bgn and not eur:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+
+        if bgn or eur:
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    # Pattern 2: Generic text blocks + BS4 fallback
+    if not products:
+        products = _extract_generic_products(markdown, brand_page=brand_page)
+
+    if BS4_AVAILABLE and html_text and not products:
+        soup = BeautifulSoup(html_text, 'html.parser')
+        for item in soup.select('.product-card, .product-item, .product, [class*=product]'):
+            text = item.get_text(' ', strip=True)
+            if not brand_page and not is_harmonica_product(text):
+                continue
+            name_el = item.select_one('h2, h3, h4, a.product-name, [class*=title], [class*=name]')
+            if not name_el:
+                for link in item.find_all('a', href=True):
+                    link_text = link.get_text(strip=True)
+                    if len(link_text) > 10:
+                        name_el = link
+                        break
+            if not name_el:
+                continue
+            product_name = name_el.get_text(strip=True)
+            name_key = product_name.lower()[:30]
+            if name_key in seen or not is_food_product(product_name):
+                continue
+            bgn = extract_bgn_price(text)
+            eur = extract_eur_price(text)
+            if bgn and not eur:
+                eur = round(bgn / EUR_BGN_RATE, 2)
+            if bgn or eur:
+                seen.add(name_key)
+                products.append({"name": product_name, "eur": eur, "bgn": bgn})
+
+    if not products:
+        logger.warning(f"T-Market: 0 продукта, markdown len={len(markdown)}, "
+                       f"preview: {markdown[:500]}")
+    else:
+        logger.info(f"T-Market: {len(products)} продукта извлечени")
+    return products
+
+
+# =============================================================================
+# LILLY DROGERIE EXTRACTION (EXP-003) — BeautifulSoup с regex fallback
+# =============================================================================
+
+def extract_lilly_products(markdown_text, html_text=None):
+    """
+    Извлича Harmonica продукти от Lilly Drogerie brand page.
+
+    Предпочита BeautifulSoup + HTML за по-стабилно парсване.
+    Ако BS4 не е наличен или HTML липсва, използва regex + markdown.
+
+    Връща list of dicts с допълнително поле 'in_stock' (bool).
+    """
+    products = []
+    if BS4_AVAILABLE and html_text:
+        products = _extract_lilly_bs4(html_text)
+    if not products:
+        products = _extract_lilly_regex(markdown_text)
+    if not products:
+        # Допълнителен debug: какво съдържа HTML-а
+        html_preview = ""
+        if html_text:
+            soup = BeautifulSoup(html_text, 'html.parser') if BS4_AVAILABLE else None
+            if soup:
+                # Проверяваме за Harmonica ключова дума в HTML
+                harmonica_count = html_text.upper().count('HARMONICA')
+                # Проверяваме за типични Magento product selectors
+                selectors = ['.product-item', '.product-items', 'ol.products',
+                             '.products-grid', '.category-products', '[data-role=product]']
+                found_selectors = [s for s in selectors if soup.select_one(s)]
+                html_preview = (f"harmonica_refs={harmonica_count}, "
+                               f"selectors={found_selectors or 'NONE'}, "
+                               f"title={soup.title.string if soup.title else 'N/A'}")
+        logger.warning(f"Lilly: 0 продукта, markdown len={len(markdown_text)}, "
+                       f"html len={len(html_text) if html_text else 0}, "
+                       f"{html_preview}")
+    return products
+
+
+def _find_product_container(element, max_levels=6):
+    """
+    Вървим нагоре от element до намерим контейнер с цена.
+    Връща контейнер или None.
+    """
+    current = element
+    for _ in range(max_levels):
+        parent = current.parent
+        if not parent or parent.name in ('body', 'html', '[document]'):
+            break
+        if parent.name in ('header', 'footer', 'nav', 'head'):
+            return None
+
+        text = parent.get_text(' ', strip=True)
+        if len(text) > 3000:
+            cur_text = current.get_text(' ', strip=True)
+            return current if re.search(r'\d+[.,]\d{2}', cur_text) else None
+
+        if re.search(r'\d+[.,]\d{2}', text):
+            if len(text) < 500:
+                current = parent
+                continue
+            return parent
+
+        current = parent
+
+    if current and current.name not in ('body', 'html', '[document]'):
+        text = current.get_text(' ', strip=True)
+        if re.search(r'\d+[.,]\d{2}', text) and len(text) < 3000:
+            return current
+    return None
+
+
+def _extract_lilly_bs4(html_text):
+    """
+    Извлича Lilly продукти с BeautifulSoup.
+
+    Lilly използва Hyvä Theme (Alpine.js + Tailwind CSS) —
+    стандартните Magento CSS selectors не съществуват.
+
+    Стратегии:
+    1. JSON-LD structured data (@type: Product / ItemList)
+    2. Елементи с HARMONICA в text, title, alt атрибути
+    3. Legacy Magento CSS selectors (fallback)
+    """
+    products = []
+    seen = set()
+    soup = BeautifulSoup(html_text, 'html.parser')
+
+    # Стратегия 1: JSON-LD structured data
+    for script in soup.find_all('script', type='application/ld+json'):
+        try:
+            data = json.loads(script.string or '')
+            items = []
+            if isinstance(data, list):
+                items = data
+            elif isinstance(data, dict):
+                if data.get('@type') == 'ItemList':
+                    items = data.get('itemListElement', [])
+                elif data.get('@type') == 'Product':
+                    items = [data]
+                elif 'itemListElement' in data:
+                    items = data['itemListElement']
+
+            for item in items:
+                product = item.get('item', item) if isinstance(item, dict) else {}
+                name = product.get('name', '')
+                if not name:
+                    continue
+
+                price = None
+                offers = product.get('offers', {})
+                if isinstance(offers, dict):
+                    price = offers.get('price')
+                elif isinstance(offers, list) and offers:
+                    price = offers[0].get('price')
+
+                if price:
+                    price_bgn = round(float(price), 2)
+                    price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+                    name_key = name.lower()[:40]
+                    if name_key not in seen:
+                        seen.add(name_key)
+                        in_stock = True
+                        if isinstance(offers, dict):
+                            avail = offers.get('availability', '')
+                            in_stock = 'OutOfStock' not in avail
+                        products.append({
+                            'name': name,
+                            'eur': price_eur,
+                            'bgn': price_bgn,
+                            'in_stock': in_stock,
+                        })
+        except (json.JSONDecodeError, ValueError, TypeError):
+            continue
+
+    if products:
+        logger.info(f"Lilly BS4: {len(products)} продукта от JSON-LD")
+        return products
+
+    # Стратегия 2: Намиране на product containers
+    product_containers = []
+    found_container_ids = set()
+
+    # 2a: <a> tags с HARMONICA в text content
+    for link in soup.find_all('a', href=True):
+        link_text = link.get_text(strip=True)
+        href = link.get('href', '')
+        if not link_text or 'harmonica' not in link_text.lower():
+            continue
+        if len(link_text) < 5:
+            continue
+        if any(x in href.lower() for x in ['/media/', '.jpg', '.png', '.svg', '.css', '.js']):
+            continue
+        container = _find_product_container(link)
+        if container:
+            cid = id(container)
+            if cid not in found_container_ids:
+                found_container_ids.add(cid)
+                product_containers.append(container)
+
+    # 2b: <a> и <img> с HARMONICA в title/alt атрибути
+    for attr_name in ['title', 'alt']:
+        for el in soup.find_all(attrs={attr_name: re.compile(r'harmonica', re.IGNORECASE)}):
+            if el.find_parent(['header', 'nav', 'footer', 'head']):
+                continue
+            container = _find_product_container(el)
+            if container:
+                cid = id(container)
+                if cid not in found_container_ids:
+                    found_container_ids.add(cid)
+                    product_containers.append(container)
+
+    # 2c: Text nodes с HARMONICA (за Hyvä span/div)
+    for text_node in soup.find_all(string=re.compile(r'harmonica', re.IGNORECASE)):
+        parent = text_node.find_parent()
+        if not parent:
+            continue
+        if parent.name in ('script', 'style', 'meta', 'title', 'head', 'noscript'):
+            continue
+        if parent.find_parent(['header', 'nav', 'footer', 'head']):
+            continue
+        container = _find_product_container(parent)
+        if container:
+            cid = id(container)
+            if cid not in found_container_ids:
+                found_container_ids.add(cid)
+                product_containers.append(container)
+
+    logger.info(f"Lilly BS4: {len(product_containers)} потенциални контейнери")
+
+    for container in product_containers:
+        text = container.get_text(' ', strip=True)
+
+        product_name = None
+
+        # Опит 1: <a> с HARMONICA text content
+        for link in container.find_all('a', href=True):
+            lt = link.get_text(strip=True)
+            href = link.get('href', '')
+            if lt and 'harmonica' in lt.lower() and len(lt) > 10:
+                if not any(x in href.lower() for x in ['/media/', '.jpg', '.png', '.svg']):
+                    product_name = lt
+                    break
+
+        # Опит 2: <a title> с HARMONICA
+        if not product_name:
+            for link in container.find_all('a', attrs={'title': True}):
+                title = link.get('title', '')
+                if 'harmonica' in title.lower() and len(title) > 10:
+                    product_name = title
+                    break
+
+        # Опит 3: <img alt> с HARMONICA
+        if not product_name:
+            for img in container.find_all('img', attrs={'alt': True}):
+                alt = img.get('alt', '')
+                if 'harmonica' in alt.lower() and len(alt) > 10:
+                    product_name = alt
+                    break
+
+        # Опит 4: <span>, <div>, <h2-h5>, <strong>, <p> с HARMONICA
+        if not product_name:
+            for tag in container.find_all(['h2', 'h3', 'h4', 'h5', 'span', 'strong', 'p', 'div']):
+                tag_text = tag.get_text(strip=True)
+                if tag_text and 'harmonica' in tag_text.lower() and 10 < len(tag_text) < 200:
+                    if is_food_product(tag_text):
+                        product_name = tag_text
+                        break
+
+        if not product_name:
+            continue
+
+        if any(x in product_name.lower() for x in ['навигация', 'меню', 'cookie', 'продукти на']):
+            continue
+
+        name_key = product_name.lower()[:40]
+        if name_key in seen:
+            continue
+
+        # Цени
+        price_bgn = extract_bgn_price(text)
+        price_eur = extract_eur_price(text)
+
+        if not price_bgn and not price_eur:
+            price_match = re.search(r'(\d+)[,.](\d{2})', text)
+            if price_match:
                 try:
-                    page_text = page.content()
-                    store_raw_texts[key] = page_text
-                    
-                    detected_currency = detect_currency_from_text(page_text)
-                    if detected_currency:
-                        store_currencies[key] = detected_currency
-                        logger.info(f"  [ВАЛУТА] {store_name}: Детектирана {detected_currency}")
-                    else:
-                        store_currencies[key] = config.get('expected_currency', 'BGN')
-                        logger.info(f"  [ВАЛУТА] {store_name}: Приета {store_currencies[key]} (по подразбиране)")
-                except:
-                    store_currencies[key] = config.get('expected_currency', 'BGN')
-                
-                all_prices[key] = prices
-                
-                # Затваряме браузъра след всеки магазин
-                context.close()
-                browser.close()
-            
-            # Принудително освобождаване на паметта и кратка пауза
-            gc.collect()
-            time.sleep(2)
-                
-        except Exception as e:
-            logger.info(f"\n{'='*60}")
-            logger.info(f"{store_name}: Зареждане")
-            logger.info(f"{'='*60}")
-            logger.error(f"  ✗ Критична грешка: {str(e)[:80]}")
-            all_prices[key] = {}
-            store_currencies[key] = config.get('expected_currency', 'BGN')
-    
-    logger.info("\n  [ВАЛУТА] Обобщение:")
-    for store_key, currency in store_currencies.items():
-        store_name = STORES[store_key]['name_in_sheet']
-        logger.info(f"    • {store_name}: {currency}")
-    
-    # Обработка на резултатите - нормализация на ниво продукт
-    # v9.0: Новата логика - средната цена се изчислява от реалните пазарни цени
-    results = []
-    currency_corrections = {"EUR->BGN": 0, "BGN": 0}
-    
-    for product in PRODUCTS:
-        name = product['name']
-        ref_bgn = product['ref_price_bgn']
-        ref_eur = product['ref_price_eur']
-        
-        # Събираме и нормализираме цените за този продукт
-        normalized_prices = {}
-        for store_key in STORES:
-            raw_price = all_prices.get(store_key, {}).get(name)
-            if raw_price is not None:
-                # Детектираме валутата чрез сравнение с референтната цена
-                detected = detect_currency_by_reference(raw_price, ref_bgn)
-                if detected == "EUR":
-                    normalized_prices[store_key] = round(raw_price * EUR_BGN_RATE, 2)
-                    currency_corrections["EUR->BGN"] += 1
-                else:
-                    normalized_prices[store_key] = round(raw_price, 2)
-                    currency_corrections["BGN"] += 1
-            else:
-                normalized_prices[store_key] = None
-        
-        valid_prices = [p for p in normalized_prices.values() if p is not None]
-        
-        # v9.0: Нова логика за средна цена и отклонения
-        # Средната цена е от реалните пазарни цени на магазините
-        store_deviations = {}  # Отклонение на всеки магазин от средната
-        max_deviation = None
-        max_deviation_store = None
-        has_anomaly = False  # Има ли магазин с отклонение >10%
-        
-        if valid_prices:
-            # Средната цена е от реалните цени на магазините
-            avg_bgn = sum(valid_prices) / len(valid_prices)
-            avg_eur = avg_bgn / EUR_BGN_RATE
-            
-            # Изчисляваме отклонението на всеки магазин от средната пазарна цена
-            for store_key in STORES:
-                store_price = normalized_prices.get(store_key)
-                if store_price is not None:
-                    # Отклонение: положително = по-скъпо от средното, отрицателно = по-евтино
-                    deviation_pct = ((store_price - avg_bgn) / avg_bgn) * 100
-                    store_deviations[store_key] = round(deviation_pct, 1)
-                    
-                    # Проверяваме за аномалия (>10% отклонение)
-                    if abs(deviation_pct) > ALERT_THRESHOLD:
-                        has_anomaly = True
-                    
-                    # Търсим максималното отклонение (по абсолютна стойност)
-                    if max_deviation is None or abs(deviation_pct) > abs(max_deviation):
-                        max_deviation = deviation_pct
-                        max_deviation_store = store_key
-                else:
-                    store_deviations[store_key] = None
-            
-            # Статусът е ВНИМАНИЕ ако поне един магазин има отклонение >10%
-            status = "ВНИМАНИЕ" if has_anomaly else "OK"
-        else:
-            avg_bgn = avg_eur = max_deviation = None
-            status = "НЯМА ДАННИ"
-        
-        results.append({
-            "name": name,
-            "weight": product['weight'],
-            "ref_bgn": ref_bgn,
-            "ref_eur": ref_eur,
-            "prices": normalized_prices,  # Цени по магазини (BGN)
-            "store_deviations": store_deviations,  # Отклонения по магазини (%)
-            "avg_bgn": round(avg_bgn, 2) if avg_bgn else None,
-            "avg_eur": round(avg_eur, 2) if avg_eur else None,
-            "max_deviation": round(max_deviation, 1) if max_deviation is not None else None,
-            "max_deviation_store": max_deviation_store,
-            "has_anomaly": has_anomaly,
-            "status": status
+                    price = float(f"{price_match.group(1)}.{price_match.group(2)}")
+                    if 0.50 <= price <= 100:
+                        price_bgn = round(price, 2)
+                except ValueError:
+                    pass
+
+        if price_bgn and not price_eur:
+            price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+
+        in_stock = 'изчерпан' not in text.lower()
+
+        if product_name and (price_eur or price_bgn):
+            seen.add(name_key)
+            products.append({
+                'name': product_name,
+                'eur': price_eur,
+                'bgn': price_bgn,
+                'in_stock': in_stock,
+            })
+
+    # Стратегия 3: Legacy Magento CSS selectors
+    if not products:
+        product_items = soup.select(
+            '.product-item, .product-item-info, li.item.product, '
+            '.products-grid .item, .category-products .item'
+        )
+        for item in product_items:
+            text = item.get_text(' ', strip=True)
+            if 'harmonica' not in text.lower():
+                continue
+            for link in item.find_all('a', href=True):
+                lt = link.get_text(strip=True)
+                if lt and 'harmonica' in lt.lower() and len(lt) > 5:
+                    name_key = lt.lower()[:40]
+                    if name_key not in seen:
+                        price_bgn = extract_bgn_price(text)
+                        price_eur = extract_eur_price(text)
+                        if price_bgn or price_eur:
+                            seen.add(name_key)
+                            products.append({
+                                'name': lt,
+                                'eur': price_eur,
+                                'bgn': price_bgn,
+                                'in_stock': 'изчерпан' not in text.lower(),
+                            })
+                    break
+
+    logger.info(f"Lilly BS4: {len(products)} продукта извлечени")
+    return products
+
+
+def _extract_lilly_regex(markdown_text):
+    """Извлича Lilly продукти с regex (fallback)."""
+    products = []
+    product_blocks = re.split(r'\n\s*\*\s+', markdown_text)
+
+    for block in product_blocks:
+        if 'lillydrogerie.bg' not in block:
+            continue
+
+        name_match = re.search(
+            r'(?<!!)\[([^\]]*HARMONICA[^\]]*)\]\(https://lillydrogerie\.bg/(?!media/)([^\s\)]+)',
+            block
+        )
+        if not name_match:
+            continue
+
+        product_name = name_match.group(1).strip()
+        product_slug = name_match.group(2).strip('" ')
+        product_url = f"https://lillydrogerie.bg/{product_slug}"
+
+        eur_match = re.search(r'(\d+[.,]\d{2})\s*€', block)
+        price_eur = float(eur_match.group(1).replace(',', '.')) if eur_match else None
+
+        bgn_match = re.search(r'(\d+[.,]\d{2})\s*лв', block)
+        price_bgn = float(bgn_match.group(1).replace(',', '.')) if bgn_match else None
+
+        in_stock = 'Изчерпан' not in block
+
+        if product_name and (price_eur or price_bgn):
+            products.append({
+                'name': product_name,
+                'eur': price_eur,
+                'bgn': price_bgn,
+                'in_stock': in_stock,
+                'url': product_url,
+            })
+
+    logger.info(f"Lilly regex: {len(products)} продукта извлечени")
+    return products
+
+
+# =============================================================================
+# DM BULGARIA EXTRACTION — CapSolver за anti-bot bypass
+# =============================================================================
+
+def extract_dm_products(markdown_text, html_text=None):
+    """
+    Извлича Harmonica продукти от DM Bulgaria.
+
+    DM.bg показва продукти в search резултати с имена и цени.
+    Предпочита BS4 + HTML ако е наличен, иначе regex + markdown.
+    """
+    if BS4_AVAILABLE and html_text:
+        return _extract_dm_bs4(html_text)
+    return _extract_dm_regex(markdown_text)
+
+
+def _extract_dm_bs4(html_text):
+    """Извлича DM продукти с BeautifulSoup."""
+    products = []
+    seen = set()
+    soup = BeautifulSoup(html_text, 'html.parser')
+
+    # DM.bg типично използва product cards/tiles в search results
+    product_items = soup.select(
+        '[data-testid="product-tile"], .product-tile, .product-card, '
+        '.search-result-item, .product-item, article.product'
+    )
+
+    # Fallback: търсим всички елементи с текст "Harmonica"
+    if not product_items:
+        for el in soup.find_all(['div', 'li', 'article', 'section']):
+            text = el.get_text(strip=True)
+            if ('harmonica' in text.lower() or 'хармоника' in text.lower()):
+                # Избягваме parent контейнери (> 2000 chars = вероятно wrapper)
+                if len(text) < 2000 and el not in product_items:
+                    product_items.append(el)
+
+    for item in product_items:
+        text = item.get_text(' ', strip=True)
+        if not ('harmonica' in text.lower() or 'хармоника' in text.lower()):
+            continue
+
+        # Име на продукт — от заглавен link или heading
+        product_name = None
+        for tag in item.find_all(['a', 'h2', 'h3', 'h4', 'span', 'p']):
+            tag_text = tag.get_text(strip=True)
+            if (tag_text and len(tag_text) > 10
+                    and ('harmonica' in tag_text.lower() or 'хармоника' in tag_text.lower())):
+                product_name = tag_text
+                break
+
+        if not product_name:
+            continue
+
+        name_key = product_name.lower()[:40]
+        if name_key in seen:
+            continue
+
+        if not is_food_product(product_name):
+            continue
+
+        # Цени — EUR и BGN
+        price_eur = extract_eur_price(text)
+        price_bgn = extract_bgn_price(text)
+
+        # DM.bg може да показва цена само в лева
+        if not price_bgn and not price_eur:
+            # Търсим цена без валутен суфикс (напр. "3.99")
+            price_match = re.search(r'(\d+)[,.](\d{2})', text)
+            if price_match:
+                try:
+                    price = float(f"{price_match.group(1)}.{price_match.group(2)}")
+                    if PRICE_RANGE_BGN[0] <= price <= PRICE_RANGE_BGN[1]:
+                        price_bgn = round(price, 2)
+                except ValueError:
+                    pass
+
+        if product_name and (price_eur or price_bgn):
+            seen.add(name_key)
+            products.append({
+                'name': product_name,
+                'eur': price_eur,
+                'bgn': price_bgn,
+            })
+
+    logger.info(f"DM BS4: {len(products)} продукта извлечени")
+    return products
+
+
+def _extract_dm_regex(markdown_text):
+    """Извлича DM продукти с regex (fallback ако BS4 не е наличен)."""
+    products = []
+    seen = set()
+
+    # Pattern 1: [Product Name](url) с цени наблизо
+    link_pattern = r'\[([^\]]*(?:harmonica|хармоника)[^\]]*)\]\([^\)]+\)'
+    for match in re.finditer(link_pattern, markdown_text, re.IGNORECASE):
+        name = match.group(1).strip()
+        if name.startswith('!') or len(name) < 10:
+            continue
+
+        name_key = name.lower()[:40]
+        if name_key in seen:
+            continue
+        if not is_food_product(name):
+            continue
+
+        idx = match.end()
+        context = markdown_text[max(0, idx - 100):idx + 400]
+
+        eur = extract_eur_price(context)
+        bgn = extract_bgn_price(context)
+
+        if eur or bgn:
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    # Pattern 2: Просто текстови блокове с Harmonica + цени
+    blocks = re.split(r'\n{2,}', markdown_text)
+    for block in blocks:
+        if not ('harmonica' in block.lower() or 'хармоника' in block.lower()):
+            continue
+
+        # Извличаме потенциално име (първия ред с Harmonica)
+        for line in block.split('\n'):
+            if 'harmonica' in line.lower() or 'хармоника' in line.lower():
+                name = re.sub(r'\[([^\]]*)\]\([^\)]*\)', r'\1', line)
+                name = re.sub(r'[#*_>|]', '', name).strip()
+                if len(name) > 10:
+                    name_key = name.lower()[:40]
+                    if name_key not in seen and is_food_product(name):
+                        eur = extract_eur_price(block)
+                        bgn = extract_bgn_price(block)
+                        if eur or bgn:
+                            seen.add(name_key)
+                            products.append({"name": name, "eur": eur, "bgn": bgn})
+                    break
+
+    logger.info(f"DM regex: {len(products)} продукта извлечени")
+    return products
+
+
+# =============================================================================
+# CAPSOLVER — решаване на Cloudflare Turnstile/Challenge
+# =============================================================================
+
+def detect_cloudflare_challenge(html_text):
+    """Проверява дали страницата съдържа Cloudflare challenge."""
+    if not html_text:
+        return False, None
+
+    indicators = [
+        'cf-turnstile', 'challenges.cloudflare.com',
+        'cf-challenge-running', 'cf_chl_opt',
+        'Just a moment', 'Checking your browser',
+    ]
+    is_challenge = any(ind in html_text for ind in indicators)
+
+    # Извличане на sitekey ако е Turnstile
+    sitekey = None
+    sitekey_match = re.search(r'data-sitekey=["\']([^"\']+)["\']', html_text)
+    if sitekey_match:
+        sitekey = sitekey_match.group(1)
+    else:
+        # Алтернативен pattern от JS
+        sitekey_match = re.search(r'sitekey\s*[=:]\s*["\']([0-9x\-]+)["\']', html_text)
+        if sitekey_match:
+            sitekey = sitekey_match.group(1)
+
+    return is_challenge, sitekey
+
+
+async def solve_turnstile(website_url, website_key):
+    """Решава Cloudflare Turnstile чрез CapSolver API."""
+    api_key = os.environ.get('CAPSOLVER_API_KEY')
+    if not api_key:
+        logger.error("CAPSOLVER_API_KEY не е зададен")
+        return None
+
+    capsolver.api_key = api_key
+
+    try:
+        logger.info(f"CapSolver: решаване на Turnstile за {website_url}")
+        solution = capsolver.solve({
+            "type": "AntiTurnstileTaskProxyLess",
+            "websiteURL": website_url,
+            "websiteKey": website_key,
         })
-    
-    # Показваме статистика за валутните корекции
-    logger.info(f"  [ВАЛУТА] Корекции: {currency_corrections['EUR->BGN']} EUR→BGN, {currency_corrections['BGN']} BGN (без промяна)")
-    
+        token = solution.get("token")
+        if token:
+            logger.info(f"CapSolver: Turnstile решен успешно (token: {token[:20]}...)")
+        return token
+    except Exception as e:
+        logger.error(f"CapSolver грешка: {e}")
+        return None
+
+
+@retry_async(max_retries=1, backoff_base=5)
+async def crawl_with_captcha_solver(crawler, store_key, store_config):
+    """
+    Краулва сайт с anti-bot защита. Стратегия:
+    1. Опит с magic mode (симулира човешко поведение)
+    2. Ако има Cloudflare challenge → CapSolver API
+    3. Инжектиране на token + повторно зареждане
+    """
+    store_name = store_config["name"]
+    url = store_config["url"]
+
+    logger.info(f"CRAWLING (anti-bot): {store_name}")
+    start = time.time()
+
+    # Стъпка 1: Опит с magic mode
+    magic_config = CrawlerRunConfig(
+        magic=True,
+        page_timeout=60000,
+        remove_overlay_elements=True,
+        cache_mode=CacheMode.BYPASS,
+    )
+
+    result = await crawler.arun(url=url, config=magic_config)
+
+    # Проверка за DNS / мрежови грешки преди всичко
+    if not result.success:
+        error_msg = str(getattr(result, 'error_message', '') or '')
+        elapsed = time.time() - start
+        if 'ERR_NAME_NOT_RESOLVED' in error_msg:
+            logger.warning(f"{store_name}: DNS грешка {elapsed:.1f}s — домейнът не е достъпен")
+            return {"success": False, "error": "DNS error: domain not resolved"}
+        if any(e in error_msg for e in ('ERR_CONNECTION_REFUSED', 'ERR_CONNECTION_TIMED_OUT',
+                                        'ERR_NETWORK_CHANGED', 'net::ERR_')):
+            logger.warning(f"{store_name}: Мрежова грешка {elapsed:.1f}s — {error_msg[:120]}")
+            return {"success": False, "error": f"Network error: {error_msg[:120]}"}
+
+    # Проверка дали magic mode е достатъчен
+    if result.success and result.markdown and len(result.markdown) > 500:
+        # Проверяваме дали съдържанието е реално (не Cloudflare challenge page)
+        html = getattr(result, 'html', '') or ''
+        is_challenge, _ = detect_cloudflare_challenge(html)
+        if not is_challenge:
+            elapsed = time.time() - start
+            logger.info(f"{store_name}: OK (magic mode) {elapsed:.1f}s, {len(result.markdown)} chars")
+            return {
+                "success": True,
+                "store_key": store_key,
+                "elapsed": elapsed,
+                "markdown": result.markdown,
+                "html": html,
+                "method": "magic",
+            }
+
+    # Стъпка 2: Cloudflare challenge детектиран — CapSolver
+    html = getattr(result, 'html', '') or ''
+    is_challenge, sitekey = detect_cloudflare_challenge(html)
+
+    if not is_challenge:
+        # Не е Cloudflare — може би друг тип блокировка
+        elapsed = time.time() - start
+        logger.warning(f"{store_name}: Блокиран (не е Cloudflare) {elapsed:.1f}s")
+        logger.warning(f"  HTML preview: {html[:200]}")
+        return {"success": False, "error": f"Blocked by non-Cloudflare protection"}
+
+    if not CAPSOLVER_AVAILABLE:
+        return {"success": False, "error": "CapSolver not installed"}
+
+    if not sitekey:
+        logger.warning(f"{store_name}: Cloudflare challenge без sitekey — опит с AntiCloudflareTask")
+        # За Cloudflare Challenge (5s check) без Turnstile widget
+        # Пробваме по-агресивен подход: повторно зареждане след кратко чакане
+        wait_config = CrawlerRunConfig(
+            magic=True,
+            page_timeout=90000,
+            remove_overlay_elements=True,
+            cache_mode=CacheMode.BYPASS,
+            wait_for="js:() => !document.querySelector('#cf-challenge-running')",
+        )
+        result = await crawler.arun(url=url, config=wait_config)
+        html = getattr(result, 'html', '') or ''
+        is_still_challenge, sitekey = detect_cloudflare_challenge(html)
+
+        if not is_still_challenge and result.success and len(result.markdown or '') > 500:
+            elapsed = time.time() - start
+            logger.info(f"{store_name}: OK (wait bypass) {elapsed:.1f}s")
+            return {
+                "success": True,
+                "store_key": store_key,
+                "elapsed": elapsed,
+                "markdown": result.markdown,
+                "html": html,
+                "method": "wait_bypass",
+            }
+
+        if not sitekey:
+            return {"success": False, "error": "Cloudflare challenge: sitekey not found"}
+
+    # Стъпка 3: CapSolver Turnstile
+    token = await solve_turnstile(url, sitekey)
+    if not token:
+        return {"success": False, "error": "CapSolver failed to solve Turnstile"}
+
+    # Стъпка 4: Инжектиране на token
+    inject_js = f"""
+    (function() {{
+        var input = document.querySelector('input[name="cf-turnstile-response"]');
+        if (input) {{
+            input.value = '{token}';
+        }}
+        var hidden = document.querySelector('[name="cf-turnstile-response"]');
+        if (hidden) {{
+            hidden.value = '{token}';
+        }}
+        // Опит да submit-нем формата
+        var form = document.querySelector('form');
+        if (form) form.submit();
+        // Или кликнем бутон
+        var btn = document.querySelector('button[type="submit"], input[type="submit"]');
+        if (btn) btn.click();
+    }})();
+    """
+
+    inject_config = CrawlerRunConfig(
+        cache_mode=CacheMode.BYPASS,
+        js_code=inject_js,
+        js_only=True,
+        page_timeout=30000,
+        wait_for="js:() => document.querySelectorAll('[class*=product]').length > 0",
+    )
+
+    result = await crawler.arun(url=url, config=inject_config)
+    elapsed = time.time() - start
+
+    if result.success and result.markdown and len(result.markdown) > 300:
+        logger.info(f"{store_name}: OK (CapSolver) {elapsed:.1f}s, {len(result.markdown)} chars")
+        return {
+            "success": True,
+            "store_key": store_key,
+            "elapsed": elapsed,
+            "markdown": result.markdown,
+            "html": getattr(result, 'html', None),
+            "method": "capsolver",
+        }
+
+    logger.error(f"{store_name}: FAILED след CapSolver inject {elapsed:.1f}s")
+    return {"success": False, "error": "CapSolver token injected but page didn't load"}
+
+
+# =============================================================================
+# DM ALGOLIA API — direct query bypass (без Cloudflare)
+# =============================================================================
+
+async def extract_algolia_config(html_text):
+    """
+    Извлича Algolia конфигурация от HTML/JS на DM.bg.
+
+    Търси appId, apiKey и indexName в:
+    - window.__INITIAL_STATE__ / window.__NEXT_DATA__
+    - Inline <script> tags с algolia config
+    - data-* атрибути
+    """
+    if not html_text:
+        return None
+
+    config = {}
+
+    # Pattern 1: applicationId / appId
+    app_id_patterns = [
+        r'(?:applicationId|appId|algoliaAppId|ALGOLIA_APP_ID)["\s:=]+["\']([A-Z0-9]{10,})["\']',
+        r'X-Algolia-Application-Id["\s:=]+["\']([A-Z0-9]{10,})["\']',
+        r'"appId"\s*:\s*"([A-Z0-9]{10,})"',
+    ]
+    for pattern in app_id_patterns:
+        match = re.search(pattern, html_text, re.IGNORECASE)
+        if match:
+            config['app_id'] = match.group(1)
+            break
+
+    # Pattern 2: searchOnlyApiKey / apiKey
+    api_key_patterns = [
+        r'(?:searchOnlyApiKey|apiKey|algoliaApiKey|ALGOLIA_API_KEY|searchKey)["\s:=]+["\']([a-f0-9]{20,})["\']',
+        r'X-Algolia-API-Key["\s:=]+["\']([a-f0-9]{20,})["\']',
+        r'"apiKey"\s*:\s*"([a-f0-9]{20,})"',
+    ]
+    for pattern in api_key_patterns:
+        match = re.search(pattern, html_text, re.IGNORECASE)
+        if match:
+            config['api_key'] = match.group(1)
+            break
+
+    # Pattern 3: indexName
+    index_patterns = [
+        r'(?:indexName|algoliaIndex|ALGOLIA_INDEX)["\s:=]+["\']([a-zA-Z0-9_\-]+(?:product|search|bg)[a-zA-Z0-9_\-]*)["\']',
+        r'"indexName"\s*:\s*"([^"]+)"',
+    ]
+    for pattern in index_patterns:
+        match = re.search(pattern, html_text, re.IGNORECASE)
+        if match:
+            config['index_name'] = match.group(1)
+            break
+
+    if config.get('app_id') and config.get('api_key'):
+        logger.info(f"Algolia config extracted: appId={config['app_id']}, "
+                     f"index={config.get('index_name', 'N/A')}")
+        return config
+
+    return None
+
+
+def _fetch_dm_via_firecrawl(query="harmonica"):
+    """
+    Firecrawl: рендерира DM.bg search page с headless browser.
+    DM.bg има силна Cloudflare защита, която блокира proxy + curl_cffi.
+    Firecrawl използва собствена инфраструктура и може да bypass-не.
+    Синхронна функция — ще се изпълнява в thread pool.
+    """
+    if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
+        return None
+
+    start = time.time()
+    url = f"https://www.dm-drogeriemarkt.bg/search?query={query}&searchType=product"
+
+    try:
+        app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
+
+        # Firecrawl scrape с wait за JS rendering
+        result = app.scrape_url(
+            url,
+            params={
+                "formats": ["markdown", "html"],
+                "actions": [
+                    {"type": "wait", "milliseconds": 5000},
+                    {"type": "scroll", "direction": "down"},
+                    {"type": "wait", "milliseconds": 2000},
+                    {"type": "scrape"},
+                ],
+                "timeout": 60000,
+            },
+        )
+        elapsed = time.time() - start
+
+        markdown = ""
+        html = ""
+        if isinstance(result, dict):
+            markdown = result.get("markdown", "")
+            html = result.get("html", "")
+        elif hasattr(result, "markdown"):
+            markdown = result.markdown or ""
+            html = getattr(result, "html", "") or ""
+
+        if not markdown and not html:
+            logger.info(f"DM Firecrawl: празен резултат ({elapsed:.1f}s)")
+            return None
+
+        # Парсване на продукти от HTML/markdown
+        products = []
+        if html:
+            products = extract_dm_from_curl_html(html)
+        if not products and markdown:
+            products = extract_dm_products(markdown, html_text=html)
+
+        logger.info(f"DM Firecrawl: {len(products)} продукта ({elapsed:.1f}s)")
+
+        if products:
+            return {
+                "success": True,
+                "method": "firecrawl",
+                "products": products,
+                "elapsed": elapsed,
+                "html": html,
+            }
+
+        # Firecrawl успя, но не можахме да парснем продукти
+        harmonica_refs = len(re.findall(r'(?i)harmonica|хармоника', markdown))
+        logger.info(f"DM Firecrawl: 0 парсирани, {harmonica_refs} refs в markdown ({elapsed:.1f}s)")
+        return {
+            "success": True,
+            "method": "firecrawl",
+            "products": [],
+            "html": html,
+            "markdown": markdown,
+            "elapsed": elapsed,
+        }
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.warning(f"DM Firecrawl грешка: {e} ({elapsed:.1f}s)")
+        return None
+
+
+# =============================================================================
+# RANDI FIRECRAWL FETCH
+# =============================================================================
+
+def _fetch_randi_via_firecrawl():
+    """
+    Firecrawl: рендерира Randi.bg search page с headless browser.
+    Randi.bg зарежда продуктите с JS — Crawl4AI не улавя всичко.
+    Синхронна функция — ще се изпълнява в thread pool.
+    """
+    if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
+        return None
+
+    start = time.time()
+    url = "https://randi.bg/search?search=harmonica"
+
+    try:
+        app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
+
+        result = app.scrape_url(
+            url,
+            params={
+                "formats": ["markdown"],
+                "actions": [
+                    {"type": "wait", "milliseconds": 3000},
+                    {"type": "scroll", "direction": "down", "amount": 8},
+                    {"type": "wait", "milliseconds": 2000},
+                    {"type": "scrape"},
+                ],
+                "timeout": 60000,
+            },
+        )
+        elapsed = time.time() - start
+
+        markdown = ""
+        if isinstance(result, dict):
+            markdown = result.get("markdown", "")
+        elif hasattr(result, "markdown"):
+            markdown = result.markdown or ""
+
+        if not markdown:
+            logger.info(f"Randi Firecrawl: празен резултат ({elapsed:.1f}s)")
+            return None
+
+        products = extract_randi_products(markdown)
+        logger.info(f"Randi Firecrawl: {len(products)} продукта ({elapsed:.1f}s)")
+
+        if products:
+            return {
+                "success": True,
+                "method": "firecrawl",
+                "products": products,
+                "elapsed": elapsed,
+                "markdown": markdown,
+            }
+
+        harmonica_refs = len(re.findall(r'(?i)harmonica|хармоника', markdown))
+        logger.info(f"Randi Firecrawl: 0 парсирани, {harmonica_refs} refs в markdown ({elapsed:.1f}s)")
+        return {
+            "success": True,
+            "method": "firecrawl",
+            "products": [],
+            "markdown": markdown,
+            "elapsed": elapsed,
+        }
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.warning(f"Randi Firecrawl грешка: {e} ({elapsed:.1f}s)")
+        return None
+
+
+# =============================================================================
+# RANDI EXTRACTION
+# =============================================================================
+
+def extract_randi_products(markdown):
+    """
+    Извлича продукти от Randi.bg markdown.
+
+    Randi формат: продуктовите блокове съдържат линк с име + цена X,XX лв
+    на отделен ред. Блоковете са разделени визуално.
+    """
+    products = []
+    seen = set()
+
+    lines = markdown.split('\n')
+
+    for i, line in enumerate(lines):
+        line_stripped = line.strip()
+
+        # Търсим линкове с продуктови имена
+        link_match = re.search(r'(?<!!)\[([^\]]{5,120})\]\(([^\)]+)\)', line_stripped)
+        if not link_match:
+            continue
+
+        name = link_match.group(1).strip()
+
+        # Филтрираме навигационни линкове
+        if not is_food_product(name):
+            continue
+        if len(name) < 8:
+            continue
+        if not is_harmonica_product(name):
+            # Проверяваме контекста за harmonica
+            context_lines = '\n'.join(lines[max(0, i - 3):i + 5])
+            if 'harmonica' not in context_lines.lower() and 'хармоника' not in context_lines.lower():
+                continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        # Търсим цена в контекст от ±5 реда
+        context = '\n'.join(lines[max(0, i - 3):i + 8])
+        bgn = extract_bgn_price(context)
+        if not bgn:
+            # Опит: цена без "лв" суфикс (напр. "2.99" или "2,99")
+            price_match = re.search(r'(\d+)[,.](\d{2})\b', context)
+            if price_match:
+                try:
+                    price = float(f"{price_match.group(1)}.{price_match.group(2)}")
+                    if 0.50 <= price <= 100:
+                        bgn = round(price, 2)
+                except ValueError:
+                    pass
+        eur = extract_eur_price(context)
+
+        if bgn or eur:
+            if bgn and not eur:
+                eur = round(bgn / EUR_BGN_RATE, 2)
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    return products
+
+
+async def fetch_dm_via_algolia(query="harmonica"):
+    """
+    Опит за директна Algolia API заявка за DM Bulgaria.
+
+    Стратегия:
+    1. curl_cffi fetch на dm.bg → извличане на Algolia ключове от JS
+    2. Директна Algolia API заявка с намерените ключове
+    3. Парсване на JSON отговора в продуктов формат
+
+    Връща dict с "success", "products", "method".
+    """
+    if not CURL_CFFI_AVAILABLE:
+        logger.warning("DM Algolia: curl_cffi не е наличен")
+        return {"success": False, "error": "curl_cffi not available"}
+
+    logger.info("DM Algolia: опит за директна API заявка...")
+    start = time.time()
+
+    try:
+        async with CurlAsyncSession(impersonate="chrome") as session:
+            proxy = PROXY_URL if PROXY_URL else None
+
+            # Стъпка 1: Fetch dm.bg за Algolia config
+            logger.info("DM Algolia: извличане на конфигурация от dm.bg...")
+            resp = await session.get(
+                "https://www.dm-drogeriemarkt.bg/search?query=harmonica&searchType=product",
+                proxy=proxy,
+                timeout=30,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.8",
+                },
+            )
+
+            if resp.status_code != 200:
+                logger.warning(f"DM Algolia: HTTP {resp.status_code} при fetch на dm.bg")
+                return {"success": False, "error": f"HTTP {resp.status_code}"}
+
+            html = resp.text
+
+            # Стъпка 2: Извличане на Algolia config
+            config = await extract_algolia_config(html)
+
+            if not config:
+                # Пробваме да намерим JS bundle URLs
+                js_urls = re.findall(
+                    r'(?:src|href)=["\']([^"\']*(?:chunk|main|app|search|algolia)[^"\']*\.js)["\']',
+                    html
+                )
+                for js_url in js_urls[:5]:
+                    if not js_url.startswith('http'):
+                        js_url = f"https://www.dm-drogeriemarkt.bg{js_url}"
+                    try:
+                        js_resp = await session.get(js_url, proxy=proxy, timeout=15)
+                        if js_resp.status_code == 200:
+                            config = await extract_algolia_config(js_resp.text)
+                            if config:
+                                logger.info(f"DM Algolia: config намерен в {js_url}")
+                                break
+                    except Exception:
+                        continue
+
+            if not config:
+                elapsed = time.time() - start
+                logger.warning(f"DM Algolia: не може да се извлече конфигурация ({elapsed:.1f}s)")
+                # Връщаме HTML за BS4 парсване като fallback
+                return {
+                    "success": True,
+                    "method": "curl_cffi_html",
+                    "html": html,
+                    "markdown": "",
+                    "products": [],
+                    "elapsed": elapsed,
+                }
+
+            # Стъпка 3: Algolia API заявка
+            app_id = config['app_id']
+            api_key = config['api_key']
+            index_name = config.get('index_name', 'prod_search_bg')
+
+            algolia_url = f"https://{app_id}-dsn.algolia.net/1/indexes/{index_name}/query"
+            algolia_resp = await session.post(
+                algolia_url,
+                proxy=proxy,
+                timeout=15,
+                headers={
+                    "X-Algolia-Application-Id": app_id,
+                    "X-Algolia-API-Key": api_key,
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "query": query,
+                    "hitsPerPage": 50,
+                    "attributesToRetrieve": [
+                        "name", "title", "price", "brand", "url",
+                        "gtin", "image", "slug", "description",
+                    ],
+                },
+            )
+
+            if algolia_resp.status_code != 200:
+                logger.warning(f"DM Algolia API: HTTP {algolia_resp.status_code}")
+                # Fallback: парсваме HTML от стъпка 1
+                return {
+                    "success": True,
+                    "method": "curl_cffi_html",
+                    "html": html,
+                    "markdown": "",
+                    "products": [],
+                    "elapsed": time.time() - start,
+                }
+
+            algolia_data = algolia_resp.json()
+            hits = algolia_data.get("hits", [])
+            elapsed = time.time() - start
+
+            # Стъпка 4: Парсване на Algolia резултати
+            products = []
+            for hit in hits:
+                product_name = hit.get("name") or hit.get("title") or ""
+                if not product_name:
+                    continue
+
+                price = hit.get("price")
+                price_bgn = None
+                price_eur = None
+
+                if isinstance(price, (int, float)):
+                    price_bgn = round(float(price), 2)
+                elif isinstance(price, dict):
+                    price_bgn = price.get("BGN") or price.get("bgn") or price.get("value")
+                    if price_bgn:
+                        price_bgn = round(float(price_bgn), 2)
+
+                if price_bgn and not price_eur:
+                    price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+
+                if product_name and price_bgn:
+                    products.append({
+                        "name": product_name,
+                        "eur": price_eur,
+                        "bgn": price_bgn,
+                    })
+
+            logger.info(f"DM Algolia: {len(products)} продукта от {len(hits)} hits ({elapsed:.1f}s)")
+            return {
+                "success": True,
+                "method": "algolia_api",
+                "products": products,
+                "elapsed": elapsed,
+                "html": html,
+            }
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.error(f"DM Algolia грешка: {e} ({elapsed:.1f}s)")
+        return {"success": False, "error": str(e)}
+
+
+def extract_dm_from_curl_html(html_text):
+    """
+    Парсва DM продукти от HTML, получен чрез curl_cffi.
+    Използва се когато Algolia API не е наличен, но curl_cffi bypass-ва Cloudflare.
+    """
+    if not html_text:
+        return []
+    if BS4_AVAILABLE:
+        return _extract_dm_bs4(html_text)
+    return []
+
+
+# =============================================================================
+# LILLY curl_cffi + Magento GraphQL API
+# =============================================================================
+
+async def fetch_lilly_via_curl():
+    """
+    Директен fetch на Lilly продукти чрез Magento 2 GraphQL API.
+    Lilly използва Hyvä Theme — продуктите се зареждат с JavaScript.
+    GraphQL API-то връща JSON без нужда от browser rendering.
+    """
+    if not CURL_CFFI_AVAILABLE:
+        return {"success": False, "error": "curl_cffi not available"}
+
+    logger.info("Lilly: curl_cffi GraphQL API fetch...")
+    start = time.time()
+
+    graphql_query = """
+    {
+      products(
+        search: "harmonica"
+        pageSize: 50
+      ) {
+        total_count
+        items {
+          name
+          sku
+          url_key
+          price_range {
+            minimum_price {
+              regular_price { value currency }
+              final_price { value currency }
+            }
+          }
+          stock_status
+        }
+      }
+    }
+    """
+
+    try:
+        async with CurlAsyncSession(impersonate="chrome") as session:
+            proxy = PROXY_URL if PROXY_URL else None
+
+            # Опит 1: GraphQL API
+            try:
+                resp = await session.post(
+                    "https://lillydrogerie.bg/graphql",
+                    proxy=proxy,
+                    timeout=30,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                        "Store": "default",
+                    },
+                    json={"query": graphql_query},
+                )
+
+                if resp.status_code == 200:
+                    data = resp.json()
+                    items = (data.get("data", {}).get("products", {})
+                             .get("items", []))
+
+                    if items:
+                        products = []
+                        for item in items:
+                            name = item.get("name", "")
+                            if not name:
+                                continue
+
+                            price_range = item.get("price_range", {})
+                            min_price = price_range.get("minimum_price", {})
+                            final = min_price.get("final_price", {})
+                            regular = min_price.get("regular_price", {})
+
+                            price_val = final.get("value") or regular.get("value")
+                            currency = final.get("currency") or regular.get("currency", "BGN")
+
+                            if price_val:
+                                price_bgn = round(float(price_val), 2)
+                                price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+                                in_stock = item.get("stock_status") != "OUT_OF_STOCK"
+
+                                products.append({
+                                    "name": name,
+                                    "eur": price_eur,
+                                    "bgn": price_bgn,
+                                    "in_stock": in_stock,
+                                })
+
+                        elapsed = time.time() - start
+                        total = data.get("data", {}).get("products", {}).get("total_count", 0)
+                        logger.info(f"Lilly GraphQL: {len(products)} продукта от "
+                                    f"{total} total ({elapsed:.1f}s)")
+                        return {
+                            "success": True,
+                            "method": "graphql",
+                            "products": products,
+                            "elapsed": elapsed,
+                        }
+                    else:
+                        logger.info(f"Lilly GraphQL: 0 items, response keys: "
+                                    f"{list(data.get('data', {}).get('products', {}).keys())}")
+                else:
+                    logger.info(f"Lilly GraphQL: HTTP {resp.status_code}")
+            except Exception as e:
+                logger.info(f"Lilly GraphQL: {e}")
+
+            # Опит 2: REST API search
+            try:
+                rest_url = ("https://lillydrogerie.bg/rest/V1/products?"
+                            "searchCriteria[filter_groups][0][filters][0][field]=name"
+                            "&searchCriteria[filter_groups][0][filters][0][value]=%25harmonica%25"
+                            "&searchCriteria[filter_groups][0][filters][0][condition_type]=like"
+                            "&searchCriteria[pageSize]=50")
+                resp = await session.get(
+                    rest_url,
+                    proxy=proxy,
+                    timeout=30,
+                    headers={"Accept": "application/json"},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    items = data.get("items", [])
+                    if items:
+                        products = []
+                        for item in items:
+                            name = item.get("name", "")
+                            price = item.get("price")
+                            if name and price:
+                                price_bgn = round(float(price), 2)
+                                price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+                                products.append({
+                                    "name": name,
+                                    "eur": price_eur,
+                                    "bgn": price_bgn,
+                                    "in_stock": True,
+                                })
+                        if products:
+                            elapsed = time.time() - start
+                            logger.info(f"Lilly REST: {len(products)} продукта ({elapsed:.1f}s)")
+                            return {
+                                "success": True,
+                                "method": "rest_api",
+                                "products": products,
+                                "elapsed": elapsed,
+                            }
+                else:
+                    logger.info(f"Lilly REST: HTTP {resp.status_code}")
+            except Exception as e:
+                logger.info(f"Lilly REST: {e}")
+
+            elapsed = time.time() - start
+            logger.warning(f"Lilly curl_cffi: нито GraphQL, нито REST API работят ({elapsed:.1f}s)")
+            return {"success": False, "error": "GraphQL and REST API both failed"}
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.error(f"Lilly curl_cffi грешка: {e} ({elapsed:.1f}s)")
+        return {"success": False, "error": str(e)}
+
+
+# =============================================================================
+# T-MARKET curl_cffi — CloudCart + Cloudflare bypass
+# =============================================================================
+
+async def fetch_tmarket_via_curl(url="https://tmarketonline.bg/vendor/harmonica-1881705916"):
+    """
+    Директен fetch на T-Market чрез curl_cffi (TLS impersonation).
+    T-Market е CloudCart сайт с Cloudflare — curl_cffi може да bypass-не.
+    """
+    if not CURL_CFFI_AVAILABLE:
+        return {"success": False, "error": "curl_cffi not available"}
+
+    logger.info("T-Market: curl_cffi директен fetch...")
+    start = time.time()
+
+    try:
+        async with CurlAsyncSession(impersonate="chrome") as session:
+            proxy = PROXY_URL if PROXY_URL else None
+            resp = await session.get(
+                url,
+                proxy=proxy,
+                timeout=30,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.8",
+                },
+            )
+
+            elapsed = time.time() - start
+
+            if resp.status_code != 200:
+                logger.warning(f"T-Market curl_cffi: HTTP {resp.status_code}")
+                return {"success": False, "error": f"HTTP {resp.status_code}"}
+
+            html = resp.text
+
+            # Проверка за Cloudflare challenge
+            is_challenge, sitekey = detect_cloudflare_challenge(html)
+            if is_challenge:
+                logger.warning(f"T-Market curl_cffi: Cloudflare challenge ({elapsed:.1f}s)")
+                return {
+                    "success": False,
+                    "error": "Cloudflare challenge via curl_cffi",
+                    "html": html,
+                    "sitekey": sitekey,
+                }
+
+            logger.info(f"T-Market curl_cffi: OK {elapsed:.1f}s, {len(html)} chars")
+            return {
+                "success": True,
+                "method": "curl_cffi",
+                "html": html,
+                "markdown": "",
+                "elapsed": elapsed,
+                "store_key": "tmarket",
+            }
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.error(f"T-Market curl_cffi грешка: {e} ({elapsed:.1f}s)")
+        return {"success": False, "error": str(e)}
+
+
+# =============================================================================
+# GLOVO — търсене на Harmonica продукти чрез Firecrawl / API / HTML
+# =============================================================================
+
+def _fetch_glovo_via_firecrawl(slug, store_name, query="harmonica"):
+    """
+    Firecrawl: рендерира Glovo SPA с headless browser, използва actions за
+    да взаимодейства с търсачката в магазина и извлича продукти.
+    Синхронна функция — ще се изпълнява в thread pool.
+    """
+    if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
+        return None
+
+    start = time.time()
+    store_url = f"https://glovoapp.com/bg/bg/sofia/stores/{slug}"
+
+    # JS: намира и фокусира search input в Glovo SPA
+    find_search_js = """
+    (function() {
+        var selectors = [
+            'input[type="search"]',
+            'input[placeholder*="Търси"]',
+            'input[placeholder*="Search"]',
+            'input[placeholder*="търси"]',
+            '[data-testid*="search"] input',
+            '[role="search"] input',
+            'input[aria-label*="Search"]',
+            'input[aria-label*="Търси"]',
+        ];
+        for (var i = 0; i < selectors.length; i++) {
+            var el = document.querySelector(selectors[i]);
+            if (el) { el.click(); el.focus(); return 'found:' + selectors[i]; }
+        }
+        var btns = document.querySelectorAll('button, [role="button"], a');
+        for (var j = 0; j < btns.length; j++) {
+            var t = (btns[j].textContent || '').toLowerCase();
+            var a = (btns[j].getAttribute('aria-label') || '').toLowerCase();
+            if (t.indexOf('search') >= 0 || t.indexOf('търси') >= 0 ||
+                a.indexOf('search') >= 0 || a.indexOf('търси') >= 0) {
+                btns[j].click();
+                return 'clicked-button';
+            }
+        }
+        return 'not-found';
+    })()
+    """.strip()
+
+    try:
+        app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
+
+        # Подход 1: Actions — взаимодействие с search box на store page
+        search_actions = [
+            {"type": "wait", "milliseconds": 4000},
+            {"type": "executeJavascript", "script": find_search_js},
+            {"type": "wait", "milliseconds": 1500},
+            {"type": "write", "text": query},
+            {"type": "wait", "milliseconds": 1000},
+            {"type": "press", "key": "Enter"},
+            {"type": "wait", "milliseconds": 5000},
+            {"type": "scroll", "direction": "down"},
+            {"type": "wait", "milliseconds": 2000},
+            {"type": "scrape"},
+        ]
+
+        try:
+            result = app.scrape_url(
+                store_url,
+                params={
+                    "formats": ["markdown"],
+                    "actions": search_actions,
+                    "timeout": 60000,
+                },
+            )
+            elapsed = time.time() - start
+
+            if isinstance(result, dict):
+                markdown = result.get("markdown", "")
+            elif hasattr(result, "markdown"):
+                markdown = result.markdown or ""
+            else:
+                markdown = str(result) if result else ""
+
+            if markdown:
+                harmonica_refs = len(re.findall(r'(?i)harmonica|хармоника', markdown))
+                logger.info(f"Glovo {store_name}: Firecrawl [search-actions] — "
+                            f"{len(markdown)} chars, {harmonica_refs} harmonica refs ({elapsed:.1f}s)")
+
+                if harmonica_refs > 0:
+                    products = _parse_glovo_markdown(markdown, store_name, query)
+                    if products:
+                        return {
+                            "success": True,
+                            "method": "firecrawl_search_actions",
+                            "products": products,
+                            "elapsed": elapsed,
+                        }
+                else:
+                    logger.info(f"  preview: {markdown[:300].replace(chr(10), ' ')}")
+            else:
+                logger.info(f"Glovo {store_name}: Firecrawl [search-actions] — празен markdown ({elapsed:.1f}s)")
+
+        except Exception as e:
+            elapsed = time.time() - start
+            logger.info(f"Glovo {store_name}: Firecrawl actions грешка: {e} ({elapsed:.1f}s)")
+
+        elapsed = time.time() - start
+        logger.info(f"Glovo {store_name}: Firecrawl — 0 продукта ({elapsed:.1f}s)")
+        return None
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.warning(f"Glovo {store_name}: Firecrawl грешка: {e} ({elapsed:.1f}s)")
+        return None
+
+
+def _parse_glovo_markdown(markdown, store_name, query):
+    """Парсва Firecrawl markdown от Glovo store page за Harmonica продукти."""
+    products = []
+    seen = set()
+    query_lower = query.lower()
+
+    # Pattern 1: Продукт с цена на следващ ред (markdown формат)
+    # Примери: "Harmonica Био кисело мляко 2% 400г\n3.29 лв" или "3,29 лв"
+    lines = markdown.split('\n')
+    for i, line in enumerate(lines):
+        line_stripped = line.strip()
+        if not line_stripped:
+            continue
+
+        # Търсим ред с harmonica/хармоника
+        if query_lower not in line_stripped.lower() and 'хармоника' not in line_stripped.lower():
+            continue
+
+        if not is_food_product(line_stripped):
+            continue
+
+        name_key = line_stripped.lower()[:30]
+        if name_key in seen:
+            continue
+
+        # Търсим цена в текущия ред или следващите 3 реда
+        context = '\n'.join(lines[i:i+4])
+        bgn = extract_bgn_price(context)
+        if not bgn:
+            eur_only = extract_eur_price(context)
+            if eur_only:
+                bgn = round(eur_only * EUR_BGN_RATE, 2)
+
+        if bgn and bgn > 0:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+            # Чистим името
+            name = re.sub(r'\s*\d+[.,]\d{2}\s*(?:лв|bgn|eur|€)?\s*$', '', line_stripped,
+                          flags=re.IGNORECASE).strip()
+            if len(name) > 5:
+                seen.add(name_key)
+                products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    # Pattern 2: Link формат [Име](url) с цена наблизо
+    link_pattern = r'\[([^\]]*(?:harmonica|хармоника)[^\]]*)\]\([^\)]+\)'
+    for match in re.finditer(link_pattern, markdown, re.IGNORECASE):
+        name = match.group(1).strip()
+        if not name or not is_food_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        idx = match.end()
+        context = markdown[idx:idx + 200]
+        bgn = extract_bgn_price(context)
+        if bgn and bgn > 0:
+            eur = round(bgn / EUR_BGN_RATE, 2)
+            seen.add(name_key)
+            products.append({"name": name, "eur": eur, "bgn": bgn})
+
+    return products
+
+
+async def fetch_glovo_store_products(store_key, store_config, query="harmonica"):
+    """
+    Търси Harmonica продукти в Glovo магазин.
+
+    Подходи по приоритет:
+    1. Firecrawl (JS rendering, headless browser)
+    2. Glovo API v3 (с auth token)
+    3. curl_cffi HTML (fallback)
+    """
+    slug = store_config["slug"]
+    city_code = store_config.get("city_code", "SOF")
+    store_name = store_config["name"]
+
+    logger.info(f"Glovo {store_name}: търсене на '{query}'...")
+    start = time.time()
+
+    # === Подход 1: Firecrawl (JS rendering) ===
+    if FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY:
+        # Firecrawl е синхронен — run в thread pool
+        loop = asyncio.get_event_loop()
+        fc_result = await loop.run_in_executor(
+            None, _fetch_glovo_via_firecrawl, slug, store_name, query
+        )
+        if fc_result and fc_result.get("success"):
+            return fc_result
+
+    # === Подход 2: Glovo API (с auth token) ===
+    if GLOVO_AUTH_TOKEN and CURL_CFFI_AVAILABLE:
+        proxy = PROXY_URL if PROXY_URL else None
+        glovo_headers = {
+            "Accept": "application/json",
+            "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.8",
+            "Glovo-Location-City-Code": city_code,
+            "Glovo-Api-Version": "14",
+            "Glovo-App-Platform": "web",
+            "Glovo-App-Type": "customer",
+            "Authorization": f"Bearer {GLOVO_AUTH_TOKEN}",
+        }
+
+        try:
+            async with CurlAsyncSession(impersonate="chrome") as session:
+                # API search
+                search_url = f"{GLOVO_API_BASE}/stores/{slug}/search"
+                resp = await session.get(
+                    search_url, params={"query": query},
+                    proxy=proxy, headers=glovo_headers, timeout=20,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    products = _parse_glovo_products(data, store_name)
+                    if products:
+                        elapsed = time.time() - start
+                        logger.info(f"Glovo {store_name}: API search → "
+                                    f"{len(products)} продукта ({elapsed:.1f}s)")
+                        return {"success": True, "method": "glovo_api_search",
+                                "products": products, "elapsed": elapsed}
+                else:
+                    logger.info(f"Glovo {store_name}: API search HTTP {resp.status_code}")
+
+                # API catalog
+                catalog_url = f"{GLOVO_API_BASE}/stores/{slug}"
+                resp = await session.get(
+                    catalog_url, proxy=proxy, headers=glovo_headers, timeout=20,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    products = _parse_glovo_catalog(data, store_name, query)
+                    if products:
+                        elapsed = time.time() - start
+                        logger.info(f"Glovo {store_name}: API catalog → "
+                                    f"{len(products)} продукта ({elapsed:.1f}s)")
+                        return {"success": True, "method": "glovo_api_catalog",
+                                "products": products, "elapsed": elapsed}
+                else:
+                    logger.info(f"Glovo {store_name}: API catalog HTTP {resp.status_code}")
+        except Exception as e:
+            logger.info(f"Glovo {store_name}: API грешка: {e}")
+
+    elapsed = time.time() - start
+    logger.warning(f"Glovo {store_name}: не намерени Harmonica продукти ({elapsed:.1f}s)")
+    return {"success": False, "error": "No products found"}
+
+
+def _parse_glovo_products(data, store_name):
+    """Парсва продукти от Glovo API search response."""
+    products = []
+    seen = set()
+
+    # Glovo search response може да е dict с "products" или list
+    items = []
+    if isinstance(data, dict):
+        items = data.get("products", data.get("items", data.get("results", [])))
+        # Опит: sections → products
+        for section in data.get("sections", []):
+            items.extend(section.get("products", section.get("items", [])))
+    elif isinstance(data, list):
+        items = data
+
+    for item in items:
+        name = item.get("name", item.get("productName", ""))
+        if not name:
+            continue
+        if not is_harmonica_product(name):
+            continue
+        if not is_food_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        # Price — Glovo обикновено връща в стотинки или пряко в BGN
+        price_bgn = None
+        price_obj = item.get("price", item.get("priceInfo", {}))
+        if isinstance(price_obj, (int, float)):
+            price_bgn = round(float(price_obj) / 100, 2) if price_obj > 100 else float(price_obj)
+        elif isinstance(price_obj, dict):
+            amount = price_obj.get("amount", price_obj.get("value", 0))
+            if amount:
+                price_bgn = round(float(amount) / 100, 2) if amount > 100 else float(amount)
+
+        if price_bgn and price_bgn > 0:
+            price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+            seen.add(name_key)
+            products.append({
+                "name": name,
+                "eur": price_eur,
+                "bgn": price_bgn,
+            })
+
+    return products
+
+
+def _parse_glovo_catalog(data, store_name, query):
+    """Парсва целия каталог и филтрира по query."""
+    all_products = []
+
+    # Каталогът може да е в categories → sections → products
+    categories = data.get("categories", data.get("menu", {}).get("categories", []))
+    for cat in categories:
+        sections = cat.get("sections", cat.get("groups", []))
+        for section in sections:
+            items = section.get("products", section.get("items", []))
+            all_products.extend(items)
+        # Директни продукти в категорията
+        all_products.extend(cat.get("products", []))
+
+    # Филтрираме за Harmonica
+    products = []
+    seen = set()
+    query_lower = query.lower()
+
+    for item in all_products:
+        name = item.get("name", "")
+        if not name:
+            continue
+        if query_lower not in name.lower() and "хармоника" not in name.lower():
+            continue
+        if not is_food_product(name):
+            continue
+
+        name_key = name.lower()[:30]
+        if name_key in seen:
+            continue
+
+        price_bgn = None
+        price_obj = item.get("price", item.get("priceInfo", {}))
+        if isinstance(price_obj, (int, float)):
+            price_bgn = round(float(price_obj) / 100, 2) if price_obj > 100 else float(price_obj)
+        elif isinstance(price_obj, dict):
+            amount = price_obj.get("amount", price_obj.get("value", 0))
+            if amount:
+                price_bgn = round(float(amount) / 100, 2) if amount > 100 else float(amount)
+
+        if price_bgn and price_bgn > 0:
+            price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+            seen.add(name_key)
+            products.append({
+                "name": name,
+                "eur": price_eur,
+                "bgn": price_bgn,
+            })
+
+    return products
+
+
+async def fetch_all_glovo_products(query="harmonica"):
+    """Търси Harmonica продукти във всички Glovo магазини паралелно."""
+    if not GLOVO_STORES:
+        return {}
+
+    has_firecrawl = FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY
+    has_api = GLOVO_AUTH_TOKEN and CURL_CFFI_AVAILABLE
+
+    if not has_firecrawl and not has_api:
+        logger.warning("Glovo: нито FIRECRAWL_API_KEY, нито GLOVO_AUTH_TOKEN — пропускане")
+        return {}
+
+    if has_firecrawl:
+        logger.info("Glovo: ще използваме Firecrawl (JS rendering)")
+    elif has_api:
+        logger.info("Glovo: ще използваме API с auth token")
+
+    tasks = {}
+    for store_key, config in GLOVO_STORES.items():
+        tasks[store_key] = asyncio.create_task(
+            fetch_glovo_store_products(store_key, config, query)
+        )
+
+    results = {}
+    for store_key, task in tasks.items():
+        try:
+            result = await task
+            results[store_key] = result
+            if result.get("success"):
+                products = result.get("products", [])
+                logger.info(f"Glovo {GLOVO_STORES[store_key]['name']}: "
+                            f"{len(products)} Harmonica продукта")
+            else:
+                logger.info(f"Glovo {GLOVO_STORES[store_key]['name']}: "
+                            f"{result.get('error', 'неизвестна грешка')}")
+        except Exception as e:
+            logger.error(f"Glovo {GLOVO_STORES[store_key]['name']}: {e}")
+            results[store_key] = {"success": False, "error": str(e)}
+
     return results
 
 
 # =============================================================================
-# GOOGLE SHEETS
+# MATCHING — подобрено с нормализация и тежести
 # =============================================================================
 
-def get_sheets_client():
-    creds_json = os.environ.get('GOOGLE_CREDENTIALS')
-    if not creds_json:
-        raise ValueError("GOOGLE_CREDENTIALS не е зададена")
-    
-    creds_dict = json.loads(creds_json)
-    scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    return gspread.authorize(creds)
+def normalize_name(name):
+    """Разширена нормализация на имена за по-добро съпоставяне."""
+    name = name.lower()
+    # Премахване на бранд
+    name = re.sub(r'\b(harmonica|хармоника)\b', '', name)
+    name = re.sub(r'\bbio\b|\bбио\b', '', name)
+    # Нормализация на тегловни единици
+    name = re.sub(r'(\d+)\s*ml\b', r'\1мл', name)
+    name = re.sub(r'(\d+)\s*g\b', r'\1г', name)
+    name = re.sub(r'(\d+)\s*kg\b', lambda m: f"{int(m.group(1))*1000}г", name)
+    name = re.sub(r'(\d+)[,.](\d+)\s*(?:кг|kg)\b',
+                  lambda m: f"{int(float(f'{m.group(1)}.{m.group(2)}')*1000)}г", name)
+    # Премахване на пунктуация (запазваме % и цифри)
+    name = re.sub(r'[^\w\s%]', ' ', name)
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name
 
 
-def update_google_sheets(results):
+def extract_keywords(name):
+    """Извлича значими ключови думи от име на продукт."""
+    name = normalize_name(name)
+    keywords = re.findall(r'[а-яa-z]{3,}|\d+(?:г|мл|%|л)?', name)
+    return set(keywords)
+
+
+def extract_weight_grams(name):
+    """Извлича тегло в грамове за сравнение. '400г' → 400, '0.5кг' → 500."""
+    name_lower = name.lower()
+    match = re.search(r'(\d+[.,]?\d*)\s*(г|g|мл|ml|кг|kg|л|l)\b', name_lower)
+    if match:
+        value = float(match.group(1).replace(',', '.'))
+        unit = match.group(2)
+        if unit in ('кг', 'kg', 'л', 'l'):
+            return int(value * 1000)
+        return int(value)
+    return None
+
+
+def match_products(ref_products, store_products):
     """
-    Актуализира Google Sheets с резултатите.
-    
-    Формат v7.7: Двойна валутна поддръжка (BGN + EUR) за преходния период
-    Колони: №, Продукт, Грамаж, Реф.BGN, Реф.EUR, eBag, Кашон, Balev, Metro, Ср.BGN, Ср.EUR, Откл.%, Статус
+    Съпоставяне на референтни (Кашон) продукти с магазинни продукти.
+
+    Scoring:
+    - Базов: брой общи keywords
+    - Грамаж: +3 при съвпадение, HARD REJECT при >2x разлика (400г ≠ 2кг)
+    - Процент: +2 при еднакъв % (напр. 3.6%), -2 при различен %
+    - Минимален праг: пропорционален на размера на keyword set-а
     """
-    spreadsheet_id = os.environ.get('SPREADSHEET_ID')
-    if not spreadsheet_id:
-        logger.error("SPREADSHEET_ID не е зададен")
-        return
-    
-    try:
-        gc = get_sheets_client()
-        spreadsheet = gc.open_by_key(spreadsheet_id)
-        
-       # Използваме suffix за experimental branch
-        main_tab_name = f"Ценови Тракер{SHEET_TAB_SUFFIX}"
-        try:
-            sheet = spreadsheet.worksheet(main_tab_name)
-        except:
-            sheet = spreadsheet.add_worksheet(main_tab_name, rows=30, cols=15)
-        
-        sheet.clear()
-        logger.info("  Лист изчистен")
-        
-        now = datetime.now().strftime("%d.%m.%Y %H:%M")
-        store_names = [s['name_in_sheet'] for s in STORES.values()]
-        
-        all_data = []
-        
-        # Ред 1: Заглавие
-        all_data.append(['HARMONICA - Ценови Тракер v9.1', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
-        
-        # Ред 2: Метаданни
-        all_data.append([
-            f'Актуализация: {now}', '', 
-            f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
-            f'Магазини: {", ".join(store_names)}', '', '', '', '', '', '', '', '', '', '', '', '', ''
-        ])
-        
-        # Ред 3: Празен
-        all_data.append([''] * 18)
-        
-        # Ред 4: Заглавия (18 колони) - BGN е основна, 9 магазина
-        headers = ['№', 'Продукт', 'Грамаж', 'Реф.BGN', 'Реф.EUR', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Randi', 'Bio-Market', 'BeFit', 'Laika', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']
-        all_data.append(headers)
-        
-        # Ред 5+: Данни
-        for i, r in enumerate(results, 1):
-            row = [
-                i,
-                r['name'],
-                r['weight'],
-                r['ref_bgn'],
-                r['ref_eur'],
-                r['prices'].get('eBag', '') or '',
-                r['prices'].get('Kashon', '') or '',
-                r['prices'].get('Balev', '') or '',
-                r['prices'].get('Metro', '') or '',
-                r['prices'].get('Zelen', '') or '',
-                r['prices'].get('Randi', '') or '',
-                r['prices'].get('BioMarket', '') or '',
-                r['prices'].get('BeFit', '') or '',
-                r['prices'].get('Laika', '') or '',
-                r['avg_bgn'] if r['avg_bgn'] else '',
-                r['avg_eur'] if r['avg_eur'] else '',
-                # v9.1: Показваме посоката на максималното отклонение с ↓/↑
-                (f"↓{abs(r['max_deviation'])}%" if r['max_deviation'] < 0 else f"↑{r['max_deviation']}%") if r['max_deviation'] is not None else '',
-                r['status']
-            ]
-            all_data.append(row)
-        
-        sheet.update(values=all_data, range_name='A1')
-        logger.info(f"  ✓ Записани {len(all_data)} реда")
-        
-        # Форматиране v8.7 - 18 колони с 9 магазина
-        # A=№, B=Продукт, C=Грамаж, D=Реф.BGN, E=Реф.EUR, F=eBag, G=Кашон, H=Balev, I=Metro, J=Zelen, K=Randi, L=Bio-Market, M=BeFit, N=Laika, O=Ср.BGN, P=Ср.EUR, Q=Откл.%, R=Статус
-        try:
-            last_row = 4 + len(results)
-            format_requests = []
-            
-            # 0. ИЗЧИСТВАНЕ на форматирането за data редовете (ред 5 до края)
-            # Това гарантира, че старо форматиране от предишни изпълнения няма да остане
-            format_requests.append({
-                "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 0, "endColumnIndex": 18},
-                    "cell": {
-                        "userEnteredFormat": {
-                            "backgroundColor": {"red": 1, "green": 1, "blue": 1},
-                            "textFormat": {"bold": False, "italic": False, "fontSize": 10, "foregroundColor": {"red": 0, "green": 0, "blue": 0}}
-                        }
-                    },
-                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
-                }
-            })
-            
-            # 1. Заглавен ред (A1:R1) - тъмно зелено
-            format_requests.append({
-                "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 18},
-                    "cell": {
-                        "userEnteredFormat": {
-                            "backgroundColor": {"red": 0.13, "green": 0.35, "blue": 0.22},
-                            "textFormat": {"bold": True, "fontSize": 14, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
-                            "horizontalAlignment": "CENTER"
-                        }
-                    },
-                    "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)"
-                }
-            })
-            
-            # 2. Метаданни ред (A2:R2) - светло зелено
-            format_requests.append({
-                "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 0, "endColumnIndex": 18},
-                    "cell": {
-                        "userEnteredFormat": {
-                            "backgroundColor": {"red": 0.92, "green": 0.97, "blue": 0.92},
-                            "textFormat": {"italic": True, "fontSize": 10}
-                        }
-                    },
-                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
-                }
-            })
-            
-            # 3. Заглавия колони A-E (№, Продукт, Грамаж, Реф.BGN, Реф.EUR) - базово зелено
-            format_requests.append({
-                "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 3, "endRowIndex": 4, "startColumnIndex": 0, "endColumnIndex": 5},
-                    "cell": {
-                        "userEnteredFormat": {
-                            "backgroundColor": {"red": 0.2, "green": 0.5, "blue": 0.3},
-                            "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
-                            "horizontalAlignment": "CENTER"
-                        }
-                    },
-                    "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)"
-                }
-            })
-            
-            # 4. Магазини заглавия F-N (9 магазина) - различни нюанси зелено
-            store_colors = [
-                (5, {"red": 0.56, "green": 0.77, "blue": 0.49}),   # F: eBag
-                (6, {"red": 0.42, "green": 0.68, "blue": 0.42}),   # G: Кашон
-                (7, {"red": 0.30, "green": 0.58, "blue": 0.35}),   # H: Balev
-                (8, {"red": 0.20, "green": 0.48, "blue": 0.28}),   # I: Metro
-                (9, {"red": 0.45, "green": 0.70, "blue": 0.55}),   # J: Zelen
-                (10, {"red": 0.35, "green": 0.62, "blue": 0.45}),  # K: Randi
-                (11, {"red": 0.50, "green": 0.73, "blue": 0.52}),  # L: Bio-Market
-                (12, {"red": 0.40, "green": 0.65, "blue": 0.48}),  # M: BeFit
-                (13, {"red": 0.32, "green": 0.60, "blue": 0.40}),  # N: Laika
-            ]
-            for col_idx, bg_color in store_colors:
-                format_requests.append({
-                    "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": 3, "endRowIndex": 4, "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
-                        "cell": {
-                            "userEnteredFormat": {
-                                "backgroundColor": bg_color,
-                                "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
-                                "horizontalAlignment": "CENTER"
-                            }
-                        },
-                        "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)"
-                    }
-                })
-            
-            # 5. Обобщение заглавия O-R (Ср.BGN, Ср.EUR, Откл.%, Статус) - базово зелено
-            format_requests.append({
-                "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 3, "endRowIndex": 4, "startColumnIndex": 14, "endColumnIndex": 18},
-                    "cell": {
-                        "userEnteredFormat": {
-                            "backgroundColor": {"red": 0.2, "green": 0.5, "blue": 0.3},
-                            "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
-                            "horizontalAlignment": "CENTER"
-                        }
-                    },
-                    "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)"
-                }
-            })
-            
-            # 6. Фон на магазин колоните (F-N, 9 магазина) - леки нюанси зелено
-            store_data_colors = [
-                (5, {"red": 0.92, "green": 0.97, "blue": 0.90}),   # F: eBag
-                (6, {"red": 0.88, "green": 0.95, "blue": 0.87}),   # G: Кашон
-                (7, {"red": 0.84, "green": 0.93, "blue": 0.84}),   # H: Balev
-                (8, {"red": 0.80, "green": 0.91, "blue": 0.81}),   # I: Metro
-                (9, {"red": 0.90, "green": 0.96, "blue": 0.88}),   # J: Zelen
-                (10, {"red": 0.86, "green": 0.94, "blue": 0.85}),  # K: Randi
-                (11, {"red": 0.88, "green": 0.95, "blue": 0.86}),  # L: Bio-Market
-                (12, {"red": 0.84, "green": 0.93, "blue": 0.83}),  # M: BeFit
-                (13, {"red": 0.82, "green": 0.92, "blue": 0.82}),  # N: Laika
-            ]
-            for col_idx, bg_color in store_data_colors:
-                format_requests.append({
-                    "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
-                        "cell": {
-                            "userEnteredFormat": {
-                                "backgroundColor": bg_color,
-                                "horizontalAlignment": "RIGHT"
-                            }
-                        },
-                        "fields": "userEnteredFormat(backgroundColor,horizontalAlignment)"
-                    }
-                })
-            
-            # 7. Подравняване на данните
-            # A (№) - център
-            format_requests.append({
-                "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 0, "endColumnIndex": 1},
-                    "cell": {"userEnteredFormat": {"horizontalAlignment": "CENTER"}},
-                    "fields": "userEnteredFormat(horizontalAlignment)"
-                }
-            })
-            # B (Продукт) - ляво
-            format_requests.append({
-                "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 1, "endColumnIndex": 2},
-                    "cell": {"userEnteredFormat": {"horizontalAlignment": "LEFT"}},
-                    "fields": "userEnteredFormat(horizontalAlignment)"
-                }
-            })
-            # C (Грамаж) - център
-            format_requests.append({
-                "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 2, "endColumnIndex": 3},
-                    "cell": {"userEnteredFormat": {"horizontalAlignment": "CENTER"}},
-                    "fields": "userEnteredFormat(horizontalAlignment)"
-                }
-            })
-            # D-E (Реф.BGN, Реф.EUR) - дясно
-            format_requests.append({
-                "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 3, "endColumnIndex": 5},
-                    "cell": {"userEnteredFormat": {"horizontalAlignment": "RIGHT"}},
-                    "fields": "userEnteredFormat(horizontalAlignment)"
-                }
-            })
-            # O-Q (Ср.BGN, Ср.EUR, Откл.%) - дясно
-            format_requests.append({
-                "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 14, "endColumnIndex": 17},
-                    "cell": {"userEnteredFormat": {"horizontalAlignment": "RIGHT"}},
-                    "fields": "userEnteredFormat(horizontalAlignment)"
-                }
-            })
-            # R (Статус) - център
-            format_requests.append({
-                "repeatCell": {
-                    "range": {"sheetId": sheet.id, "startRowIndex": 4, "endRowIndex": last_row, "startColumnIndex": 17, "endColumnIndex": 18},
-                    "cell": {"userEnteredFormat": {"horizontalAlignment": "CENTER"}},
-                    "fields": "userEnteredFormat(horizontalAlignment)"
-                }
-            })
-            
-            # 8. Conditional formatting за статус
-            ok_rows = []
-            warning_rows = []
-            no_data_rows = []
-            
-            for i, r in enumerate(results):
-                row_idx = 4 + i
-                if r['status'] == 'OK':
-                    ok_rows.append(row_idx)
-                elif r['status'] == 'ВНИМАНИЕ':
-                    warning_rows.append(row_idx)
+    matches = {}
+    used_indices = set()
+
+    for ref in ref_products:
+        ref_keywords = extract_keywords(ref["name"])
+        ref_weight = extract_weight_grams(ref["name"])
+        best_match = None
+        best_score = 0
+        best_idx = -1
+
+        # Динамичен минимален праг — поне 40% от keywords трябва да съвпаднат
+        min_threshold = max(2, len(ref_keywords) * 4 // 10)
+
+        for idx, store_prod in enumerate(store_products):
+            if idx in used_indices:
+                continue
+
+            store_keywords = extract_keywords(store_prod["name"])
+            common = ref_keywords & store_keywords
+
+            if not common:
+                continue
+
+            score = len(common)
+
+            # Грамаж: HARD REJECT при >2x разлика (елиминира 400г→2кг грешки)
+            store_weight = extract_weight_grams(store_prod["name"])
+            if ref_weight and store_weight:
+                if ref_weight == store_weight:
+                    score += 3
                 else:
-                    no_data_rows.append(row_idx)
-            
-            # OK редове - зелен статус (колона R=17)
-            for row_idx in ok_rows:
-                format_requests.append({
-                    "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 17, "endColumnIndex": 18},
-                        "cell": {
-                            "userEnteredFormat": {
-                                "backgroundColor": {"red": 0.85, "green": 0.95, "blue": 0.85},
-                                "textFormat": {"bold": True, "foregroundColor": {"red": 0, "green": 0.5, "blue": 0}}
-                            }
-                        },
-                        "fields": "userEnteredFormat(backgroundColor,textFormat)"
-                    }
-                })
-                # Средни цени O-P - светло зелено
-                format_requests.append({
-                    "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 14, "endColumnIndex": 16},
-                        "cell": {
-                            "userEnteredFormat": {
-                                "backgroundColor": {"red": 0.9, "green": 0.97, "blue": 0.9},
-                                "textFormat": {"foregroundColor": {"red": 0.1, "green": 0.4, "blue": 0.1}}
-                            }
-                        },
-                        "fields": "userEnteredFormat(backgroundColor,textFormat)"
-                    }
-                })
-            
-            # ВНИМАНИЕ редове - червен статус и фон
-            for row_idx in warning_rows:
-                # Статус R - червено
-                format_requests.append({
-                    "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 17, "endColumnIndex": 18},
-                        "cell": {
-                            "userEnteredFormat": {
-                                "backgroundColor": {"red": 1, "green": 0.85, "blue": 0.85},
-                                "textFormat": {"bold": True, "foregroundColor": {"red": 0.8, "green": 0, "blue": 0}}
-                            }
-                        },
-                        "fields": "userEnteredFormat(backgroundColor,textFormat)"
-                    }
-                })
-                # Средни цени O-P - светло червено
-                format_requests.append({
-                    "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 14, "endColumnIndex": 16},
-                        "cell": {
-                            "userEnteredFormat": {
-                                "backgroundColor": {"red": 1, "green": 0.92, "blue": 0.92},
-                                "textFormat": {"foregroundColor": {"red": 0.7, "green": 0.1, "blue": 0.1}}
-                            }
-                        },
-                        "fields": "userEnteredFormat(backgroundColor,textFormat)"
-                    }
-                })
-                # Откл.% Q - червен фон
-                format_requests.append({
-                    "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 16, "endColumnIndex": 17},
-                        "cell": {
-                            "userEnteredFormat": {
-                                "backgroundColor": {"red": 1, "green": 0.92, "blue": 0.92},
-                                "textFormat": {"bold": True, "foregroundColor": {"red": 0.7, "green": 0, "blue": 0}}
-                            }
-                        },
-                        "fields": "userEnteredFormat(backgroundColor,textFormat)"
-                    }
-                })
-                # Ред A-E - лек червен фон
-                format_requests.append({
-                    "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 0, "endColumnIndex": 5},
-                        "cell": {
-                            "userEnteredFormat": {
-                                "backgroundColor": {"red": 1, "green": 0.95, "blue": 0.95}
-                            }
-                        },
-                        "fields": "userEnteredFormat(backgroundColor)"
-                    }
-                })
-            
-            # НЯМА ДАННИ редове - сиво
-            for row_idx in no_data_rows:
-                format_requests.append({
-                    "repeatCell": {
-                        "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": 0, "endColumnIndex": 18},
-                        "cell": {
-                            "userEnteredFormat": {
-                                "backgroundColor": {"red": 0.95, "green": 0.95, "blue": 0.95},
-                                "textFormat": {"italic": True, "foregroundColor": {"red": 0.5, "green": 0.5, "blue": 0.5}}
-                            }
-                        },
-                        "fields": "userEnteredFormat(backgroundColor,textFormat)"
-                    }
-                })
-            
-            # 9. v9.0: Оцветяване на клетките с ценови аномалии (>10% отклонение от средната)
-            # Mapping на store keys към column indices
-            store_column_map = {
-                'eBag': 5,       # F
-                'Kashon': 6,    # G
-                'Balev': 7,     # H
-                'Metro': 8,     # I
-                'Zelen': 9,     # J
-                'Randi': 10,    # K
-                'BioMarket': 11, # L
-                'BeFit': 12,    # M
-                'Laika': 13     # N
-            }
-            
-            for i, r in enumerate(results):
-                row_idx = 4 + i
-                store_deviations = r.get('store_deviations', {})
-                
-                for store_key, col_idx in store_column_map.items():
-                    deviation = store_deviations.get(store_key)
-                    if deviation is not None and abs(deviation) > ALERT_THRESHOLD:
-                        if deviation > 0:
-                            # По-скъпо от средната - червено
-                            format_requests.append({
-                                "repeatCell": {
-                                    "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
-                                    "cell": {
-                                        "userEnteredFormat": {
-                                            "backgroundColor": {"red": 1, "green": 0.85, "blue": 0.85},
-                                            "textFormat": {"bold": True, "foregroundColor": {"red": 0.7, "green": 0, "blue": 0}}
-                                        }
-                                    },
-                                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
-                                }
-                            })
-                        else:
-                            # По-евтино от средната - синьо/зелено
-                            format_requests.append({
-                                "repeatCell": {
-                                    "range": {"sheetId": sheet.id, "startRowIndex": row_idx, "endRowIndex": row_idx + 1, "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
-                                    "cell": {
-                                        "userEnteredFormat": {
-                                            "backgroundColor": {"red": 0.85, "green": 0.95, "blue": 1},
-                                            "textFormat": {"bold": True, "foregroundColor": {"red": 0, "green": 0.4, "blue": 0.7}}
-                                        }
-                                    },
-                                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
-                                }
-                            })
-            
-            # 10. Ширини на колоните (18 колони за 9 магазина)
-            column_widths = [
-                (0, 35),    # A: №
-                (1, 270),   # B: Продукт
-                (2, 60),    # C: Грамаж
-                (3, 65),    # D: Реф.BGN
-                (4, 65),    # E: Реф.EUR
-                (5, 50),    # F: eBag
-                (6, 50),    # G: Кашон
-                (7, 50),    # H: Balev
-                (8, 50),    # I: Metro
-                (9, 50),    # J: Zelen
-                (10, 50),   # K: Randi
-                (11, 55),   # L: Bio-Market
-                (12, 50),   # M: BeFit
-                (13, 50),   # N: Laika
-                (14, 60),   # O: Ср.BGN
-                (15, 60),   # P: Ср.EUR
-                (16, 55),   # Q: Откл.%
-                (17, 80),   # R: Статус
-            ]
-            for col_idx, width in column_widths:
-                format_requests.append({
-                    "updateDimensionProperties": {
-                        "range": {"sheetId": sheet.id, "dimension": "COLUMNS", "startIndex": col_idx, "endIndex": col_idx + 1},
-                        "properties": {"pixelSize": width},
-                        "fields": "pixelSize"
-                    }
-                })
-            
-            spreadsheet.batch_update({"requests": format_requests})
-            logger.info(f"  ✓ Форматиране приложено ({len(format_requests)} операции в 1 batch)")
-            
-        except Exception as e:
-            logger.warning(f"  Форматиране предупреждение: {str(e)[:80]}")
-        
-        # История - годишни табове
-        try:
-            current_year = datetime.now().year
-            history_tab_name = f"История_{current_year}{SHEET_TAB_SUFFIX}"
-            
-            try:
-                hist = spreadsheet.worksheet(history_tab_name)
-            except:
-                hist = spreadsheet.add_worksheet(history_tab_name, rows=2000, cols=18)
-                hist.update(values=[['Дата', 'Час', 'Продукт', 'Грамаж', 'eBag', 'Кашон', 'Balev', 'Metro', 'Zelen', 'Randi', 'Bio-Market', 'BeFit', 'Laika', 'Ср.BGN', 'Ср.EUR', 'Откл.%', 'Статус']], range_name='A1')
-                hist.freeze(rows=1)
-                logger.info(f"  ✓ Създаден нов таб '{history_tab_name}'")
-            
-            date_str = datetime.now().strftime("%d.%m.%Y")
-            time_str = datetime.now().strftime("%H:%M")
-            
-            hist_rows = []
-            for r in results:
-                hist_rows.append([
-                    date_str, time_str, r['name'], r['weight'],
-                    r['prices'].get('eBag', '') or '',
-                    r['prices'].get('Kashon', '') or '',
-                    r['prices'].get('Balev', '') or '',
-                    r['prices'].get('Metro', '') or '',
-                    r['prices'].get('Zelen', '') or '',
-                    r['prices'].get('Randi', '') or '',
-                    r['prices'].get('BioMarket', '') or '',
-                    r['prices'].get('BeFit', '') or '',
-                    r['prices'].get('Laika', '') or '',
-                    r['avg_bgn'] if r['avg_bgn'] else '',
-                    r['avg_eur'] if r['avg_eur'] else '',
-                    # v9.1: Посока на отклонението
-                    (f"↓{abs(r['max_deviation'])}%" if r['max_deviation'] < 0 else f"↑{r['max_deviation']}%") if r['max_deviation'] is not None else '',
-                    r['status']
-                ])
-            
-            hist.append_rows(hist_rows, value_input_option='USER_ENTERED')
-            logger.info(f"  ✓ {history_tab_name}: {len(hist_rows)} записа")
-        except Exception as e:
-            logger.error(f"  История грешка: {str(e)[:50]}")
-        
-        logger.info("\n✓ Google Sheets актуализиран")
-        
-    except Exception as e:
-        logger.error(f"\n✗ Грешка: {str(e)}")
+                    weight_ratio = max(ref_weight, store_weight) / min(ref_weight, store_weight)
+                    if weight_ratio > 2.0:
+                        continue  # Hard reject: 400г ≠ 2кг, 200г ≠ 500г
+                    score -= 1  # Мек penalty за близки грамажи (напр. 380г vs 400г)
+
+            # Процентен бонус/penalty (напр. 3,6% мастленост)
+            ref_pct = re.findall(r'(\d+[.,]?\d*)\s*%', ref["name"])
+            store_pct = re.findall(r'(\d+[.,]?\d*)\s*%', store_prod["name"])
+            if ref_pct and store_pct:
+                if ref_pct[0].replace(',', '.') == store_pct[0].replace(',', '.'):
+                    score += 2
+                else:
+                    score -= 2  # Различен % — вероятно друг продукт (2% ≠ 3.6%)
+
+            if score >= min_threshold and score > best_score:
+                best_score = score
+                best_match = store_prod
+                best_idx = idx
+
+        if best_match:
+            matches[ref["name"]] = best_match
+            used_indices.add(best_idx)
+
+    return matches
 
 
 # =============================================================================
-# ИМЕЙЛ
+# CLAUDE PRICE VALIDATION — Sonnet 4.5 за проверка на съмнителни цени
 # =============================================================================
 
-def send_email_report(results, alerts):
+def validate_prices_with_claude(final_products, all_store_keys):
     """
-    Изпраща седмичен имейл отчет - винаги, независимо от резултатите.
-    Използва HTML форматиране за по-добра четимост.
+    Използва Claude Sonnet за валидация на съмнителни цени.
+    Открива outlier-и (>50% отклонение от медианата) и ги изпраща за оценка.
+    Връща final_products с добавени полета 'flagged' и 'claude_note'.
+    """
+    if not ANTHROPIC_AVAILABLE or not ANTHROPIC_API_KEY:
+        logger.warning("Claude валидация пропусната — липсва API ключ или anthropic модул")
+        return final_products, {}
+
+    # 1. Намираме съмнителни цени — сравняваме по EUR
+    suspicious = []
+    for product in final_products:
+        eur_prices = {}
+        for sk in ["kashon"] + list(all_store_keys):
+            data = product.get(sk)
+            if data and data.get("eur") and data["eur"] > 0:
+                eur_prices[sk] = data["eur"]
+
+        if len(eur_prices) < 3:
+            continue
+
+        values = sorted(eur_prices.values())
+        median = values[len(values) // 2]
+
+        for store, price in eur_prices.items():
+            deviation = abs(price - median) / median * 100
+            if deviation > 50:
+                suspicious.append({
+                    "product": product["name"],
+                    "store": store,
+                    "price_eur": price,
+                    "median_eur": round(median, 2),
+                    "deviation_pct": round(deviation, 1),
+                    "all_prices": {k: round(v, 2) for k, v in eur_prices.items()},
+                })
+
+    if not suspicious:
+        logger.info("Claude валидация: няма съмнителни цени (всички в ±50% от медианата)")
+        return final_products, {}
+
+    logger.info(f"Claude валидация: {len(suspicious)} съмнителни цени открити, изпращаме към Sonnet...")
+
+    # 2. Изпращаме batch към Claude Sonnet
+    price_lines = []
+    for i, s in enumerate(suspicious, 1):
+        prices_str = ", ".join(f"{k}={v:.2f}€" for k, v in s["all_prices"].items())
+        price_lines.append(
+            f"{i}. Продукт: \"{s['product']}\"\n"
+            f"   Магазин: {s['store']} → {s['price_eur']:.2f}€ (медиана: {s['median_eur']:.2f}€, "
+            f"отклонение: {s['deviation_pct']:.0f}%)\n"
+            f"   Всички цени: {prices_str}"
+        )
+
+    prompt = f"""Ти си експерт по цените на био храни и напитки в България от марката Хармоника (Harmonica).
+
+Анализирай следните съмнителни цени (в EUR). За всяка реши:
+- "ГРЕШНА" — цената е очевидно грешна (грешен match, грешно извлечена цена, цена за друг продукт или друг грамаж)
+- "ВЯРНА" — цената е реална, макар и различна (промоция, по-висока цена в определен магазин)
+- "СЪМНИТЕЛНА" — не можеш да прецениш със сигурност
+
+Контекст за типични цени в EUR (1 EUR = 1.9558 BGN, фиксиран курс):
+- Кисело мляко 400г: 1.28-1.79€
+- Кисело мляко 2кг: 4.09-6.14€ (затова 4-5€ за 2кг е нормално!)
+- Вафла 30г: 0.46-0.77€
+- Сирене краве 400г: 5.11-7.67€
+- Айран 500мл: 0.77-1.28€
+- Масло 125г: 1.53-2.56€
+- Тахан 250г: 2.56-4.09€
+
+ВАЖНО: Внимавай за грамажа! Ако едни магазини продават 400г, а съмнителната цена може да е за 2кг версия — тя може да е вярна.
+
+Съмнителни цени:
+{chr(10).join(price_lines)}
+
+Отговори САМО в JSON формат (без markdown):
+[
+  {{"index": 1, "verdict": "ГРЕШНА|ВЯРНА|СЪМНИТЕЛНА", "reason": "кратко обяснение", "action": "remove|keep|flag"}},
+  ...
+]"""
+
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        start_t = time.time()
+        # ~150 tokens per verdict + buffer; minimum 2000
+        needed_tokens = max(2000, len(suspicious) * 150 + 500)
+        message = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=needed_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        elapsed = time.time() - start_t
+        response_text = message.content[0].text.strip()
+        logger.info(f"Claude Sonnet отговори за {elapsed:.1f}s ({message.usage.input_tokens} in, "
+                    f"{message.usage.output_tokens} out)")
+
+        # Парсваме JSON
+        # Отстраняваме markdown wrapper ако има
+        if response_text.startswith("```"):
+            response_text = re.sub(r'^```(?:json)?\s*', '', response_text)
+            response_text = re.sub(r'\s*```$', '', response_text)
+
+        try:
+            verdicts = json.loads(response_text)
+        except json.JSONDecodeError:
+            # Truncated JSON — опитваме да спасим валидните verdict-и
+            logger.warning("Claude JSON truncated — опит за частично парсване...")
+            # Намираме последния пълен обект (завършващ на })
+            last_brace = response_text.rfind('}')
+            if last_brace > 0:
+                truncated = response_text[:last_brace + 1]
+                # Затваряме масива
+                if not truncated.rstrip().endswith(']'):
+                    truncated = truncated.rstrip().rstrip(',') + '\n]'
+                try:
+                    verdicts = json.loads(truncated)
+                    logger.info(f"  Спасени {len(verdicts)}/{len(suspicious)} verdict-и от truncated JSON")
+                except json.JSONDecodeError as e2:
+                    logger.error(f"Claude JSON repair неуспешен: {e2}")
+                    logger.error(f"Отговор: {response_text[:500]}")
+                    return final_products, {}
+            else:
+                logger.error(f"Claude JSON грешка: няма валидни verdict-и")
+                logger.error(f"Отговор: {response_text[:500]}")
+                return final_products, {}
+
+    except Exception as e:
+        logger.error(f"Claude API грешка: {e}")
+        return final_products, {}
+
+    # 3. Прилагаме решенията
+    removed_count = 0
+    flagged_count = 0
+    kept_count = 0
+    validation_log = {}
+
+    for verdict in verdicts:
+        idx = verdict.get("index", 0) - 1
+        if idx < 0 or idx >= len(suspicious):
+            continue
+
+        s = suspicious[idx]
+        action = verdict.get("action", "flag")
+        reason = verdict.get("reason", "")
+        verdict_text = verdict.get("verdict", "?")
+
+        log_key = f"{s['product']}|{s['store']}"
+        validation_log[log_key] = {
+            "verdict": verdict_text,
+            "action": action,
+            "reason": reason,
+            "price_eur": s["price_eur"],
+            "median_eur": s["median_eur"],
+        }
+
+        if action == "remove":
+            # Нулираме грешната цена
+            for product in final_products:
+                if product["name"] == s["product"] and product.get(s["store"]):
+                    product[s["store"]] = None
+                    removed_count += 1
+                    logger.info(f"  ✗ ПРЕМАХНАТА: {s['store']} {s['product'][:40]} "
+                                f"({s['price_eur']:.2f}€) — {reason}")
+                    break
+        elif action == "flag":
+            # Маркираме за ръчна проверка
+            for product in final_products:
+                if product["name"] == s["product"] and product.get(s["store"]):
+                    if not product.get("_flags"):
+                        product["_flags"] = []
+                    product["_flags"].append(f"{s['store']}: {reason}")
+                    flagged_count += 1
+                    logger.info(f"  ⚠ ФЛАГ: {s['store']} {s['product'][:40]} "
+                                f"({s['price_eur']:.2f}€) — {reason}")
+                    break
+        else:
+            kept_count += 1
+            logger.info(f"  ✓ OK: {s['store']} {s['product'][:40]} "
+                        f"({s['price_eur']:.2f}€) — {reason}")
+
+    logger.info(f"Claude валидация: {removed_count} премахнати, {flagged_count} флагнати, "
+                f"{kept_count} потвърдени")
+
+    return final_products, validation_log
+
+
+# =============================================================================
+# CRAWLING — с retry и паралелно изпълнение
+# =============================================================================
+
+@retry_async(max_retries=2, backoff_base=3)
+async def crawl_store(crawler, store_key, store_config):
+    """Сканира един магазин с retry при грешка."""
+    store_name = store_config["name"]
+    url = store_config["url"]
+    scroll_times = store_config.get("scroll_times", 5)
+    use_magic = store_config.get("use_magic", False)
+
+    logger.info(f"CRAWLING{'(magic)' if use_magic else ''}: {store_name}")
+
+    scroll_delay = store_config.get("scroll_delay", 1500)
+    scroll_js = ""
+    if scroll_times > 0 and not use_magic:
+        scroll_js = f"""
+        async function scrollPage() {{
+            const step = window.innerHeight || 800;
+            for (let i = 0; i < {scroll_times}; i++) {{
+                window.scrollBy(0, step);
+                await new Promise(r => setTimeout(r, {scroll_delay}));
+            }}
+            // Final: scroll to absolute bottom twice to catch stragglers
+            window.scrollTo(0, document.body.scrollHeight);
+            await new Promise(r => setTimeout(r, {scroll_delay}));
+            window.scrollTo(0, document.body.scrollHeight);
+            await new Promise(r => setTimeout(r, {scroll_delay}));
+        }}
+        await scrollPage();
+        """
+
+    wait_for = store_config.get("wait_for")
+
+    if use_magic:
+        config = CrawlerRunConfig(
+            magic=True,
+            page_timeout=60000,
+            remove_overlay_elements=True,
+            cache_mode=CacheMode.BYPASS,
+        )
+    else:
+        config = CrawlerRunConfig(
+            page_timeout=90000,
+            remove_overlay_elements=True,
+            js_code=scroll_js if scroll_js else None,
+            wait_for=wait_for,
+        )
+
+    start = time.time()
+    result = await crawler.arun(url=url, config=config)
+    elapsed = time.time() - start
+
+    if not result.success:
+        logger.error(f"{store_name}: FAILED — {result.error_message}")
+        return {"success": False, "error": result.error_message}
+
+    logger.info(f"{store_name}: OK {elapsed:.1f}s, {len(result.markdown)} chars")
+
+    return {
+        "success": True,
+        "store_key": store_key,
+        "elapsed": elapsed,
+        "markdown": result.markdown,
+        "html": getattr(result, 'html', None),
+    }
+
+
+async def crawl_all():
+    """Сканира всички магазини паралелно с asyncio.gather."""
+    browser_kwargs = {
+        "headless": True,
+        "viewport_width": 1920,
+        "viewport_height": 1080,
+    }
+    if PROXY_URL:
+        proxy_cfg = _parse_proxy_url(PROXY_URL)
+        browser_kwargs["proxy_config"] = proxy_cfg
+        logger.info(f"Proxy: {proxy_cfg['server']} (user: {proxy_cfg.get('username', 'N/A')})")
+
+    browser_config = BrowserConfig(**browser_kwargs)
+
+    results = {}
+
+    # DM: Firecrawl (primary) в thread pool — стартираме рано
+    dm_firecrawl_future = None
+    dm_config = STORES.get("dm", {})
+    if dm_config and FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY:
+        loop = asyncio.get_event_loop()
+        dm_firecrawl_future = loop.run_in_executor(None, _fetch_dm_via_firecrawl, "harmonica")
+
+    # Randi: Firecrawl (primary) в thread pool — Crawl4AI не улавя JS
+    randi_firecrawl_future = None
+    if "randi" in STORES and FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY:
+        loop = asyncio.get_event_loop()
+        randi_firecrawl_future = loop.run_in_executor(None, _fetch_randi_via_firecrawl)
+
+    # curl_cffi паралелни задачи (DM Algolia fallback, Lilly GraphQL, T-Market)
+    curl_tasks = {}
+
+    # DM Algolia само ако нямаме Firecrawl
+    if not dm_firecrawl_future and dm_config.get("algolia_enabled") and CURL_CFFI_AVAILABLE:
+        curl_tasks["dm"] = asyncio.create_task(fetch_dm_via_algolia("harmonica"))
+
+    if CURL_CFFI_AVAILABLE and "lilly" in STORES:
+        curl_tasks["lilly"] = asyncio.create_task(fetch_lilly_via_curl())
+
+    if CURL_CFFI_AVAILABLE and "tmarket" in STORES:
+        curl_tasks["tmarket"] = asyncio.create_task(fetch_tmarket_via_curl())
+
+    # Crawl4AI задачи (пропускаме stores с curl_cffi/firecrawl path)
+    crawl4ai_ok = False
+    try:
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            crawl4ai_ok = True
+            tasks = {}
+            for key, cfg in STORES.items():
+                if key in curl_tasks:
+                    continue
+                if key == "dm" and dm_firecrawl_future:
+                    continue
+                if key == "randi" and randi_firecrawl_future:
+                    continue
+                if cfg.get("needs_captcha_solver"):
+                    tasks[key] = crawl_with_captcha_solver(crawler, key, cfg)
+                else:
+                    tasks[key] = crawl_store(crawler, key, cfg)
+
+            task_results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+
+            for key, result in zip(tasks.keys(), task_results):
+                if isinstance(result, Exception):
+                    logger.error(f"{key}: Неочаквана грешка — {result}")
+                    results[key] = {"success": False, "error": str(result)}
+                else:
+                    results[key] = result
+    except Exception as e:
+        logger.error(f"Crawl4AI browser launch failed: {e}")
+        logger.warning("Continuing with curl_cffi/Firecrawl stores only")
+        # Mark all Crawl4AI-only stores as failed
+        for key, cfg in STORES.items():
+            if key not in results and key not in curl_tasks:
+                if key == "dm" and dm_firecrawl_future:
+                    continue
+                if key == "randi" and randi_firecrawl_future:
+                    continue
+                results[key] = {"success": False, "error": f"Crawl4AI unavailable: {e}"}
+
+    # curl_cffi резултати с fallback към Crawl4AI
+    for store_key, task in curl_tasks.items():
+        try:
+            curl_result = await task
+            if curl_result.get("success"):
+                results[store_key] = curl_result
+                logger.info(f"{STORES[store_key]['name']}: curl_cffi успех "
+                            f"(method: {curl_result.get('method')})")
+            else:
+                logger.warning(f"{STORES[store_key]['name']}: curl_cffi failed: "
+                               f"{curl_result.get('error')}")
+                if crawl4ai_ok:
+                    logger.info(f"{STORES[store_key]['name']}: fallback към Crawl4AI")
+                    async with AsyncWebCrawler(config=browser_config) as crawler:
+                        cfg = STORES[store_key]
+                        if cfg.get("needs_captcha_solver"):
+                            results[store_key] = await crawl_with_captcha_solver(
+                                crawler, store_key, cfg)
+                        else:
+                            results[store_key] = await crawl_store(
+                                crawler, store_key, cfg)
+                else:
+                    results[store_key] = curl_result
+        except Exception as e:
+            logger.error(f"{STORES[store_key]['name']}: curl_cffi грешка: {e}")
+            results[store_key] = {"success": False, "error": str(e)}
+
+    # DM Firecrawl резултат с fallback към Algolia/curl_cffi
+    if dm_firecrawl_future:
+        try:
+            dm_fc_result = await dm_firecrawl_future
+            if dm_fc_result and dm_fc_result.get("success") and dm_fc_result.get("products"):
+                results["dm"] = dm_fc_result
+                logger.info(f"DM: Firecrawl успех — {len(dm_fc_result['products'])} продукта")
+            else:
+                logger.warning("DM: Firecrawl без продукти — fallback към Algolia/curl_cffi")
+                if dm_config.get("algolia_enabled") and CURL_CFFI_AVAILABLE:
+                    algolia_result = await fetch_dm_via_algolia("harmonica")
+                    results["dm"] = algolia_result
+                elif "dm" not in results:
+                    results["dm"] = {"success": False, "error": "Firecrawl failed, no fallback"}
+        except Exception as e:
+            logger.error(f"DM Firecrawl грешка: {e}")
+            if "dm" not in results:
+                results["dm"] = {"success": False, "error": str(e)}
+
+    # Randi Firecrawl резултат с fallback към Crawl4AI
+    if randi_firecrawl_future:
+        try:
+            randi_fc_result = await randi_firecrawl_future
+            if randi_fc_result and randi_fc_result.get("success") and randi_fc_result.get("products"):
+                results["randi"] = randi_fc_result
+                logger.info(f"Randi: Firecrawl успех — {len(randi_fc_result['products'])} продукта")
+            else:
+                logger.warning("Randi: Firecrawl без продукти")
+                if "randi" not in results and crawl4ai_ok:
+                    logger.info("Randi: fallback към Crawl4AI")
+                    async with AsyncWebCrawler(config=browser_config) as crawler:
+                        results["randi"] = await crawl_store(crawler, "randi", STORES["randi"])
+                elif "randi" not in results:
+                    results["randi"] = {"success": False, "error": "Firecrawl failed, Crawl4AI unavailable"}
+        except Exception as e:
+            logger.error(f"Randi Firecrawl грешка: {e}")
+            if "randi" not in results and crawl4ai_ok:
+                async with AsyncWebCrawler(config=browser_config) as crawler:
+                    results["randi"] = await crawl_store(crawler, "randi", STORES["randi"])
+            elif "randi" not in results:
+                results["randi"] = {"success": False, "error": str(e)}
+
+    # Glovo магазини (паралелно, отделен pipeline)
+    has_glovo_method = (FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY) or \
+                       (GLOVO_AUTH_TOKEN and CURL_CFFI_AVAILABLE)
+    if GLOVO_STORES and has_glovo_method:
+        glovo_results = await fetch_all_glovo_products("harmonica")
+        results.update(glovo_results)
+
+    return results
+
+
+# =============================================================================
+# GOOGLE SHEETS WRITER — универсален, с in_stock сиво форматиране
+# =============================================================================
+
+def extract_weight(name):
+    """Извлича грамаж от име на продукт. Напр. 'Био вафли 40г' → '40г', '1.7 kg' → '1.7kg'"""
+    match = re.search(r'(\d+[.,]?\d*)\s*(г|мл|ml|g|kg|кг|л|l)\b', name, re.IGNORECASE)
+    if match:
+        return f"{match.group(1)}{match.group(2)}"
+    return ""
+
+
+def write_to_sheets(final_products, stats):
+    """
+    Записва данните в Google Sheets.
+    Формат: № | Продукт | Грамаж | Кашон EUR | Кашон BGN(лв) | Store1 EUR | ... | Ср.EUR | Статус
+    Всички цени са в EUR. Кашон BGN е чисто информативна колона (левова равностойност).
+    """
+    if not GSPREAD_AVAILABLE:
+        logger.warning("gspread not available — skipping Sheets write")
+        return False
+
+    SPREADSHEET_NAME = "Harmonica Price Tracker"
+    BASE_TAB = "Ценови Тракер"
+    tab_suffix = os.environ.get("SHEET_TAB_SUFFIX", "")
+    tab_name = f"{BASE_TAB}{tab_suffix}"
+
+    # Магазини без Кашон (те показват само EUR) + Glovo магазини
+    store_columns = [key for key, cfg in STORES.items() if not cfg.get("is_master")]
+    store_columns += list(GLOVO_STORES.keys())
+    store_display_names = {key: cfg["name"] for key, cfg in STORES.items()}
+    store_display_names.update({k: f"Glovo {cfg['name']}" for k, cfg in GLOVO_STORES.items()})
+
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    logger.info(f"Google Sheets: записване в '{tab_name}'")
+    logger.info(f"Магазини: Кашон + {', '.join(store_display_names[s] for s in store_columns)}")
+
+    try:
+        creds_json = os.environ.get("GOOGLE_CREDENTIALS")
+        if creds_json:
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                f.write(creds_json)
+                creds_path = f.name
+            gc = gspread.service_account(filename=creds_path)
+            os.unlink(creds_path)
+        else:
+            gc = gspread.service_account(filename='credentials.json')
+
+        spreadsheet_id = os.environ.get("SPREADSHEET_ID")
+        if spreadsheet_id:
+            spreadsheet = gc.open_by_key(spreadsheet_id)
+        else:
+            spreadsheet = gc.open(SPREADSHEET_NAME)
+
+        try:
+            sheet = spreadsheet.worksheet(tab_name)
+        except gspread.exceptions.WorksheetNotFound:
+            sheet = spreadsheet.add_worksheet(title=tab_name, rows=200, cols=26)
+            logger.info(f"Създаден нов таб: {tab_name}")
+
+        logger.info(f"Свързан с '{tab_name}'")
+
+    except Exception as e:
+        logger.error(f"Google Sheets връзка неуспешна: {e}")
+        return False
+
+    # --- Изграждане на данните ---
+    # Колони: №(0) | Продукт(1) | Грамаж(2) | Кашон EUR(3) | Кашон BGN(лв)(4) | Store1(5) | ... | Ср.EUR | Статус | Откл.%
+    HEADER_ROW = 4           # 1-indexed sheet row (0-indexed: 3)
+    KASHON_EUR_COL = 3       # Кашон EUR (основна)
+    KASHON_BGN_COL = 4       # Кашон BGN (информативна)
+    STORE_COL_START = 5      # Първи external store
+
+    headers = ['№', 'Продукт', 'Грамаж', 'Кашон EUR', 'Кашон BGN(лв)']
+    for store_key in store_columns:
+        headers.append(store_display_names[store_key])
+    headers.extend(['Ср.EUR', 'Статус', 'Откл.%'])
+
+    DEVIATION_COL = len(headers) - 1  # Последната колона
+
+    all_data = []
+
+    all_data.append([f'HARMONICA - Ценови Тракер v10.2'] + [''] * (len(headers) - 1))
+
+    meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
+            f'Магазини: {len(STORES) + len(GLOVO_STORES)}']
+    meta.extend([''] * (len(headers) - len(meta)))
+    all_data.append(meta)
+
+    all_data.append([''] * len(headers))
+    all_data.append(headers)
+
+    # --- Сортиране по категории ---
+    sorted_products = sorted(final_products, key=lambda p: categorize_product(p["name"]))
+
+    out_of_stock_cells = []
+    deviation_cells_high = []   # (row, col) — цена >10% над средната
+    deviation_cells_low = []    # (row, col) — цена >10% под средната
+    category_separator_rows = []  # row indices за форматиране на разделителите
+    new_product_rows = []         # row indices за нови продукти (зелен фон)
+    removed_product_rows = []     # row indices за отпаднали продукти (жълт фон)
+
+    current_category = None
+    product_num = 0
+
+    for product in sorted_products:
+        cat_idx, cat_name = categorize_product(product["name"])
+
+        # Добавяме разделител при нова категория
+        if cat_name != current_category:
+            current_category = cat_name
+            separator_row = ['', cat_name] + [''] * (len(headers) - 2)
+            all_data.append(separator_row)
+            category_separator_rows.append(len(all_data) - 1)  # 0-indexed
+
+        product_num += 1
+
+        # Проследяване на статус за цветово кодиране
+        product_status = product.get("status", "active")
+        row_0idx_status = len(all_data)  # текущ row index за цветово маркиране
+        if product_status == "new":
+            new_product_rows.append(row_0idx_status)
+        elif product_status == "removed":
+            removed_product_rows.append(row_0idx_status)
+
+        kashon = product.get("kashon") or {}
+        kashon_bgn = kashon.get("bgn")
+        kashon_eur = kashon.get("eur")
+
+        row = [
+            product_num,
+            product["name"],
+            extract_weight(product["name"]),
+            kashon_eur if kashon_eur else '',
+            kashon_bgn if kashon_bgn else '',
+        ]
+
+        # Събираме всички EUR цени (включително Кашон) за средната
+        all_prices_eur = []
+        if kashon_eur:
+            all_prices_eur.append(kashon_eur)
+
+        store_prices_info = []  # [(col_index, price_eur)] за deviation check
+
+        # 0-indexed sheet row за текущия продукт
+        row_0idx = len(all_data)
+
+        for col_offset, store_key in enumerate(store_columns):
+            store_data = product.get(store_key)
+            col_index = STORE_COL_START + col_offset
+
+            if store_data:
+                price_eur = store_data.get("eur")
+                row.append(price_eur if price_eur else '')
+
+                if price_eur:
+                    all_prices_eur.append(price_eur)
+                    store_prices_info.append((col_index, price_eur))
+
+                if not store_data.get("in_stock", True):
+                    out_of_stock_cells.append((row_0idx, col_index))
+            else:
+                row.append('')
+
+        # Средна EUR (от ВСИЧКИ магазини, включително Кашон)
+        if all_prices_eur:
+            avg_eur = round(sum(all_prices_eur) / len(all_prices_eur), 2)
+            row.append(avg_eur)
+        else:
+            avg_eur = None
+            row.append('')
+
+        # Статус: в колко магазина е намерен
+        matched_count = sum(1 for s in store_columns if product.get(s))
+        row.append(f"{matched_count}/{len(store_columns)}")
+
+        # Откл.%: максимално процентно отклонение от средната в този ред
+        max_deviation_pct = None
+        if avg_eur and len(all_prices_eur) >= 2:
+            threshold_high = avg_eur * 1.10
+            threshold_low = avg_eur * 0.90
+
+            all_deviations = []
+
+            # Проверяваме Кашон EUR (col 3 — KASHON_EUR_COL)
+            if kashon_eur:
+                dev_pct = ((kashon_eur - avg_eur) / avg_eur) * 100
+                all_deviations.append(dev_pct)
+                if kashon_eur > threshold_high:
+                    deviation_cells_high.append((row_0idx, KASHON_EUR_COL))
+                elif kashon_eur < threshold_low:
+                    deviation_cells_low.append((row_0idx, KASHON_EUR_COL))
+
+            # Проверяваме external магазини
+            for col_idx, price in store_prices_info:
+                dev_pct = ((price - avg_eur) / avg_eur) * 100
+                all_deviations.append(dev_pct)
+                if price > threshold_high:
+                    deviation_cells_high.append((row_0idx, col_idx))
+                elif price < threshold_low:
+                    deviation_cells_low.append((row_0idx, col_idx))
+
+            # Намираме макс. отклонение по абсолютна стойност
+            if all_deviations:
+                max_dev = max(all_deviations, key=abs)
+                max_deviation_pct = round(max_dev, 1)
+
+        if max_deviation_pct is not None:
+            sign = "+" if max_deviation_pct > 0 else ""
+            row.append(f"{sign}{max_deviation_pct}%")
+        else:
+            row.append('')
+
+        all_data.append(row)
+
+    # Добавяме стрелки (↑/↓) в клетките с отклонение
+    for row_idx, col_idx in deviation_cells_high:
+        if HEADER_ROW <= row_idx < len(all_data):
+            val = all_data[row_idx][col_idx]
+            if val and val != '':
+                all_data[row_idx][col_idx] = f"{val} ↑"
+
+    for row_idx, col_idx in deviation_cells_low:
+        if HEADER_ROW <= row_idx < len(all_data):
+            val = all_data[row_idx][col_idx]
+            if val and val != '':
+                all_data[row_idx][col_idx] = f"{val} ↓"
+
+    try:
+        sheet.clear()
+        sheet.update(values=all_data, range_name='A1')
+        logger.info(f"Записани {len(all_data)} реда × {len(headers)} колони")
+    except Exception as e:
+        logger.error(f"Грешка при запис: {e}")
+        return False
+
+    # --- Форматиране ---
+    try:
+        last_row = len(all_data)
+        last_col = len(headers)
+        format_requests = []
+
+        # Заглавен ред
+        format_requests.append({
+            "repeatCell": {
+                "range": {"sheetId": sheet.id,
+                          "startRowIndex": 0, "endRowIndex": 1,
+                          "startColumnIndex": 0, "endColumnIndex": last_col},
+                "cell": {"userEnteredFormat": {
+                    "backgroundColor": {"red": 0.13, "green": 0.35, "blue": 0.22},
+                    "textFormat": {"bold": True, "fontSize": 14,
+                                   "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+                    "horizontalAlignment": "CENTER"
+                }},
+                "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)"
+            }
+        })
+
+        format_requests.append({
+            "mergeCells": {
+                "range": {"sheetId": sheet.id,
+                          "startRowIndex": 0, "endRowIndex": 1,
+                          "startColumnIndex": 0, "endColumnIndex": last_col},
+                "mergeType": "MERGE_ALL"
+            }
+        })
+
+        # Метаданни
+        format_requests.append({
+            "repeatCell": {
+                "range": {"sheetId": sheet.id,
+                          "startRowIndex": 1, "endRowIndex": 2,
+                          "startColumnIndex": 0, "endColumnIndex": last_col},
+                "cell": {"userEnteredFormat": {
+                    "backgroundColor": {"red": 0.92, "green": 0.97, "blue": 0.92},
+                    "textFormat": {"italic": True, "fontSize": 10}
+                }},
+                "fields": "userEnteredFormat(backgroundColor,textFormat)"
+            }
+        })
+
+        # Header
+        format_requests.append({
+            "repeatCell": {
+                "range": {"sheetId": sheet.id,
+                          "startRowIndex": HEADER_ROW - 1, "endRowIndex": HEADER_ROW,
+                          "startColumnIndex": 0, "endColumnIndex": last_col},
+                "cell": {"userEnteredFormat": {
+                    "backgroundColor": {"red": 0.85, "green": 0.92, "blue": 0.85},
+                    "textFormat": {"bold": True, "fontSize": 10},
+                    "horizontalAlignment": "CENTER"
+                }},
+                "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)"
+            }
+        })
+
+        # Ресет: бял фон + черен текст за всички data клетки (изчистваме остатъци)
+        if last_row > HEADER_ROW:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": HEADER_ROW, "endRowIndex": last_row,
+                              "startColumnIndex": 0, "endColumnIndex": last_col},
+                    "cell": {"userEnteredFormat": {
+                        "backgroundColor": {"red": 1, "green": 1, "blue": 1},
+                        "textFormat": {
+                            "foregroundColor": {"red": 0, "green": 0, "blue": 0},
+                            "bold": False, "italic": False, "fontSize": 10,
+                        }
+                    }},
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                }
+            })
+
+        # Категорийни разделители — тъмнозелен фон с бял bold текст
+        for sep_row_idx in category_separator_rows:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": sep_row_idx, "endRowIndex": sep_row_idx + 1,
+                              "startColumnIndex": 0, "endColumnIndex": last_col},
+                    "cell": {"userEnteredFormat": {
+                        "backgroundColor": {"red": 0.18, "green": 0.49, "blue": 0.20},
+                        "textFormat": {"bold": True, "fontSize": 10,
+                                       "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+                    }},
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                }
+            })
+
+        # Ширини
+        col_widths = {0: 35, 1: 250, 2: 55, 3: 80, 4: 80}  # №, Продукт, Грамаж, Кашон EUR, Кашон BGN(лв)
+        for offset in range(len(store_columns)):
+            col_widths[STORE_COL_START + offset] = 80
+        avg_col = STORE_COL_START + len(store_columns)
+        col_widths[avg_col] = 75       # Ср.EUR
+        col_widths[avg_col + 1] = 55   # Статус
+        col_widths[DEVIATION_COL] = 65  # Откл.%
+
+        for col_idx, width in col_widths.items():
+            format_requests.append({
+                "updateDimensionProperties": {
+                    "range": {"sheetId": sheet.id,
+                              "dimension": "COLUMNS",
+                              "startIndex": col_idx, "endIndex": col_idx + 1},
+                    "properties": {"pixelSize": width},
+                    "fields": "pixelSize"
+                }
+            })
+
+        # Сиво форматиране за изчерпани (OOS)
+        for row_idx, col_idx in out_of_stock_cells:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": row_idx, "endRowIndex": row_idx + 1,
+                              "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
+                    "cell": {"userEnteredFormat": {
+                        "textFormat": {
+                            "foregroundColor": {"red": 0.6, "green": 0.6, "blue": 0.6}
+                        }
+                    }},
+                    "fields": "userEnteredFormat.textFormat.foregroundColor"
+                }
+            })
+
+        # Червено (↑) за цени >10% над средната
+        for row_idx, col_idx in deviation_cells_high:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": row_idx, "endRowIndex": row_idx + 1,
+                              "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
+                    "cell": {"userEnteredFormat": {
+                        "backgroundColor": {"red": 0.96, "green": 0.80, "blue": 0.80},
+                        "textFormat": {
+                            "foregroundColor": {"red": 0.7, "green": 0.0, "blue": 0.0},
+                            "bold": True,
+                        }
+                    }},
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                }
+            })
+
+        # Светлосиньо (↓) за цени >10% под средната
+        for row_idx, col_idx in deviation_cells_low:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": row_idx, "endRowIndex": row_idx + 1,
+                              "startColumnIndex": col_idx, "endColumnIndex": col_idx + 1},
+                    "cell": {"userEnteredFormat": {
+                        "backgroundColor": {"red": 0.82, "green": 0.91, "blue": 0.98},
+                        "textFormat": {
+                            "foregroundColor": {"red": 0.0, "green": 0.3, "blue": 0.6},
+                            "bold": True,
+                        }
+                    }},
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                }
+            })
+
+        # Светлозелен фон за нови продукти (добавени при последен sync)
+        for row_idx in new_product_rows:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": row_idx, "endRowIndex": row_idx + 1,
+                              "startColumnIndex": 0, "endColumnIndex": last_col},
+                    "cell": {"userEnteredFormat": {
+                        "backgroundColor": {"red": 0.85, "green": 0.95, "blue": 0.85},
+                        "textFormat": {
+                            "foregroundColor": {"red": 0.1, "green": 0.4, "blue": 0.1},
+                        }
+                    }},
+                    "fields": "userEnteredFormat(backgroundColor,textFormat.foregroundColor)"
+                }
+            })
+
+        # Жълт фон за отпаднали продукти
+        for row_idx in removed_product_rows:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": row_idx, "endRowIndex": row_idx + 1,
+                              "startColumnIndex": 0, "endColumnIndex": last_col},
+                    "cell": {"userEnteredFormat": {
+                        "backgroundColor": {"red": 1.0, "green": 0.95, "blue": 0.80},
+                        "textFormat": {
+                            "foregroundColor": {"red": 0.6, "green": 0.5, "blue": 0.0},
+                            "strikethrough": True,
+                        }
+                    }},
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                }
+            })
+
+        if format_requests:
+            sheet.spreadsheet.batch_update({"requests": format_requests})
+            logger.info(f"Форматиране: {len(format_requests)} заявки")
+            if category_separator_rows:
+                logger.info(f"Категории: {len(category_separator_rows)} разделителни реда")
+            if new_product_rows:
+                logger.info(f"Нови продукти: {len(new_product_rows)} реда (зелен фон)")
+            if removed_product_rows:
+                logger.info(f"Отпаднали продукти: {len(removed_product_rows)} реда (жълт фон)")
+            if out_of_stock_cells:
+                logger.info(f"Сиво форматиране: {len(out_of_stock_cells)} изчерпани клетки")
+            if deviation_cells_high or deviation_cells_low:
+                logger.info(f"Отклонения: {len(deviation_cells_high)} ↑ червени, "
+                            f"{len(deviation_cells_low)} ↓ сини")
+
+        return True
+
+    except Exception as e:
+        logger.warning(f"Форматиране пропуснато (данните са записани): {e}")
+        return True
+
+
+# =============================================================================
+# EMAIL REPORT
+# =============================================================================
+
+def send_email_report(final_products, stats):
+    """
+    Изпраща HTML имейл с обобщение на резултатите от experimental scraper.
     """
     gmail_user = os.environ.get('GMAIL_USER')
     gmail_pass = os.environ.get('GMAIL_APP_PASSWORD')
     recipients = os.environ.get('ALERT_EMAIL', gmail_user)
     spreadsheet_id = os.environ.get('SPREADSHEET_ID', '')
-    
+
     if not gmail_user or not gmail_pass:
-        logger.error("Gmail credentials не са зададени")
+        logger.warning("Gmail credentials не са зададени — пропускане на имейл")
         return
-    
+
+    if not recipients:
+        logger.warning("ALERT_EMAIL не е зададен — пропускане на имейл")
+        return
+
     sheets_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}" if spreadsheet_id else ""
     date_str = datetime.now().strftime("%d.%m.%Y")
     time_str = datetime.now().strftime("%H:%M")
-    
+
     # Статистики
-    total_products = len(results)
-    ok_count = len([r for r in results if r['status'] == 'OK'])
-    warning_count = len(alerts)
-    
+    total_products = len(final_products)
+    store_keys = [key for key, cfg in STORES.items() if not cfg.get("is_master")]
+    store_keys += list(GLOVO_STORES.keys())
+
     # Покритие по магазини
     store_coverage = {}
-    for store_key, store_config in STORES.items():
-        count = len([r for r in results if r['prices'].get(store_key)])
-        store_coverage[store_config['name_in_sheet']] = count
-    
-    # Определяме темата на имейла
+    all_display = {}
+    all_display.update({k: cfg["name"] for k, cfg in STORES.items()})
+    all_display.update({k: f"Glovo {cfg['name']}" for k, cfg in GLOVO_STORES.items()})
+
+    for sk in store_keys:
+        count = len([p for p in final_products if p.get(sk)])
+        store_coverage[all_display.get(sk, sk)] = count
+
+    # Продукти с отклонение >10%
+    alerts = []
+    for p in final_products:
+        all_prices = []
+        kashon = p.get("kashon") or {}
+        if kashon.get("eur"):
+            all_prices.append(kashon["eur"])
+        for sk in store_keys:
+            sd = p.get(sk)
+            if sd and sd.get("eur"):
+                all_prices.append(sd["eur"])
+        if len(all_prices) >= 2:
+            avg = sum(all_prices) / len(all_prices)
+            max_dev = max(((pr - avg) / avg) * 100 for pr in all_prices)
+            min_dev = min(((pr - avg) / avg) * 100 for pr in all_prices)
+            extreme = max_dev if abs(max_dev) >= abs(min_dev) else min_dev
+            if abs(extreme) > 10:
+                alerts.append({"name": p["name"], "deviation": round(extreme, 1)})
+
+    warning_count = len(alerts)
+    ok_count = total_products - warning_count
+
     if warning_count > 0:
-        subject = f"Harmonica Price Tracker: {warning_count} продукта с отклонение над {ALERT_THRESHOLD}%"
+        subject = f"Harmonica: {warning_count} продукта с отклонение >10%"
     else:
-        subject = f"Harmonica Price Tracker: Седмичен отчет - всички цени в норма"
-    
-    # HTML съдържание
-    html_parts = []
-    
-    # Хедър
-    html_parts.append("""
-    <html>
-    <head>
-        <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .header { background-color: #2e7d32; color: white; padding: 20px; text-align: center; }
-            .header h1 { margin: 0; font-size: 24px; }
-            .header p { margin: 5px 0 0 0; font-size: 14px; opacity: 0.9; }
-            .summary { background-color: #f5f5f5; padding: 15px; margin: 20px 0; border-radius: 5px; }
-            .summary h2 { color: #2e7d32; margin-top: 0; font-size: 18px; }
-            .stats { display: flex; justify-content: space-around; text-align: center; margin: 15px 0; }
-            .stat-box { padding: 10px 20px; }
-            .stat-number { font-size: 28px; font-weight: bold; }
-            .stat-label { font-size: 12px; color: #666; }
-            .ok { color: #2e7d32; }
-            .warning { color: #d32f2f; }
-            .alert-section { background-color: #ffebee; border-left: 4px solid #d32f2f; padding: 15px; margin: 20px 0; }
-            .alert-section h2 { color: #d32f2f; margin-top: 0; font-size: 18px; }
-            .product-alert { background-color: white; padding: 12px; margin: 10px 0; border-radius: 4px; }
-            .product-name { font-weight: bold; color: #333; font-size: 15px; }
-            .product-details { color: #666; font-size: 13px; margin-top: 5px; }
-            .deviation { font-weight: bold; }
-            .deviation.positive { color: #d32f2f; }
-            .deviation.negative { color: #2e7d32; }
-            .coverage { margin: 20px 0; }
-            .coverage h2 { color: #2e7d32; font-size: 18px; }
-            .coverage-bar { background-color: #e0e0e0; height: 20px; border-radius: 10px; margin: 5px 0; overflow: hidden; }
-            .coverage-fill { background-color: #4caf50; height: 100%; }
-            .coverage-label { font-size: 13px; color: #666; }
-            .footer { background-color: #f5f5f5; padding: 15px; margin-top: 20px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid #ddd; }
-            .button { display: inline-block; background-color: #2e7d32; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin: 10px 0; }
-        </style>
-    </head>
-    <body>
-    """)
-    
-    # Хедър секция
-    html_parts.append(f"""
-        <div class="header">
-            <h1>HARMONICA Price Tracker</h1>
-            <p>Седмичен отчет за {date_str}</p>
+        subject = f"Harmonica: Всички цени в норма ({total_products} продукта)"
+
+    html = f"""<html><head><style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+        .header {{ background: #2e7d32; color: white; padding: 20px; text-align: center; }}
+        .header h1 {{ margin: 0; font-size: 22px; }}
+        .header p {{ margin: 5px 0 0; font-size: 13px; opacity: 0.9; }}
+        .summary {{ background: #f5f5f5; padding: 15px; margin: 20px; border-radius: 5px; }}
+        .stats {{ display: flex; justify-content: space-around; text-align: center; }}
+        .stat-box {{ padding: 10px; }}
+        .stat-number {{ font-size: 28px; font-weight: bold; }}
+        .stat-label {{ font-size: 12px; color: #666; }}
+        .ok {{ color: #2e7d32; }}
+        .warning {{ color: #d32f2f; }}
+        .alert-section {{ background: #ffebee; border-left: 4px solid #d32f2f; padding: 15px; margin: 20px; }}
+        .coverage {{ margin: 20px; }}
+        .bar-bg {{ background: #e0e0e0; height: 18px; border-radius: 9px; margin: 4px 0; overflow: hidden; }}
+        .bar-fill {{ background: #4caf50; height: 100%; }}
+        .footer {{ background: #f5f5f5; padding: 15px; text-align: center; font-size: 12px; color: #666; }}
+        .button {{ display: inline-block; background: #2e7d32; color: white; padding: 10px 20px;
+                   text-decoration: none; border-radius: 5px; margin: 10px; }}
+    </style></head><body>
+    <div class="header">
+        <h1>HARMONICA Price Tracker</h1>
+        <p>Отчет за {date_str} в {time_str} ч.</p>
+    </div>
+    <div class="summary">
+        <h2 style="color:#2e7d32; margin-top:0;">Обобщение</h2>
+        <div class="stats">
+            <div class="stat-box"><div class="stat-number">{total_products}</div><div class="stat-label">Продукта</div></div>
+            <div class="stat-box"><div class="stat-number ok">{ok_count}</div><div class="stat-label">В норма</div></div>
+            <div class="stat-box"><div class="stat-number warning">{warning_count}</div><div class="stat-label">С отклонение</div></div>
+            <div class="stat-box"><div class="stat-number">{len(STORES)+len(GLOVO_STORES)}</div><div class="stat-label">Магазина</div></div>
         </div>
-    """)
-    
-    # Обобщение
-    html_parts.append(f"""
-        <div class="summary">
-            <h2>Обобщение</h2>
-            <div class="stats">
-                <div class="stat-box">
-                    <div class="stat-number">{total_products}</div>
-                    <div class="stat-label">Продукта</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-number ok">{ok_count}</div>
-                    <div class="stat-label">В норма</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-number warning">{warning_count}</div>
-                    <div class="stat-label">С отклонение</div>
-                </div>
-            </div>
-        </div>
-    """)
-    
-    # Секция с alerts (ако има)
+    </div>"""
+
     if alerts:
-        html_parts.append(f"""
-        <div class="alert-section">
-            <h2>Открити ценови отклонения над {ALERT_THRESHOLD}%</h2>
-        """)
-        
-        for a in alerts:
-            max_dev = a['max_deviation']
-            # v9.1: Използваме стрелки за посоката
-            dev_arrow = "↑" if max_dev > 0 else "↓"
-            dev_class = "positive" if max_dev > 0 else "negative"
-            
-            # v9.1: Показваме магазините с отклонения с ↓/↑ формат
-            prices_text = []
-            store_deviations = a.get('store_deviations', {})
-            for store_key, store_name in [('eBag', 'eBag'), ('Kashon', 'Кашон'), ('Balev', 'Balev'), 
-                                           ('Metro', 'Metro'), ('Zelen', 'Zelen'), ('Randi', 'Randi'),
-                                           ('BioMarket', 'Bio-Market'), ('BeFit', 'BeFit'), ('Laika', 'Laika')]:
-                price = a['prices'].get(store_key)
-                dev = store_deviations.get(store_key)
-                if price:
-                    if dev and abs(dev) > ALERT_THRESHOLD:
-                        # Магазин с аномалия - маркираме със стрелка
-                        arrow = "↑" if dev > 0 else "↓"
-                        color = "#c62828" if dev > 0 else "#1565c0"  # червено за по-скъпо, синьо за по-евтино
-                        prices_text.append(f"<strong style='color: {color};'>{arrow} {store_name}: {price:.2f} ({dev:+.1f}%)</strong>")
-                    else:
-                        prices_text.append(f"{store_name}: {price:.2f}")
-            
-            html_parts.append(f"""
-            <div class="product-alert">
-                <div class="product-name">{a['name']} ({a['weight']})</div>
-                <div class="product-details">
-                    Средна пазарна цена: <strong>{a['avg_bgn']:.2f} лв</strong> | 
-                    Макс. отклонение: <span class="deviation {dev_class}">{dev_arrow}{abs(max_dev):.1f}%</span>
-                </div>
-                <div class="product-details">{' | '.join(prices_text)} лв</div>
-            </div>
-            """)
-        
-        html_parts.append("</div>")
+        html += f'<div class="alert-section"><h2 style="color:#d32f2f;margin-top:0;">Отклонения &gt;10%</h2>'
+        for a in alerts[:15]:
+            arrow = "↑" if a["deviation"] > 0 else "↓"
+            color = "#d32f2f" if a["deviation"] > 0 else "#1565c0"
+            html += f'<p><strong>{a["name"]}</strong>: <span style="color:{color}">{arrow} {abs(a["deviation"]):.1f}%</span></p>'
+        if len(alerts) > 15:
+            html += f'<p><em>... и още {len(alerts)-15} продукта</em></p>'
+        html += '</div>'
     else:
-        html_parts.append("""
-        <div class="summary" style="background-color: #e8f5e9; border-left: 4px solid #2e7d32;">
-            <h2 style="color: #2e7d32;">Всички цени са в норма</h2>
-            <p>Не са открити ценови отклонения над прага от 10%. Всички проследявани продукти се продават на цени, близки до референтните.</p>
-        </div>
-        """)
-    
-    # Покритие по магазини
-    html_parts.append("""
-        <div class="coverage">
-            <h2>Покритие по магазини</h2>
-    """)
-    
+        html += '<div class="summary" style="background:#e8f5e9;border-left:4px solid #2e7d32;margin:20px;"><h2 style="color:#2e7d32;margin-top:0;">Всички цени са в норма</h2></div>'
+
+    html += '<div class="coverage"><h2 style="color:#2e7d32;">Покритие по магазини</h2>'
     for store_name, count in store_coverage.items():
-        percentage = (count / total_products) * 100
-        html_parts.append(f"""
-            <div class="coverage-label"><strong>{store_name}</strong>: {count}/{total_products} продукта ({percentage:.0f}%)</div>
-            <div class="coverage-bar"><div class="coverage-fill" style="width: {percentage}%"></div></div>
-        """)
-    
-    html_parts.append("</div>")
-    
-    # Бутон към Google Sheets
+        pct = (count / total_products * 100) if total_products else 0
+        html += f'<div style="font-size:13px;color:#666;"><strong>{store_name}</strong>: {count}/{total_products} ({pct:.0f}%)</div>'
+        html += f'<div class="bar-bg"><div class="bar-fill" style="width:{pct}%"></div></div>'
+    html += '</div>'
+
     if sheets_url:
-        html_parts.append(f"""
-        <div style="text-align: center; margin: 20px 0;">
-            <a href="{sheets_url}" class="button">Отвори пълния отчет в Google Sheets</a>
-        </div>
-        """)
-    
-    # Футър
-    html_parts.append(f"""
-        <div class="footer">
-            <p><strong>Harmonica Price Tracker v9.1</strong></p>
-            <p>Това съобщение е автоматично генерирано на {date_str} в {time_str} ч.</p>
-        </div>
-    </body>
-    </html>
-    """)
-    
-    html_content = "".join(html_parts)
-    
-    # Изпращане
+        html += f'<div style="text-align:center;margin:20px;"><a href="{sheets_url}" class="button">Отвори в Google Sheets</a></div>'
+
+    html += f'<div class="footer"><p><strong>Harmonica Price Tracker v10.2</strong></p><p>Автоматично генерирано на {date_str} в {time_str} ч.</p></div></body></html>'
+
     try:
         msg = MIMEMultipart('alternative')
         msg['From'] = gmail_user
         msg['To'] = recipients
         msg['Subject'] = subject
-        
-        # Добавяме HTML версия
-        msg.attach(MIMEText(html_content, 'html', 'utf-8'))
-        
+        msg.attach(MIMEText(html, 'html', 'utf-8'))
+
         with smtplib.SMTP('smtp.gmail.com', 587) as server:
             server.starttls()
             server.login(gmail_user, gmail_pass)
             server.send_message(msg)
-        
+
         logger.info(f"Имейл изпратен до {recipients}")
     except Exception as e:
-        logger.error(f"Имейл грешка: {str(e)[:50]}")
+        logger.error(f"Имейл грешка: {str(e)[:80]}")
 
 
 # =============================================================================
 # MAIN
 # =============================================================================
 
-def main():
-    # Определяме режима на работа
-    use_firecrawl = (
-        FIRECRAWL_MODULE_AVAILABLE
-        and is_firecrawl_available()
-        and os.environ.get('SCRAPER_MODE', 'auto') != 'playwright'
-    )
-    mode_name = "Firecrawl" if use_firecrawl else "Playwright"
-    version = "v10.0" if use_firecrawl else "v9.1"
-
+async def main():
     logger.info("=" * 60)
-    logger.info(f"HARMONICA PRICE TRACKER {version}")
-    logger.info("27 продукта, 9 магазина")
-    logger.info(f"Режим: {mode_name}")
-    logger.info("Време: " + datetime.now().strftime('%d.%m.%Y %H:%M'))
-    logger.info("Продукти: " + str(len(PRODUCTS)))
-    logger.info("Магазини: " + str(len(STORES)))
-    logger.info("Базова валута: BGN")
-    logger.info("Claude API: " + ("Наличен" if CLAUDE_AVAILABLE else "Не е наличен"))
-    if CLAUDE_AVAILABLE:
-        logger.info(f"  Фаза 1: {CLAUDE_MODEL_PHASE1.split('-')[1].capitalize()}")
-        logger.info(f"  Фаза 2: {CLAUDE_MODEL_PHASE2.split('-')[1].capitalize()} (с Haiku fallback)")
-    if use_firecrawl:
-        logger.info("Firecrawl: Активен (markdown + Claude анализ)")
+    total_stores = len(STORES) + len(GLOVO_STORES)
+    logger.info(f"HARMONICA PRICE TRACKER v10.2 — {total_stores} магазина")
+    logger.info("=" * 60)
+    logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}, "
+                f"CapSolver: {CAPSOLVER_AVAILABLE}, curl_cffi: {CURL_CFFI_AVAILABLE}")
+    if PROXY_URL:
+        logger.info(f"Proxy: {PROXY_URL[:30]}...")
+    if FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY:
+        logger.info(f"Firecrawl: YES (key: {FIRECRAWL_API_KEY[:8]}...)")
+    elif FIRECRAWL_API_KEY and not FIRECRAWL_AVAILABLE:
+        logger.warning(f"Firecrawl: KEY SET but import FAILED — DM/Randi/Glovo Firecrawl disabled")
+    if GLOVO_AUTH_TOKEN:
+        logger.info(f"Glovo auth: YES (token length: {len(GLOVO_AUTH_TOKEN)})")
+    if not FIRECRAWL_API_KEY and not GLOVO_AUTH_TOKEN:
+        logger.info("Glovo: нито Firecrawl, нито auth — Glovo магазините ще се пропуснат")
+    if ANTHROPIC_AVAILABLE and ANTHROPIC_API_KEY:
+        logger.info(f"Claude: YES ({CLAUDE_MODEL})")
     else:
-        logger.info("Vision: " + ("Активна" if ENABLE_VISUAL_VERIFICATION else "Изключена"))
-        logger.info("Stealth: " + ("Наличен" if STEALTH_AVAILABLE else "Не е наличен"))
-    logger.info("=" * 60)
+        logger.info("Claude: НЕ — ценова валидация изключена")
 
-    results = None
+    if not CRAWL4AI_AVAILABLE:
+        logger.error("Crawl4AI not available!")
+        return
 
-    # Опитваме Firecrawl първо
-    if use_firecrawl:
-        logger.info("\n  [MODE] Използваме Firecrawl API за скрейпване...")
-        results = collect_prices_firecrawl()
+    total_start = time.time()
 
-        if results is None:
-            logger.warning("  [MODE] Firecrawl не успя, fallback към Playwright...")
-            use_firecrawl = False
+    # 0. Зареждане на продуктовия списък от JSON (master list)
+    reference_products = load_product_list()
 
-    # Fallback към Playwright
-    if results is None:
-        logger.info("\n  [MODE] Използваме Playwright за скрейпване...")
-        results = collect_prices()
+    # 1. Crawl — паралелно
+    crawl_results = await crawl_all()
 
-    update_google_sheets(results)
+    # 2. Extract products
+    logger.info("=" * 40 + " EXTRACTING " + "=" * 40)
 
-    # v9.0: Използваме has_anomaly вместо deviation
-    alerts = [r for r in results if r.get('has_anomaly', False)]
+    # Кашон — извличаме за цени + откриване на нови продукти
+    kashon_products = []
+    if crawl_results.get("kashon", {}).get("success"):
+        kashon_products = extract_kashon_products(crawl_results["kashon"]["markdown"])
+        logger.info(f"Кашон: {len(kashon_products)} Harmonica products")
 
-    # Винаги изпращаме имейл отчет
-    send_email_report(results, alerts)
+    # Обновяваме reference list с нови продукти от Кашон
+    if kashon_products and reference_products:
+        reference_products = update_product_list_with_new(reference_products, kashon_products)
+    elif kashon_products and not reference_products:
+        # Fallback: ако JSON липсва, използваме Кашон като master list
+        logger.warning("JSON продуктов файл липсва — използваме Кашон като master list")
+        reference_products = [
+            {"name": kp["name"], "ref_eur": kp.get("eur"), "ref_bgn": kp.get("bgn"),
+             "status": "active", "active": True}
+            for kp in kashon_products
+        ]
 
-    # Обобщение
-    logger.info("\n" + "="*60)
-    logger.info(f"ОБОБЩЕНИЕ (режим: {mode_name})")
-    logger.info("="*60)
+    # eBag
+    ebag_products = []
+    if crawl_results.get("ebag", {}).get("success"):
+        ebag_products = extract_ebag_products(crawl_results["ebag"]["markdown"])
+        logger.info(f"eBag: {len(ebag_products)} Harmonica products")
 
-    for k, cfg in STORES.items():
-        found_products = [r for r in results if r['prices'].get(k)]
-        missing_products = [r for r in results if not r['prices'].get(k)]
-        cnt = len(found_products)
-        logger.info("  " + cfg['name_in_sheet'] + ": " + str(cnt) + "/" + str(len(results)) + " продукта")
+    # Balev
+    balev_products = []
+    if crawl_results.get("balev", {}).get("success"):
+        balev_products = extract_balev_products(crawl_results["balev"]["markdown"])
+        logger.info(f"Balev: {len(balev_products)} Harmonica products")
 
-        # Показваме липсващите продукти ако има такива
-        if missing_products and cnt < len(results):
-            missing_names = [f"#{r['name'][:30]}" for r in missing_products[:5]]
-            logger.info("    Липсват: " + ", ".join(missing_names))
-            if len(missing_products) > 5:
-                logger.info(f"    ... и още {len(missing_products) - 5}")
+    # Lilly Drogerie
+    lilly_products = []
+    lilly_data = crawl_results.get("lilly", {})
+    if lilly_data.get("success"):
+        method = lilly_data.get("method", "unknown")
+        # GraphQL/REST API — продуктите са вече извлечени
+        if lilly_data.get("products"):
+            lilly_products = lilly_data["products"]
+        elif lilly_data.get("html") or lilly_data.get("markdown"):
+            lilly_products = extract_lilly_products(
+                lilly_data.get("markdown", ""),
+                html_text=lilly_data.get("html"),
+            )
+        logger.info(f"Lilly: {len(lilly_products)} Harmonica products (method: {method})")
+        in_stock = sum(1 for p in lilly_products if p.get('in_stock', True))
+        if in_stock < len(lilly_products):
+            logger.info(f"  Налични: {in_stock}, Изчерпани: {len(lilly_products) - in_stock}")
+    elif lilly_data.get("error"):
+        logger.warning(f"Lilly: {lilly_data['error']}")
 
-    total = len([r for r in results if any(r['prices'].values())])
-    ok_count = len([r for r in results if r['status'] == 'OK'])
-    warning_count = len([r for r in results if r['status'] == 'ВНИМАНИЕ'])
-    no_data = len([r for r in results if r['status'] == 'НЯМА ДАННИ'])
+    # DM Bulgaria
+    dm_products = []
+    dm_data = crawl_results.get("dm", {})
+    if dm_data.get("success"):
+        method = dm_data.get("method", "unknown")
+        # Algolia API — продуктите са вече извлечени
+        if dm_data.get("products"):
+            dm_products = dm_data["products"]
+        # curl_cffi HTML или Crawl4AI HTML — парсваме
+        elif dm_data.get("html"):
+            dm_products = extract_dm_from_curl_html(dm_data["html"])
+            if not dm_products:
+                dm_products = extract_dm_products(
+                    dm_data.get("markdown", ""),
+                    html_text=dm_data.get("html"),
+                )
+        elif dm_data.get("markdown"):
+            dm_products = extract_dm_products(dm_data["markdown"])
+        logger.info(f"DM: {len(dm_products)} Harmonica products (method: {method})")
+    elif dm_data.get("error"):
+        logger.warning(f"DM: {dm_data['error']}")
 
-    logger.info("\nОбщо покритие: " + str(total) + "/" + str(len(results)) + " продукта")
-    logger.warning("Статус: " + str(ok_count) + " OK, " + str(warning_count) + " ВНИМАНИЕ, " + str(no_data) + " НЯМА ДАННИ")
-    logger.info("\nГотово!")
+    # T-Market
+    tmarket_products = []
+    tmarket_data = crawl_results.get("tmarket", {})
+    if tmarket_data.get("success"):
+        method = tmarket_data.get("method", "unknown")
+        if tmarket_data.get("html"):
+            tmarket_products = extract_tmarket_products(
+                tmarket_data.get("markdown", ""),
+                html_text=tmarket_data.get("html"),
+                brand_page=STORES["tmarket"].get("brand_page", True),
+            )
+        elif tmarket_data.get("markdown"):
+            tmarket_products = extract_tmarket_products(
+                tmarket_data["markdown"],
+                brand_page=STORES["tmarket"].get("brand_page", True),
+            )
+        logger.info(f"T-Market: {len(tmarket_products)} Harmonica products (method: {method})")
+    elif tmarket_data.get("error"):
+        logger.warning(f"T-Market: {tmarket_data['error']}")
+
+    # Metro — специализиран extractor
+    metro_products = []
+    metro_data = crawl_results.get("metro", {})
+    if metro_data.get("success") and metro_data.get("markdown"):
+        metro_products = extract_metro_products(metro_data["markdown"])
+        if not metro_products:
+            # Fallback към generic
+            metro_products = _extract_generic_products(metro_data["markdown"], brand_page=False)
+        logger.info(f"Metro: {len(metro_products)} Harmonica products")
+    elif metro_data.get("error"):
+        logger.warning(f"Metro: {metro_data['error']}")
+
+    # Randi — специализиран extractor (с Firecrawl или Crawl4AI markdown)
+    randi_products = []
+    randi_data = crawl_results.get("randi", {})
+    if randi_data.get("success"):
+        if randi_data.get("products"):
+            # Firecrawl — продуктите са вече извлечени
+            randi_products = randi_data["products"]
+        elif randi_data.get("markdown"):
+            randi_products = extract_randi_products(randi_data["markdown"])
+            if not randi_products:
+                randi_products = _extract_generic_products(randi_data["markdown"], brand_page=False)
+        method = randi_data.get("method", "crawl4ai")
+        logger.info(f"Randi: {len(randi_products)} Harmonica products (method: {method})")
+    elif randi_data.get("error"):
+        logger.warning(f"Randi: {randi_data['error']}")
+
+    # Останали нови магазини (Zelen, BioMarket, BeFit, Laika) — generic extraction
+    generic_stores = {
+        "zelen": {"products": [], "brand_page": True},
+        "biomarket": {"products": [], "brand_page": True},
+        "befit": {"products": [], "brand_page": True},
+        "laika": {"products": [], "brand_page": True},
+    }
+    for store_key, store_info in generic_stores.items():
+        store_data = crawl_results.get(store_key, {})
+        if store_data.get("success") and store_data.get("markdown"):
+            store_info["products"] = _extract_generic_products(
+                store_data["markdown"],
+                brand_page=store_info["brand_page"],
+            )
+            prods = store_info["products"]
+            logger.info(f"{STORES[store_key]['name']}: {len(prods)} Harmonica products")
+            # Debug: показваме извлечените имена за магазини с малко продукти
+            if len(prods) <= 10:
+                for p in prods:
+                    logger.info(f"  → {p['name'][:60]} = {p.get('eur', '?')}€")
+        elif store_data.get("error"):
+            logger.warning(f"{STORES[store_key]['name']}: {store_data['error']}")
+
+    # Glovo магазини — продуктите са вече извлечени от fetch_all_glovo_products()
+    glovo_all_products = {}
+    for gkey, gconfig in GLOVO_STORES.items():
+        gdata = crawl_results.get(gkey, {})
+        if gdata.get("success") and gdata.get("products"):
+            glovo_all_products[gkey] = gdata["products"]
+            logger.info(f"Glovo {gconfig['name']}: {len(gdata['products'])} Harmonica products "
+                        f"(method: {gdata.get('method')})")
+        elif gdata.get("error"):
+            glovo_all_products[gkey] = []
+            logger.warning(f"Glovo {gconfig['name']}: {gdata['error']}")
+        else:
+            glovo_all_products[gkey] = []
+
+    # 3. Match products
+    logger.info("=" * 40 + " MATCHING " + "=" * 40)
+
+    # Store keys: основни магазини (без Кашон) + Glovo магазини
+    store_keys = [key for key, cfg in STORES.items() if not cfg.get("is_master")]
+    glovo_keys = list(GLOVO_STORES.keys())
+    all_keys = store_keys + glovo_keys
+
+    # Изграждаме final_products от reference list (JSON), не от Кашон crawl
+    final_products = []
+    for ref in reference_products:
+        product = {
+            "name": ref["name"],
+            "kashon": None,
+            "status": ref.get("status", "active"),
+        }
+        for sk in all_keys:
+            product[sk] = None
+        final_products.append(product)
+
+    # Кашон — match-ваме цените от crawl към reference list (EUR + BGN)
+    if kashon_products:
+        kashon_matches = match_products(reference_products, kashon_products)
+        for product in final_products:
+            if product["name"] in kashon_matches:
+                m = kashon_matches[product["name"]]
+                product["kashon"] = {"eur": m["eur"], "bgn": m["bgn"]}
+        kashon_matched = sum(1 for p in final_products if p.get("kashon"))
+        logger.info(f"Кашон цени: {kashon_matched}/{len(reference_products)} matched")
+
+    # Всички магазини и техните продукти
+    all_store_products = {
+        "ebag": ebag_products,
+        "balev": balev_products,
+        "lilly": lilly_products,
+        "dm": dm_products,
+        "tmarket": tmarket_products,
+        "metro": metro_products,
+        "randi": randi_products,
+    }
+    # Добавяме останалите generic магазини
+    for store_key, store_info in generic_stores.items():
+        all_store_products[store_key] = store_info["products"]
+    # Добавяме Glovo магазините
+    all_store_products.update(glovo_all_products)
+
+    # External stores — само EUR цени
+    for store_key, store_prods in all_store_products.items():
+        if not store_prods:
+            continue
+        matches = match_products(reference_products, store_prods)
+        for product in final_products:
+            if product["name"] in matches:
+                m = matches[product["name"]]
+                eur = m.get("eur")
+                bgn = m.get("bgn")
+                if not eur and bgn:
+                    eur = round(bgn / EUR_BGN_RATE, 2)
+                entry = {"eur": eur}
+                if "in_stock" in m:
+                    entry["in_stock"] = m["in_stock"]
+                product[store_key] = entry
+
+    # 3.5. Claude Sonnet ценова валидация
+    logger.info("=" * 40 + " CLAUDE VALIDATION " + "=" * 40)
+    final_products, validation_log = validate_prices_with_claude(final_products, all_keys)
+
+    # 4. Statistics
+    logger.info("=" * 40 + " STATISTICS " + "=" * 40)
+    total_ref = len(reference_products)
+    kashon_count = len([p for p in final_products if p.get("kashon")])
+    new_count = len([p for p in final_products if p.get("status") == "new"])
+    logger.info(f"Референтен списък: {total_ref} продукта ({new_count} нови)")
+    logger.info(f"Кашон цени: {kashon_count}/{total_ref} matched")
+
+    # Всички имена на магазини (обикновени + Glovo)
+    all_display = {}
+    all_display.update({k: cfg["name"] for k, cfg in STORES.items()})
+    all_display.update({k: f"Glovo {cfg['name']}" for k, cfg in GLOVO_STORES.items()})
+
+    store_counts = {}
+    for sk in all_keys:
+        count = len([p for p in final_products if p.get(sk)])
+        store_counts[sk] = count
+        if total_ref:
+            pct = count / total_ref * 100
+            extra = ""
+            if sk == "lilly":
+                oos = len([p for p in final_products
+                           if p.get("lilly") and not p["lilly"].get("in_stock", True)])
+                extra = f" — {oos} изчерпани"
+                store_counts["lilly_oos"] = oos
+            logger.info(f"{all_display.get(sk, sk)}: {count}/{total_ref} ({pct:.0f}%){extra}")
+
+    # Примерни продукти — показваме EUR
+    matched = [p for p in final_products
+               if any(p.get(sk) for sk in all_keys)][:5]
+    for p in matched:
+        parts = [f"{p['name'][:50]}:"]
+        for store in ["kashon"] + all_keys:
+            if p.get(store):
+                eur = p[store].get('eur')
+                parts.append(f"  {store}={'%.2f' % eur if eur else 'N/A'}€")
+        logger.info(" ".join(parts))
+
+    total_time = time.time() - total_start
+
+    # 5. Write to Google Sheets
+    stats = {"total_products": total_ref, "kashon_products": kashon_count}
+    for sk in all_keys:
+        stats[f"{sk}_matches"] = store_counts.get(sk, 0)
+    stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
+    write_to_sheets(final_products, stats)
+
+    # 6. Email report
+    send_email_report(final_products, stats)
+
+    # 7. Save product list (with any new products discovered)
+    if kashon_products:
+        # Обновяваме Кашон цените в reference list
+        kashon_matches = match_products(reference_products, kashon_products)
+        for ref in reference_products:
+            if ref["name"] in kashon_matches:
+                m = kashon_matches[ref["name"]]
+                ref["ref_eur"] = m.get("eur")
+                ref["ref_bgn"] = m.get("bgn")
+        save_product_list(reference_products)
+
+    # 8. Save JSON results
+    json_stats = {"total_products": total_ref, "kashon_products": kashon_count}
+    for sk, prods in all_store_products.items():
+        json_stats[f"{sk}_products"] = len(prods)
+        json_stats[f"{sk}_matches"] = store_counts.get(sk, 0)
+    json_stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
+
+    # Почистваме _flags от final_products за JSON (вътрешни полета)
+    products_for_json = []
+    for p in final_products:
+        clean = {k: v for k, v in p.items() if not k.startswith("_")}
+        products_for_json.append(clean)
+
+    output = {
+        "version": "v10.2",
+        "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        "total_time": round(total_time, 2),
+        "stores": len(STORES) + len(GLOVO_STORES),
+        "stats": json_stats,
+        "claude_validation": validation_log if validation_log else None,
+        "products": products_for_json,
+    }
+
+    try:
+        os.makedirs("data", exist_ok=True)
+        with open("data/results.json", "w", encoding="utf-8") as f:
+            json.dump(output, f, ensure_ascii=False, indent=2)
+        logger.info("Резултати записани в data/results.json")
+    except Exception as e:
+        logger.error(f"Грешка при запис на JSON: {e}")
+
+    logger.info(f"ГОТОВО за {total_time:.1f}s — {len(STORES) + len(GLOVO_STORES)} магазина, "
+                f"{total_ref} продукта ({new_count} нови)")
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

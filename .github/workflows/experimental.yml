@@ -66,6 +66,71 @@ jobs:
           # Инициализация на Crawl4AI
           crawl4ai-setup || true
       
+      - name: 🔍 Smoke test — imports & env vars
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python -c "
+          import sys
+          ok = True
+          warn = False
+
+          # --- Critical imports ---
+          checks = [
+              ('crawl4ai', 'from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode'),
+              ('gspread', 'import gspread'),
+              ('google-auth', 'import google.auth'),
+              ('beautifulsoup4', 'from bs4 import BeautifulSoup'),
+              ('curl_cffi', 'from curl_cffi.requests import AsyncSession'),
+              ('firecrawl-py', 'from firecrawl import FirecrawlApp'),
+              ('anthropic', 'import anthropic'),
+          ]
+          for name, stmt in checks:
+              try:
+                  exec(stmt)
+                  print(f'  ✓ {name}')
+              except ImportError as e:
+                  print(f'  ✗ {name}: {e}')
+                  ok = False
+
+          # --- Firecrawl API verification ---
+          try:
+              from firecrawl import FirecrawlApp
+              assert hasattr(FirecrawlApp, 'scrape_url'), 'FirecrawlApp.scrape_url() missing — wrong version?'
+              print(f'  ✓ FirecrawlApp.scrape_url exists')
+          except Exception as e:
+              print(f'  ✗ Firecrawl API check: {e}')
+              ok = False
+
+          # --- Required env vars ---
+          import os
+          required = ['GOOGLE_CREDENTIALS', 'SPREADSHEET_ID']
+          important = ['FIRECRAWL_API_KEY', 'ANTHROPIC_API_KEY']
+          for var in required:
+              if os.environ.get(var):
+                  print(f'  ✓ {var} set')
+              else:
+                  print(f'  ✗ {var} MISSING (required)')
+                  ok = False
+          for var in important:
+              if os.environ.get(var):
+                  print(f'  ✓ {var} set')
+              else:
+                  print(f'  ⚠ {var} not set (some features disabled)')
+                  warn = True
+
+          if not ok:
+              print('\n❌ Smoke test FAILED — fix import/env errors above')
+              sys.exit(1)
+          elif warn:
+              print('\n⚠ Smoke test PASSED with warnings')
+          else:
+              print('\n✓ Smoke test PASSED')
+          "
+
       - name: ℹ️ Environment info
         env:
           PROXY_URL: ${{ secrets.PROXY_URL }}

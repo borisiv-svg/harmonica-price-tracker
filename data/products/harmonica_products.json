@@ -1,5 +1,5 @@
 {
-  "version": "1.0",
+  "version": "2.0",
   "last_sync": "2026-02-15",
   "source": "kashonharmonica.bg",
   "total_products": 65,
@@ -14,11 +14,12 @@
         "6%",
         "400g"
       ],
-      "ref_eur": null,
+      "ref_eur": 1.4,
       "ref_bgn": 2.74,
       "url_slug": "kiselo-mlyako-36-harmonica-400g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 2,
@@ -29,11 +30,12 @@
         "мляко",
         "400г"
       ],
-      "ref_eur": null,
+      "ref_eur": 1.4,
       "ref_bgn": 2.74,
       "url_slug": "po-kiselo-kiselo-mlyako-harmonika-400g-bio",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 3,
@@ -45,11 +47,12 @@
         "0%",
         "400g"
       ],
-      "ref_eur": null,
+      "ref_eur": 1.4,
       "ref_bgn": 2.74,
       "url_slug": "kiselo-mlyako-harmonica-20-400g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 4,
@@ -59,11 +62,12 @@
         "класика",
         "30 г"
       ],
-      "ref_eur": null,
+      "ref_eur": 1.4,
       "ref_bgn": 2.74,
       "url_slug": "bio-vafla-klasika-30-g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 5,
@@ -73,11 +77,12 @@
         "краве",
         "400g"
       ],
-      "ref_eur": null,
+      "ref_eur": 1.4,
       "ref_bgn": 2.74,
       "url_slug": "sirene-krave-harmonica-400g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 6,
@@ -91,7 +96,8 @@
       "ref_bgn": 4.65,
       "url_slug": "pecheni-bademi-harmonica-80g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 7,
@@ -105,7 +111,8 @@
       "ref_bgn": 5.18,
       "url_slug": "pecheni-leshnici-harmonica-80g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 8,
@@ -119,7 +126,8 @@
       "ref_bgn": 2.2,
       "url_slug": "bio-tunkvana-vafla-chocobiotik-40-g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 9,
@@ -135,7 +143,8 @@
       "ref_bgn": 2.81,
       "url_slug": "smiles-s-nahut-oriz-i-morska-sol-50g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 10,
@@ -151,7 +160,8 @@
       "ref_bgn": 2.81,
       "url_slug": "smiles-s-nahut-oriz-s-kokosovo-maslo-50g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 11,
@@ -165,7 +175,8 @@
       "ref_bgn": 7.88,
       "url_slug": "plnozrnesti-kori-harmonica-400g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 12,
@@ -179,7 +190,8 @@
       "ref_bgn": 14.9,
       "url_slug": "sirop-ot-menta-harmonica-750-ml",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 13,
@@ -193,7 +205,8 @@
       "ref_bgn": 6.64,
       "url_slug": "bio-cherven-domat-500-gr",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 14,
@@ -208,7 +221,8 @@
       "ref_bgn": 8.66,
       "url_slug": "lyutenica-ilievi-no3-harmonica-260g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 15,
@@ -223,7 +237,8 @@
       "ref_bgn": 8.66,
       "url_slug": "lyutenica-hadzhievi-no1-harmonica-260g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 16,
@@ -237,7 +252,8 @@
       "ref_bgn": 1.44,
       "url_slug": "bio-vafla-biotik-30-g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 17,
@@ -251,7 +267,8 @@
       "ref_bgn": 3.56,
       "url_slug": "bio-morkov-0500-kg",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 18,
@@ -265,7 +282,8 @@
       "ref_bgn": 8.39,
       "url_slug": "bio-presen-kartof-1-kg",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 19,
@@ -279,7 +297,8 @@
       "ref_bgn": 5.18,
       "url_slug": "bio-pashchrnak-0300-kg",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 20,
@@ -292,7 +311,8 @@
       "ref_bgn": 6.97,
       "url_slug": "bio-krastavica-1-br",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 21,
@@ -305,7 +325,8 @@
       "ref_bgn": 3.24,
       "url_slug": "bio-salatka-1-br",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 22,
@@ -318,7 +339,8 @@
       "ref_bgn": 2.59,
       "url_slug": "bio-magdanoz-1br",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 23,
@@ -331,7 +353,8 @@
       "ref_bgn": 2.75,
       "url_slug": "bio-repichki-1-vr",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 24,
@@ -345,7 +368,8 @@
       "ref_bgn": 7.0,
       "url_slug": "bio-oveseno-mlyako-1-l",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 25,
@@ -360,7 +384,8 @@
       "ref_bgn": 9.6,
       "url_slug": "bio-chervena-leshcha-17-kg",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 26,
@@ -375,7 +400,8 @@
       "ref_bgn": 18.99,
       "url_slug": "bio-miks-ot-kinoa-17-kg",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 27,
@@ -390,7 +416,8 @@
       "ref_bgn": 18.99,
       "url_slug": "bio-bob-mung-17-kg",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 28,
@@ -404,7 +431,8 @@
       "ref_bgn": 7.49,
       "url_slug": "bio-sladko-ot-yagodi-240gr",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 29,
@@ -418,7 +446,8 @@
       "ref_bgn": 7.49,
       "url_slug": "bio-sladko-ot-malini-240gr",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 30,
@@ -432,7 +461,8 @@
       "ref_bgn": 7.49,
       "url_slug": "bio-sladko-ot-borovinki-240-gr",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 31,
@@ -447,7 +477,8 @@
       "ref_bgn": 2.9,
       "url_slug": "bio-solenki-s-kopr-i-estragon-60-gr",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 32,
@@ -462,7 +493,8 @@
       "ref_bgn": 2.9,
       "url_slug": "bio-solenki-s-domati-i-rigan-60-gr",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 33,
@@ -475,7 +507,8 @@
       "ref_bgn": 3.98,
       "url_slug": "bio-oranzhada-330-ml",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 34,
@@ -489,7 +522,8 @@
       "ref_bgn": 3.43,
       "url_slug": "bio-lokum-roza-140g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 35,
@@ -503,7 +537,8 @@
       "ref_bgn": 3.43,
       "url_slug": "bio-lokum-naturalen-140g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 36,
@@ -518,7 +553,8 @@
       "ref_bgn": 7.26,
       "url_slug": "bio-sok-ot-yablka-i-morkov-750ml",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 37,
@@ -535,7 +571,8 @@
       "ref_bgn": 4.19,
       "url_slug": "bio-obiknoveni-biskviti-s-krave-maslo-i-kakao-150-g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 38,
@@ -549,7 +586,8 @@
       "ref_bgn": 12.15,
       "url_slug": "zelen-chay-s-menta",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 39,
@@ -563,7 +601,8 @@
       "ref_bgn": 13.18,
       "url_slug": "zelen-chay-pukanki",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 40,
@@ -576,7 +615,8 @@
       "ref_bgn": 15.22,
       "url_slug": "byal-chay-silver-tips",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 41,
@@ -591,7 +631,8 @@
       "ref_bgn": 12.15,
       "url_slug": "bio-zelen-chay-mao-feng",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 42,
@@ -607,7 +648,8 @@
       "ref_bgn": 6.71,
       "url_slug": "bio-myusli-ss-smokini-i-chernici-300-gr",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 43,
@@ -622,7 +664,8 @@
       "ref_bgn": 6.71,
       "url_slug": "bio-myusli-s-leshnici-i-bademi-300-gr",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 44,
@@ -637,7 +680,8 @@
       "ref_bgn": 14.45,
       "url_slug": "bio-pasta-rakovini-15-kg",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 45,
@@ -652,7 +696,8 @@
       "ref_bgn": 11.5,
       "url_slug": "bio-pasta-penne-12-kg",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 46,
@@ -666,7 +711,8 @@
       "ref_bgn": 11.5,
       "url_slug": "bio-kuskus-17-kg",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 47,
@@ -679,7 +725,8 @@
       "ref_bgn": 11.5,
       "url_slug": "bio-ketchup-300-gr",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 48,
@@ -694,7 +741,8 @@
       "ref_bgn": 7.26,
       "url_slug": "bio-sok-yablka-i-portokal-750ml",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 49,
@@ -709,7 +757,8 @@
       "ref_bgn": 7.26,
       "url_slug": "bio-sok-yablka-i-limon-750ml",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 50,
@@ -724,7 +773,8 @@
       "ref_bgn": 6.75,
       "url_slug": "bio-sok-ot-zelena-yablka-750ml",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 51,
@@ -738,7 +788,8 @@
       "ref_bgn": 30.0,
       "url_slug": "bio-elda-17-kg",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 52,
@@ -753,7 +804,8 @@
       "ref_bgn": 15.24,
       "url_slug": "bio-kafyava-leshcha-17-kg",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 53,
@@ -768,7 +820,8 @@
       "ref_bgn": 11.17,
       "url_slug": "bio-kafyav-oriz17-kg",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 54,
@@ -783,7 +836,8 @@
       "ref_bgn": 12.36,
       "url_slug": "bio-byal-oriz-17-kg",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 55,
@@ -798,7 +852,8 @@
       "ref_bgn": 3.31,
       "url_slug": "zakvasena-smetana-12-harmonica-200g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 56,
@@ -815,7 +870,8 @@
       "ref_bgn": 4.99,
       "url_slug": "bio-orizovi-topcheta-s-byal-shokolad-i-malina-50g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 57,
@@ -828,7 +884,8 @@
       "ref_bgn": 2.89,
       "url_slug": "ayran-harmonica-500ml",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 58,
@@ -844,7 +901,8 @@
       "ref_bgn": 2.62,
       "url_slug": "bio-tunkvana-vafla-bez-zahar-40g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 59,
@@ -859,7 +917,8 @@
       "ref_bgn": 8.25,
       "url_slug": "bio-slnchogledovo-olio-za-gotvene-500-ml",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 60,
@@ -875,7 +934,8 @@
       "ref_bgn": 4.99,
       "url_slug": "bio-orizovi-topcheta-s-cheren-shokolad-50-g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 61,
@@ -891,7 +951,8 @@
       "ref_bgn": 4.99,
       "url_slug": "bio-orizovi-topcheta-s-mlechen-shokolad-50-g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 62,
@@ -904,7 +965,8 @@
       "ref_bgn": 3.48,
       "url_slug": "bio-limonada-330-ml",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 63,
@@ -920,7 +982,8 @@
       "ref_bgn": 2.5,
       "url_slug": "bio-tnki-pretceli-s-morska-sol-80-gr",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 64,
@@ -934,7 +997,8 @@
       "ref_bgn": 4.77,
       "url_slug": "bio-humus-klasicheski-200gr",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     },
     {
       "id": 65,
@@ -949,7 +1013,8 @@
       "ref_bgn": 2.0,
       "url_slug": "bio-tunkvana-vafla-klasika-40-g",
       "active": true,
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "status": "active"
     }
   ]
 }

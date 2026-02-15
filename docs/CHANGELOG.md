@@ -5,6 +5,88 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v10.1.0 - 2026-02-15
+
+### Добавено
+- **Продуктов списък от JSON** — `harmonica_products.json` е master list; Кашон се краули само за цени, не за списък продукти
+- `load_product_list()` — зарежда активни продукти от `data/products/harmonica_products.json`
+- `update_product_list_with_new()` — открива нови продукти от Кашон и ги маркира с `status: "new"`
+- `save_product_list()` — записва обновения списък обратно в JSON с актуални Кашон цени
+- **Цветово кодиране по статус** в Google Sheets:
+  - Светлозелен фон за нови продукти (добавени при последен sync)
+  - Жълт фон + зачертан текст за отпаднали продукти
+- `status` поле в `harmonica_products.json` — `active`, `new`, `removed`
+
+### Променено
+- **EUR-only цени** — external магазини записват само EUR; BGN се пази единствено за Кашон
+- **Claude валидация** — outlier detection и prompt context преминаха от BGN на EUR
+- Версия обновена от v10.0 на v10.1
+- `harmonica_products.json` — всички `ref_eur: null` стойности изчислени от `ref_bgn / EUR_BGN_RATE`
+- Примерни продукти в лога показват EUR вместо BGN
+- `match_products()` вече matchва спрямо reference list (от JSON), не Кашон crawl
+
+### Технически детайли
+- `PRODUCTS_JSON_PATH` — абсолютен път до `data/products/harmonica_products.json`
+- При всяко изпълнение: JSON → load → crawl Кашон → match prices → discover new → save JSON
+- Fallback: ако JSON липсва, Кашон crawl генерира нов
+- Claude prompt: типични цени конвертирани в EUR (1 EUR = 1.9558 BGN)
+- Store entries: `product["ebag"] = {"eur": X}` вместо `{"eur": X, "bgn": Y}`
+- Kashon entries: `product["kashon"] = {"eur": X, "bgn": Y}` (запазва и двете)
+
+---
+## v10.0.1 - 2026-02-14
+
+### Поправено
+- **Firecrawl import** — `from firecrawl import Firecrawl` е грешно; класът се казва `FirecrawlApp`. Тихо `ImportError` → `FIRECRAWL_AVAILABLE = False`, което блокираше DM, Randi и всички 4 Glovo магазина
+- **Firecrawl API промяна** — `.scrape()` е премахнат в по-новите версии на `firecrawl-py`; правилният метод е `.scrape_url(url, params={...})`. DM и Glovo ползваха стария API, Randi вече беше на новия
+- **Generic extractor за Laika** — block-based разделяне по `\n{2,}` не работеше за сайтове с единични нови редове между продуктите. Цялата страница ставаше един блок → само 1 продукт. Нов `_extract_generic_line_by_line()` fallback решава проблема
+- **Claude валидация JSON truncation** — фиксиран `max_tokens=2000` беше недостатъчен при 38+ съмнителни цени (повече магазини = повече outlier-и). JSON-ът се отрязваше → `JSONDecodeError` → валидацията се пропускаше изцяло
+- **Startup диагностика** — `Firecrawl: YES` проверяваше само `FIRECRAWL_API_KEY`, не `FIRECRAWL_AVAILABLE`. Сега предупреждава ако ключът е зададен, но import-ът е неуспешен
+
+### Променено
+- `max_tokens` за Claude валидация е динамичен: `max(2000, len(suspicious) * 150 + 500)`
+- JSON repair fallback: ако Sonnet върне truncated JSON, парсва частичните verdict-и вместо да пропуска всичко
+- Generic extractor е рефакториран в три функции: `_extract_generic_products()` (orchestrator), `_extract_generic_block_based()`, `_extract_generic_line_by_line()`
+- Context window за line-by-line price extraction стеснен от ±3-8 на ±2-5 реда
+
+### Резултати (преди → след)
+| Магазин | Преди | След |
+|---------|-------|------|
+| DM | 0/88 (0%) | 11/88 (12%) |
+| BeFit | 0/88 (timeout) | 43/88 (49%) |
+| Laika | 0/88 (0%) | 20/88 (23%) |
+| Glovo Kaufland | 0 | 18/88 (20%) |
+| Glovo Billa | 0 | 7/88 (8%) |
+| Glovo CBA | 0 | 11/88 (12%) |
+| Glovo Fantastico | 0 | 49/88 (56%) |
+| Claude валидация | JSON грешка | 16 премахнати, 10 флагнати, 12 OK |
+
+---
+## v9.6.0 - 2026-02-14
+
+### Добавено
+- **Claude Sonnet 4.5 ценова валидация** в experimental scraper — автоматично откриване и оценка на съмнителни цени преди записване в Google Sheets
+- Нова функция `validate_prices_with_claude()` — изпраща batch от outlier цени (>50% отклонение от медианата) към Claude Sonnet за оценка
+- Три типа вердикти: **ГРЕШНА** (автоматично премахната), **ВЯРНА** (запазена), **СЪМНИТЕЛНА** (флагната за ръчна проверка)
+- `ANTHROPIC_API_KEY` environment variable — опционално, без ключ валидацията се пропуска gracefully
+- `CLAUDE_MODEL` константа (`claude-sonnet-4-5-20250929`)
+- `validation_log` в JSON output (`experimental/pilot_results.json`) за одит на всяко решение
+- Anthropic SDK import с graceful fallback (`ANTHROPIC_AVAILABLE` флаг)
+- Claude наличност се логва при стартиране
+
+### Променено
+- Версия обновена от v9.5.0 на v9.6.0
+- JSON output включва `claude_validation` поле
+- Вътрешни `_flags` полета се почистват преди JSON запис
+
+### Технически детайли
+- Валидацията се изпълнява между стъпка 3 (matching) и стъпка 4 (statistics) в `main()`
+- Prompt-ът включва контекст за типични цени на Harmonica продукти в България (2024-2026)
+- Claude оценява дали цената е за правилен грамаж, правилен продукт, или е грешно парсната
+- Грешни цени се нулират (`product[store] = None`) преди statistics и sheets write
+- `anthropic==0.40.0` вече е в requirements.txt (бе неизползван до сега)
+
+---
 ## v9.5.0 - 2026-02-10
 
 ### Добавено
