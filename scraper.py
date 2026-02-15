@@ -1,5 +1,5 @@
 """
-Harmonica Price Tracker v10.1
+Harmonica Price Tracker v10.2
 ==============================
 Unified scraper — async архитектура (Crawl4AI + curl_cffi + Firecrawl).
 Claude Sonnet валидация на outlier цени (EUR).
@@ -338,6 +338,7 @@ FOOD_KEYWORDS = [
     "олио", "оцет", "зехтин", "мед", "чай", "smiles", "топчета",
     "нахут", "хумус", "яйца", "тахан", "фъстъчено",
     "мармалад", "леща", "киноа", "боб", "мунг", "ориз",
+    "гранола", "овесено",
 ]
 
 NON_FOOD_KEYWORDS = [
@@ -570,10 +571,16 @@ def extract_kashon_products(markdown):
             continue
 
         idx = match.end()
-        context = markdown[idx:idx+300]
+        # Търсим цена напред (500 chars) — покрива повече layout варианти
+        context_forward = markdown[idx:idx+500]
+        eur = extract_eur_price(context_forward)
+        bgn = extract_bgn_price(context_forward)
 
-        eur = extract_eur_price(context)
-        bgn = extract_bgn_price(context)
+        # Ако не намерим напред, търсим и назад (150 chars — цената може да е преди линка)
+        if not eur and not bgn:
+            context_back = markdown[max(0, match.start()-150):match.start()]
+            eur = extract_eur_price(context_back)
+            bgn = extract_bgn_price(context_back)
 
         if not eur and bgn:
             eur = round(bgn / EUR_BGN_RATE, 2)
@@ -707,17 +714,15 @@ def _extract_generic_products(markdown, brand_page=False):
     2. Търси блокове с BGN цена (X,XX лв)
     3. Извлича най-подходящия текст като име на продукт
     4. Ако brand_page=True, не проверява за "harmonica" в името
-    5. Ако block-based подход извлече < 3 продукта, пробва line-by-line
+    5. Винаги пробва и двата подхода, взима по-добрия резултат
     """
-    products = _extract_generic_block_based(markdown, brand_page)
+    block_products = _extract_generic_block_based(markdown, brand_page)
+    line_products = _extract_generic_line_by_line(markdown, brand_page)
 
-    # Ако block-based намери малко, пробваме line-by-line (като Metro)
-    if len(products) < 3:
-        line_products = _extract_generic_line_by_line(markdown, brand_page)
-        if len(line_products) > len(products):
-            products = line_products
-
-    return products
+    # Взимаме подхода с повече продукти
+    if len(line_products) > len(block_products):
+        return line_products
+    return block_products
 
 
 def _extract_generic_block_based(markdown, brand_page=False):
@@ -817,6 +822,16 @@ def _extract_generic_line_by_line(markdown, brand_page=False):
                 candidate = img_match.group(1).strip()
                 if is_food_product(candidate):
                     name = candidate
+
+        if not name and brand_page:
+            # Опит 4 (само за brand pages): plain text с food keywords
+            # На brand pages имената може да са без линкове и без грамаж
+            candidate = clean_product_name(line_stripped)
+            if (10 <= len(candidate) <= 150 and
+                    len(re.findall(r'[а-яА-Яa-zA-Z]', candidate)) >= 5 and
+                    is_food_product(candidate) and
+                    not re.match(r'^[\d\s,.€лв]+$', candidate)):  # не е чисто цена
+                name = candidate
 
         if not name:
             continue
@@ -2817,8 +2832,8 @@ def match_products(ref_products, store_products):
 
     Scoring:
     - Базов: брой общи keywords
-    - Грамаж: +3 при съвпадение, -1 при несъвпадение (мек penalty)
-    - Процент: +2 при еднакъв % (напр. 3.6%)
+    - Грамаж: +3 при съвпадение, HARD REJECT при >2x разлика (400г ≠ 2кг)
+    - Процент: +2 при еднакъв % (напр. 3.6%), -2 при различен %
     - Минимален праг: пропорционален на размера на keyword set-а
     """
     matches = {}
@@ -2846,20 +2861,25 @@ def match_products(ref_products, store_products):
 
             score = len(common)
 
-            # Тежестен бонус/наказание (мек penalty за различен грамаж)
+            # Грамаж: HARD REJECT при >2x разлика (елиминира 400г→2кг грешки)
             store_weight = extract_weight_grams(store_prod["name"])
             if ref_weight and store_weight:
                 if ref_weight == store_weight:
                     score += 3
                 else:
-                    score -= 1  # Мек penalty — не убива match-а
+                    weight_ratio = max(ref_weight, store_weight) / min(ref_weight, store_weight)
+                    if weight_ratio > 2.0:
+                        continue  # Hard reject: 400г ≠ 2кг, 200г ≠ 500г
+                    score -= 1  # Мек penalty за близки грамажи (напр. 380г vs 400г)
 
-            # Процентен бонус (напр. 3,6% мастленост)
+            # Процентен бонус/penalty (напр. 3,6% мастленост)
             ref_pct = re.findall(r'(\d+[.,]?\d*)\s*%', ref["name"])
             store_pct = re.findall(r'(\d+[.,]?\d*)\s*%', store_prod["name"])
-            if (ref_pct and store_pct and
-                    ref_pct[0].replace(',', '.') == store_pct[0].replace(',', '.')):
-                score += 2
+            if ref_pct and store_pct:
+                if ref_pct[0].replace(',', '.') == store_pct[0].replace(',', '.'):
+                    score += 2
+                else:
+                    score -= 2  # Различен % — вероятно друг продукт (2% ≠ 3.6%)
 
             if score >= min_threshold and score > best_score:
                 best_score = score
@@ -3306,8 +3326,8 @@ def extract_weight(name):
 def write_to_sheets(final_products, stats):
     """
     Записва данните в Google Sheets.
-    Формат: № | Продукт | Грамаж | Кашон BGN | Кашон EUR | Store1 EUR | ... | Ср.EUR | Статус
-    Кашон показва и BGN и EUR, всички останали магазини — само EUR.
+    Формат: № | Продукт | Грамаж | Кашон EUR | Кашон BGN(лв) | Store1 EUR | ... | Ср.EUR | Статус
+    Всички цени са в EUR. Кашон BGN е чисто информативна колона (левова равностойност).
     """
     if not GSPREAD_AVAILABLE:
         logger.warning("gspread not available — skipping Sheets write")
@@ -3360,12 +3380,13 @@ def write_to_sheets(final_products, stats):
         return False
 
     # --- Изграждане на данните ---
-    # Колони: №(0) | Продукт(1) | Грамаж(2) | Кашон BGN(3) | Кашон EUR(4) | Store1(5) | ... | Ср.EUR | Статус | Откл.%
+    # Колони: №(0) | Продукт(1) | Грамаж(2) | Кашон EUR(3) | Кашон BGN(лв)(4) | Store1(5) | ... | Ср.EUR | Статус | Откл.%
     HEADER_ROW = 4           # 1-indexed sheet row (0-indexed: 3)
-    KASHON_COL_START = 3     # Кашон BGN
+    KASHON_EUR_COL = 3       # Кашон EUR (основна)
+    KASHON_BGN_COL = 4       # Кашон BGN (информативна)
     STORE_COL_START = 5      # Първи external store
 
-    headers = ['№', 'Продукт', 'Грамаж', 'Кашон BGN', 'Кашон EUR']
+    headers = ['№', 'Продукт', 'Грамаж', 'Кашон EUR', 'Кашон BGN(лв)']
     for store_key in store_columns:
         headers.append(store_display_names[store_key])
     headers.extend(['Ср.EUR', 'Статус', 'Откл.%'])
@@ -3374,7 +3395,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер v10.1'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер v10.2'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(STORES) + len(GLOVO_STORES)}']
@@ -3425,8 +3446,8 @@ def write_to_sheets(final_products, stats):
             product_num,
             product["name"],
             extract_weight(product["name"]),
-            kashon_bgn if kashon_bgn else '',
             kashon_eur if kashon_eur else '',
+            kashon_bgn if kashon_bgn else '',
         ]
 
         # Събираме всички EUR цени (включително Кашон) за средната
@@ -3476,14 +3497,14 @@ def write_to_sheets(final_products, stats):
 
             all_deviations = []
 
-            # Проверяваме Кашон EUR (col 4)
+            # Проверяваме Кашон EUR (col 3 — KASHON_EUR_COL)
             if kashon_eur:
                 dev_pct = ((kashon_eur - avg_eur) / avg_eur) * 100
                 all_deviations.append(dev_pct)
                 if kashon_eur > threshold_high:
-                    deviation_cells_high.append((row_0idx, 4))
+                    deviation_cells_high.append((row_0idx, KASHON_EUR_COL))
                 elif kashon_eur < threshold_low:
-                    deviation_cells_low.append((row_0idx, 4))
+                    deviation_cells_low.append((row_0idx, KASHON_EUR_COL))
 
             # Проверяваме external магазини
             for col_idx, price in store_prices_info:
@@ -3623,7 +3644,7 @@ def write_to_sheets(final_products, stats):
             })
 
         # Ширини
-        col_widths = {0: 35, 1: 250, 2: 55, 3: 80, 4: 80}  # №, Продукт, Грамаж, Кашон BGN/EUR
+        col_widths = {0: 35, 1: 250, 2: 55, 3: 80, 4: 80}  # №, Продукт, Грамаж, Кашон EUR, Кашон BGN(лв)
         for offset in range(len(store_columns)):
             col_widths[STORE_COL_START + offset] = 80
         avg_col = STORE_COL_START + len(store_columns)
@@ -3874,7 +3895,7 @@ def send_email_report(final_products, stats):
     if sheets_url:
         html += f'<div style="text-align:center;margin:20px;"><a href="{sheets_url}" class="button">Отвори в Google Sheets</a></div>'
 
-    html += f'<div class="footer"><p><strong>Harmonica Price Tracker v10.1</strong></p><p>Автоматично генерирано на {date_str} в {time_str} ч.</p></div></body></html>'
+    html += f'<div class="footer"><p><strong>Harmonica Price Tracker v10.2</strong></p><p>Автоматично генерирано на {date_str} в {time_str} ч.</p></div></body></html>'
 
     try:
         msg = MIMEMultipart('alternative')
@@ -3900,7 +3921,7 @@ def send_email_report(final_products, stats):
 async def main():
     logger.info("=" * 60)
     total_stores = len(STORES) + len(GLOVO_STORES)
-    logger.info(f"HARMONICA PRICE TRACKER v10.1 — {total_stores} магазина")
+    logger.info(f"HARMONICA PRICE TRACKER v10.2 — {total_stores} магазина")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}, "
@@ -4069,7 +4090,12 @@ async def main():
                 store_data["markdown"],
                 brand_page=store_info["brand_page"],
             )
-            logger.info(f"{STORES[store_key]['name']}: {len(store_info['products'])} Harmonica products")
+            prods = store_info["products"]
+            logger.info(f"{STORES[store_key]['name']}: {len(prods)} Harmonica products")
+            # Debug: показваме извлечените имена за магазини с малко продукти
+            if len(prods) <= 10:
+                for p in prods:
+                    logger.info(f"  → {p['name'][:60]} = {p.get('eur', '?')}€")
         elif store_data.get("error"):
             logger.warning(f"{STORES[store_key]['name']}: {store_data['error']}")
 
@@ -4229,7 +4255,7 @@ async def main():
         products_for_json.append(clean)
 
     output = {
-        "version": "v10.1",
+        "version": "v10.2",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stores": len(STORES) + len(GLOVO_STORES),
