@@ -1,5 +1,5 @@
 # =============================================================================
-# PRODUCTION WORKFLOW - Harmonica Price Tracker v10.0
+# PRODUCTION WORKFLOW - Harmonica Price Tracker v10.2
 # =============================================================================
 # Unified async scraper (Crawl4AI + curl_cffi + Firecrawl + Claude validation).
 # Стартира автоматично всеки понеделник в 05:00 UTC (07:00 българско зимно време).
@@ -11,6 +11,12 @@ on:
   schedule:
     - cron: '0 5 * * 1'
   workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to run scraper from (default: current branch)'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   production-scrape:
@@ -19,6 +25,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref }}
 
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
@@ -106,7 +114,7 @@ jobs:
       - name: Environment info
         run: |
           echo "=========================================="
-          echo "HARMONICA PRICE TRACKER v10.0"
+          echo "HARMONICA PRICE TRACKER v10.2"
           echo "=========================================="
           echo "Python: $(python --version)"
           echo "Branch: $(git branch --show-current)"
