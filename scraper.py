@@ -1,7 +1,7 @@
 """
-Harmonica Price Tracker v10.2
+Harmonica Price Tracker v10.3
 ==============================
-Unified scraper — async архитектура (Crawl4AI + curl_cffi + Firecrawl).
+Unified scraper — Firecrawl-first архитектура (всички магазини през Firecrawl).
 Claude Sonnet валидация на outlier цени (EUR).
 Продуктов списък от harmonica_products.json (месечен sync с Кашон).
 
@@ -1918,6 +1918,135 @@ def _fetch_randi_via_firecrawl():
 
 
 # =============================================================================
+# UNIVERSAL FIRECRAWL FETCH — за всички магазини
+# =============================================================================
+
+def _fetch_store_via_firecrawl(store_key, store_config):
+    """
+    Универсален Firecrawl fetch за произволен магазин.
+    Използва Firecrawl headless browser за рендериране на JS-heavy страници.
+    Синхронна функция — ще се изпълнява в thread pool.
+
+    Връща dict с success, method, markdown, html, elapsed или None при грешка.
+    """
+    if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
+        return None
+
+    store_name = store_config["name"]
+    url = store_config["url"]
+    scroll_times = store_config.get("scroll_times", 5)
+    start = time.time()
+
+    try:
+        app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
+
+        # Изграждаме actions: wait → scroll → wait → scrape
+        actions = [
+            {"type": "wait", "milliseconds": 4000},
+        ]
+        # Scroll серия
+        for _ in range(min(scroll_times, 8)):
+            actions.append({"type": "scroll", "direction": "down"})
+            actions.append({"type": "wait", "milliseconds": 1500})
+        # Финален scroll до дъното
+        actions.append({"type": "scroll", "direction": "down"})
+        actions.append({"type": "wait", "milliseconds": 2000})
+        actions.append({"type": "scrape"})
+
+        result = app.scrape_url(
+            url,
+            params={
+                "formats": ["markdown", "html"],
+                "actions": actions,
+                "timeout": 90000,
+            },
+        )
+        elapsed = time.time() - start
+
+        markdown = ""
+        html = ""
+        if isinstance(result, dict):
+            markdown = result.get("markdown", "")
+            html = result.get("html", "")
+        elif hasattr(result, "markdown"):
+            markdown = result.markdown or ""
+            html = getattr(result, "html", "") or ""
+
+        if not markdown and not html:
+            logger.info(f"{store_name} Firecrawl: празен резултат ({elapsed:.1f}s)")
+            return None
+
+        logger.info(f"{store_name} Firecrawl: OK {elapsed:.1f}s, "
+                     f"{len(markdown)} md chars, {len(html)} html chars")
+
+        return {
+            "success": True,
+            "store_key": store_key,
+            "method": "firecrawl",
+            "markdown": markdown,
+            "html": html,
+            "elapsed": elapsed,
+        }
+
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.warning(f"{store_name} Firecrawl грешка: {e} ({elapsed:.1f}s)")
+        return None
+
+
+def _fetch_lilly_via_firecrawl():
+    """
+    Firecrawl fetch за Lilly — специализиран, защото Lilly е Magento 2 с Hyvä Theme.
+    Опитва да извлече продукти от HTML (JSON-LD, BS4) преди да върне markdown.
+    """
+    if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
+        return None
+
+    store_config = STORES.get("lilly", {})
+    result = _fetch_store_via_firecrawl("lilly", store_config)
+    if not result or not result.get("success"):
+        return result
+
+    # Опитваме да извлечем продукти директно от HTML
+    html = result.get("html", "")
+    markdown = result.get("markdown", "")
+    products = []
+    if html:
+        products = extract_lilly_products(markdown, html_text=html)
+    elif markdown:
+        products = extract_lilly_products(markdown)
+
+    if products:
+        result["products"] = products
+        logger.info(f"Lilly Firecrawl: {len(products)} продукта извлечени")
+
+    return result
+
+
+def _fetch_tmarket_via_firecrawl():
+    """Firecrawl fetch за T-Market — CloudCart + Cloudflare."""
+    if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
+        return None
+
+    store_config = STORES.get("tmarket", {})
+    result = _fetch_store_via_firecrawl("tmarket", store_config)
+    if not result or not result.get("success"):
+        return result
+
+    html = result.get("html", "")
+    markdown = result.get("markdown", "")
+    products = extract_tmarket_products(
+        markdown, html_text=html if html else None,
+        brand_page=store_config.get("brand_page", True),
+    )
+    if products:
+        result["products"] = products
+        logger.info(f"T-Market Firecrawl: {len(products)} продукта извлечени")
+
+    return result
+
+
+# =============================================================================
 # RANDI EXTRACTION
 # =============================================================================
 
@@ -2747,17 +2876,11 @@ async def fetch_all_glovo_products(query="harmonica"):
     if not GLOVO_STORES:
         return {}
 
-    has_firecrawl = FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY
-    has_api = GLOVO_AUTH_TOKEN and CURL_CFFI_AVAILABLE
-
-    if not has_firecrawl and not has_api:
-        logger.warning("Glovo: нито FIRECRAWL_API_KEY, нито GLOVO_AUTH_TOKEN — пропускане")
+    if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
+        logger.warning("Glovo: FIRECRAWL_API_KEY не е зададен — пропускане")
         return {}
 
-    if has_firecrawl:
-        logger.info("Glovo: ще използваме Firecrawl (JS rendering)")
-    elif has_api:
-        logger.info("Glovo: ще използваме API с auth token")
+    logger.info("Glovo: ще използваме Firecrawl (JS rendering)")
 
     tasks = {}
     for store_key, config in GLOVO_STORES.items():
@@ -3153,158 +3276,82 @@ async def crawl_store(crawler, store_key, store_config):
 
 
 async def crawl_all():
-    """Сканира всички магазини паралелно с asyncio.gather."""
-    browser_kwargs = {
-        "headless": True,
-        "viewport_width": 1920,
-        "viewport_height": 1080,
-    }
-    if PROXY_URL:
-        proxy_cfg = _parse_proxy_url(PROXY_URL)
-        browser_kwargs["proxy_config"] = proxy_cfg
-        logger.info(f"Proxy: {proxy_cfg['server']} (user: {proxy_cfg.get('username', 'N/A')})")
-
-    browser_config = BrowserConfig(**browser_kwargs)
+    """
+    Сканира всички магазини паралелно чрез Firecrawl.
+    Всички магазини минават през Firecrawl — без proxy, Crawl4AI или curl_cffi.
+    """
+    if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
+        logger.error("Firecrawl не е наличен! Задайте FIRECRAWL_API_KEY.")
+        return {}
 
     results = {}
+    loop = asyncio.get_event_loop()
 
-    # DM: Firecrawl (primary) в thread pool — стартираме рано
-    dm_firecrawl_future = None
-    dm_config = STORES.get("dm", {})
-    if dm_config and FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY:
-        loop = asyncio.get_event_loop()
-        dm_firecrawl_future = loop.run_in_executor(None, _fetch_dm_via_firecrawl, "harmonica")
+    # ==========================================================================
+    # Стартираме ВСИЧКИ Firecrawl задачи паралелно в thread pool
+    # ==========================================================================
+    firecrawl_futures = {}
 
-    # Randi: Firecrawl (primary) в thread pool — Crawl4AI не улавя JS
-    randi_firecrawl_future = None
-    if "randi" in STORES and FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY:
-        loop = asyncio.get_event_loop()
-        randi_firecrawl_future = loop.run_in_executor(None, _fetch_randi_via_firecrawl)
+    # DM — специализиран Firecrawl (с Algolia извличане)
+    if "dm" in STORES:
+        firecrawl_futures["dm"] = loop.run_in_executor(
+            None, _fetch_dm_via_firecrawl, "harmonica")
 
-    # curl_cffi паралелни задачи (DM Algolia fallback, Lilly GraphQL, T-Market)
-    curl_tasks = {}
+    # Randi — специализиран Firecrawl (JS-heavy)
+    if "randi" in STORES:
+        firecrawl_futures["randi"] = loop.run_in_executor(
+            None, _fetch_randi_via_firecrawl)
 
-    # DM Algolia само ако нямаме Firecrawl
-    if not dm_firecrawl_future and dm_config.get("algolia_enabled") and CURL_CFFI_AVAILABLE:
-        curl_tasks["dm"] = asyncio.create_task(fetch_dm_via_algolia("harmonica"))
+    # Lilly — специализиран Firecrawl (Magento 2 + Hyvä)
+    if "lilly" in STORES:
+        firecrawl_futures["lilly"] = loop.run_in_executor(
+            None, _fetch_lilly_via_firecrawl)
 
-    if CURL_CFFI_AVAILABLE and "lilly" in STORES:
-        curl_tasks["lilly"] = asyncio.create_task(fetch_lilly_via_curl())
+    # T-Market — специализиран Firecrawl (CloudCart + Cloudflare)
+    if "tmarket" in STORES:
+        firecrawl_futures["tmarket"] = loop.run_in_executor(
+            None, _fetch_tmarket_via_firecrawl)
 
-    if CURL_CFFI_AVAILABLE and "tmarket" in STORES:
-        curl_tasks["tmarket"] = asyncio.create_task(fetch_tmarket_via_curl())
+    # Останалите магазини — универсален Firecrawl fetch
+    generic_firecrawl_stores = [
+        "kashon", "ebag", "balev", "metro", "zelen", "biomarket", "befit", "laika",
+    ]
+    for store_key in generic_firecrawl_stores:
+        if store_key in STORES:
+            cfg = STORES[store_key]
+            firecrawl_futures[store_key] = loop.run_in_executor(
+                None, _fetch_store_via_firecrawl, store_key, cfg)
 
-    # Crawl4AI задачи (пропускаме stores с curl_cffi/firecrawl path)
-    crawl4ai_ok = False
-    try:
-        async with AsyncWebCrawler(config=browser_config) as crawler:
-            crawl4ai_ok = True
-            tasks = {}
-            for key, cfg in STORES.items():
-                if key in curl_tasks:
-                    continue
-                if key == "dm" and dm_firecrawl_future:
-                    continue
-                if key == "randi" and randi_firecrawl_future:
-                    continue
-                if cfg.get("needs_captcha_solver"):
-                    tasks[key] = crawl_with_captcha_solver(crawler, key, cfg)
-                else:
-                    tasks[key] = crawl_store(crawler, key, cfg)
-
-            task_results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-
-            for key, result in zip(tasks.keys(), task_results):
-                if isinstance(result, Exception):
-                    logger.error(f"{key}: Неочаквана грешка — {result}")
-                    results[key] = {"success": False, "error": str(result)}
-                else:
-                    results[key] = result
-    except Exception as e:
-        logger.error(f"Crawl4AI browser launch failed: {e}")
-        logger.warning("Continuing with curl_cffi/Firecrawl stores only")
-        # Mark all Crawl4AI-only stores as failed
-        for key, cfg in STORES.items():
-            if key not in results and key not in curl_tasks:
-                if key == "dm" and dm_firecrawl_future:
-                    continue
-                if key == "randi" and randi_firecrawl_future:
-                    continue
-                results[key] = {"success": False, "error": f"Crawl4AI unavailable: {e}"}
-
-    # curl_cffi резултати с fallback към Crawl4AI
-    for store_key, task in curl_tasks.items():
+    # ==========================================================================
+    # Събираме резултати от всички Firecrawl задачи
+    # ==========================================================================
+    for store_key, future in firecrawl_futures.items():
+        store_name = STORES.get(store_key, {}).get("name", store_key)
         try:
-            curl_result = await task
-            if curl_result.get("success"):
-                results[store_key] = curl_result
-                logger.info(f"{STORES[store_key]['name']}: curl_cffi успех "
-                            f"(method: {curl_result.get('method')})")
-            else:
-                logger.warning(f"{STORES[store_key]['name']}: curl_cffi failed: "
-                               f"{curl_result.get('error')}")
-                if crawl4ai_ok:
-                    logger.info(f"{STORES[store_key]['name']}: fallback към Crawl4AI")
-                    async with AsyncWebCrawler(config=browser_config) as crawler:
-                        cfg = STORES[store_key]
-                        if cfg.get("needs_captcha_solver"):
-                            results[store_key] = await crawl_with_captcha_solver(
-                                crawler, store_key, cfg)
-                        else:
-                            results[store_key] = await crawl_store(
-                                crawler, store_key, cfg)
+            fc_result = await future
+            if fc_result and fc_result.get("success"):
+                results[store_key] = fc_result
+                products = fc_result.get("products", [])
+                if products:
+                    logger.info(f"{store_name}: Firecrawl успех — "
+                                f"{len(products)} продукта")
                 else:
-                    results[store_key] = curl_result
+                    logger.info(f"{store_name}: Firecrawl успех — "
+                                f"markdown/html получен")
+            else:
+                logger.warning(f"{store_name}: Firecrawl неуспешен")
+                results[store_key] = fc_result or {
+                    "success": False,
+                    "error": "Firecrawl returned None",
+                }
         except Exception as e:
-            logger.error(f"{STORES[store_key]['name']}: curl_cffi грешка: {e}")
+            logger.error(f"{store_name}: Firecrawl грешка — {e}")
             results[store_key] = {"success": False, "error": str(e)}
 
-    # DM Firecrawl резултат с fallback към Algolia/curl_cffi
-    if dm_firecrawl_future:
-        try:
-            dm_fc_result = await dm_firecrawl_future
-            if dm_fc_result and dm_fc_result.get("success") and dm_fc_result.get("products"):
-                results["dm"] = dm_fc_result
-                logger.info(f"DM: Firecrawl успех — {len(dm_fc_result['products'])} продукта")
-            else:
-                logger.warning("DM: Firecrawl без продукти — fallback към Algolia/curl_cffi")
-                if dm_config.get("algolia_enabled") and CURL_CFFI_AVAILABLE:
-                    algolia_result = await fetch_dm_via_algolia("harmonica")
-                    results["dm"] = algolia_result
-                elif "dm" not in results:
-                    results["dm"] = {"success": False, "error": "Firecrawl failed, no fallback"}
-        except Exception as e:
-            logger.error(f"DM Firecrawl грешка: {e}")
-            if "dm" not in results:
-                results["dm"] = {"success": False, "error": str(e)}
-
-    # Randi Firecrawl резултат с fallback към Crawl4AI
-    if randi_firecrawl_future:
-        try:
-            randi_fc_result = await randi_firecrawl_future
-            if randi_fc_result and randi_fc_result.get("success") and randi_fc_result.get("products"):
-                results["randi"] = randi_fc_result
-                logger.info(f"Randi: Firecrawl успех — {len(randi_fc_result['products'])} продукта")
-            else:
-                logger.warning("Randi: Firecrawl без продукти")
-                if "randi" not in results and crawl4ai_ok:
-                    logger.info("Randi: fallback към Crawl4AI")
-                    async with AsyncWebCrawler(config=browser_config) as crawler:
-                        results["randi"] = await crawl_store(crawler, "randi", STORES["randi"])
-                elif "randi" not in results:
-                    results["randi"] = {"success": False, "error": "Firecrawl failed, Crawl4AI unavailable"}
-        except Exception as e:
-            logger.error(f"Randi Firecrawl грешка: {e}")
-            if "randi" not in results and crawl4ai_ok:
-                async with AsyncWebCrawler(config=browser_config) as crawler:
-                    results["randi"] = await crawl_store(crawler, "randi", STORES["randi"])
-            elif "randi" not in results:
-                results["randi"] = {"success": False, "error": str(e)}
-
-    # Glovo магазини (паралелно, отделен pipeline)
-    has_glovo_method = (FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY) or \
-                       (GLOVO_AUTH_TOKEN and CURL_CFFI_AVAILABLE)
-    if GLOVO_STORES and has_glovo_method:
+    # ==========================================================================
+    # Glovo магазини (паралелно, отделен Firecrawl pipeline)
+    # ==========================================================================
+    if GLOVO_STORES:
         glovo_results = await fetch_all_glovo_products("harmonica")
         results.update(glovo_results)
 
@@ -3395,7 +3442,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер v10.2'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер v10.3'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(STORES) + len(GLOVO_STORES)}']
@@ -3895,7 +3942,7 @@ def send_email_report(final_products, stats):
     if sheets_url:
         html += f'<div style="text-align:center;margin:20px;"><a href="{sheets_url}" class="button">Отвори в Google Sheets</a></div>'
 
-    html += f'<div class="footer"><p><strong>Harmonica Price Tracker v10.2</strong></p><p>Автоматично генерирано на {date_str} в {time_str} ч.</p></div></body></html>'
+    html += f'<div class="footer"><p><strong>Harmonica Price Tracker v10.3</strong></p><p>Автоматично генерирано на {date_str} в {time_str} ч.</p></div></body></html>'
 
     try:
         msg = MIMEMultipart('alternative')
@@ -3921,28 +3968,23 @@ def send_email_report(final_products, stats):
 async def main():
     logger.info("=" * 60)
     total_stores = len(STORES) + len(GLOVO_STORES)
-    logger.info(f"HARMONICA PRICE TRACKER v10.2 — {total_stores} магазина")
+    logger.info(f"HARMONICA PRICE TRACKER v10.3 — {total_stores} магазина (Firecrawl-first)")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}, "
-                f"CapSolver: {CAPSOLVER_AVAILABLE}, curl_cffi: {CURL_CFFI_AVAILABLE}")
-    if PROXY_URL:
-        logger.info(f"Proxy: {PROXY_URL[:30]}...")
+    logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}")
     if FIRECRAWL_AVAILABLE and FIRECRAWL_API_KEY:
         logger.info(f"Firecrawl: YES (key: {FIRECRAWL_API_KEY[:8]}...)")
-    elif FIRECRAWL_API_KEY and not FIRECRAWL_AVAILABLE:
-        logger.warning(f"Firecrawl: KEY SET but import FAILED — DM/Randi/Glovo Firecrawl disabled")
-    if GLOVO_AUTH_TOKEN:
-        logger.info(f"Glovo auth: YES (token length: {len(GLOVO_AUTH_TOKEN)})")
-    if not FIRECRAWL_API_KEY and not GLOVO_AUTH_TOKEN:
-        logger.info("Glovo: нито Firecrawl, нито auth — Glovo магазините ще се пропуснат")
+    elif not FIRECRAWL_AVAILABLE:
+        logger.error("Firecrawl: NOT AVAILABLE — scraper cannot run without Firecrawl!")
+    elif not FIRECRAWL_API_KEY:
+        logger.error("Firecrawl: API KEY NOT SET — set FIRECRAWL_API_KEY env variable!")
     if ANTHROPIC_AVAILABLE and ANTHROPIC_API_KEY:
         logger.info(f"Claude: YES ({CLAUDE_MODEL})")
     else:
         logger.info("Claude: НЕ — ценова валидация изключена")
 
-    if not CRAWL4AI_AVAILABLE:
-        logger.error("Crawl4AI not available!")
+    if not FIRECRAWL_AVAILABLE or not FIRECRAWL_API_KEY:
+        logger.error("Firecrawl е задължителен за v10.3! Инсталирайте firecrawl и задайте FIRECRAWL_API_KEY.")
         return
 
     total_start = time.time()
@@ -4255,7 +4297,7 @@ async def main():
         products_for_json.append(clean)
 
     output = {
-        "version": "v10.2",
+        "version": "v10.3",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stores": len(STORES) + len(GLOVO_STORES),
