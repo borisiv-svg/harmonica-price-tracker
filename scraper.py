@@ -3804,6 +3804,16 @@ def write_to_sheets(final_products, stats):
         last_col = len(headers)
         format_requests = []
 
+        # Разлепяме всички merge-нати клетки от предишен run
+        # (sheet.clear() не премахва merges, което причинява грешка при повторен merge)
+        format_requests.append({
+            "unmergeCells": {
+                "range": {"sheetId": sheet.id,
+                          "startRowIndex": 0, "endRowIndex": last_row,
+                          "startColumnIndex": 0, "endColumnIndex": last_col}
+            }
+        })
+
         # Заглавен ред
         format_requests.append({
             "repeatCell": {
