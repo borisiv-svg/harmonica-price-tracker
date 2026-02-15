@@ -5,6 +5,35 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v10.1.0 - 2026-02-15
+
+### Добавено
+- **Продуктов списък от JSON** — `harmonica_products.json` е master list; Кашон се краули само за цени, не за списък продукти
+- `load_product_list()` — зарежда активни продукти от `data/products/harmonica_products.json`
+- `update_product_list_with_new()` — открива нови продукти от Кашон и ги маркира с `status: "new"`
+- `save_product_list()` — записва обновения списък обратно в JSON с актуални Кашон цени
+- **Цветово кодиране по статус** в Google Sheets:
+  - Светлозелен фон за нови продукти (добавени при последен sync)
+  - Жълт фон + зачертан текст за отпаднали продукти
+- `status` поле в `harmonica_products.json` — `active`, `new`, `removed`
+
+### Променено
+- **EUR-only цени** — external магазини записват само EUR; BGN се пази единствено за Кашон
+- **Claude валидация** — outlier detection и prompt context преминаха от BGN на EUR
+- Версия обновена от v10.0 на v10.1
+- `harmonica_products.json` — всички `ref_eur: null` стойности изчислени от `ref_bgn / EUR_BGN_RATE`
+- Примерни продукти в лога показват EUR вместо BGN
+- `match_products()` вече matchва спрямо reference list (от JSON), не Кашон crawl
+
+### Технически детайли
+- `PRODUCTS_JSON_PATH` — абсолютен път до `data/products/harmonica_products.json`
+- При всяко изпълнение: JSON → load → crawl Кашон → match prices → discover new → save JSON
+- Fallback: ако JSON липсва, Кашон crawl генерира нов
+- Claude prompt: типични цени конвертирани в EUR (1 EUR = 1.9558 BGN)
+- Store entries: `product["ebag"] = {"eur": X}` вместо `{"eur": X, "bgn": Y}`
+- Kashon entries: `product["kashon"] = {"eur": X, "bgn": Y}` (запазва и двете)
+
+---
 ## v10.0.1 - 2026-02-14
 
 ### Поправено
