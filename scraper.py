@@ -3463,7 +3463,11 @@ async def crawl_all():
                 tasks = {}
                 for store_key in stores_to_crawl:
                     cfg = STORES[store_key]
-                    tasks[store_key] = crawl_store(crawler, store_key, cfg)
+                    if cfg.get("needs_captcha_solver"):
+                        tasks[store_key] = crawl_with_captcha_solver(
+                            crawler, store_key, cfg)
+                    else:
+                        tasks[store_key] = crawl_store(crawler, store_key, cfg)
 
                 task_results = await asyncio.gather(
                     *tasks.values(), return_exceptions=True)
@@ -3802,17 +3806,22 @@ def write_to_sheets(final_products, stats):
     try:
         last_row = len(all_data)
         last_col = len(headers)
-        format_requests = []
 
-        # Разлепяме всички merge-нати клетки от предишен run
-        # (sheet.clear() не премахва merges, което причинява грешка при повторен merge)
-        format_requests.append({
-            "unmergeCells": {
-                "range": {"sheetId": sheet.id,
-                          "startRowIndex": 0, "endRowIndex": last_row,
-                          "startColumnIndex": 0, "endColumnIndex": last_col}
-            }
-        })
+        # Разлепяме всички merge-нати клетки от предишен run в ОТДЕЛНА заявка.
+        # Използваме пълния размер на sheet-а, за да покрием merges от runs
+        # с различен брой колони. Ако няма merges — просто no-op.
+        try:
+            sheet.spreadsheet.batch_update({"requests": [{
+                "unmergeCells": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": 0, "endRowIndex": sheet.row_count,
+                              "startColumnIndex": 0, "endColumnIndex": sheet.col_count}
+                }
+            }]})
+        except Exception:
+            pass  # Няма merge-нати клетки или друга грешка — продължаваме
+
+        format_requests = []
 
         # Заглавен ред
         format_requests.append({
