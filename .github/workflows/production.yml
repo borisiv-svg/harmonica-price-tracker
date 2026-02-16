@@ -49,6 +49,11 @@ jobs:
           # Verify browser is installed
           python -c "from crawl4ai import AsyncWebCrawler; print('Crawl4AI OK')"
 
+      - name: Run tests
+        run: |
+          python -m pytest tests/ -v --tb=short
+          echo "✓ All tests passed"
+
       - name: Smoke test — imports & env vars
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
