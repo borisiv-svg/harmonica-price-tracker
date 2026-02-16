@@ -64,15 +64,38 @@ def update_product_list_with_new(reference_products, kashon_products):
     """
     Сравнява референтния списък (от JSON) с извлечените от Кашон продукти.
     Добавя нови продукти с status='new'. Връща обновен reference list.
-    Проверява срещу ВСИЧКИ продукти (вкл. removed) за да не добавя повторно.
+    Реактивира removed продукти, ако се появят отново в Кашон.
     """
-    # Включваме и removed продукти за да не ги добавяме отново
-    all_names_lower = {p["name"].lower() for p in reference_products}
-    all_names_lower.update({p["name"].lower() for p in _all_loaded_products})
+    active_names_lower = {p["name"].lower() for p in reference_products}
+
+    # Map на removed продукти за re-activation
+    removed_map = {}
+    for p in _all_loaded_products:
+        if not p.get("active", True) and p["name"].lower() not in active_names_lower:
+            removed_map[p["name"].lower()] = p
+
     new_count = 0
+    reactivated_count = 0
 
     for kp in kashon_products:
-        if kp["name"].lower() not in all_names_lower:
+        name_lower = kp["name"].lower()
+        if name_lower in active_names_lower:
+            continue
+
+        if name_lower in removed_map:
+            # Реактивиране — продуктът е бил removed, но отново е на Кашон
+            reactivated = removed_map[name_lower]
+            reactivated["active"] = True
+            reactivated["status"] = "reactivated"
+            if kp.get("eur"):
+                reactivated["ref_eur"] = kp["eur"]
+            if kp.get("bgn"):
+                reactivated["ref_bgn"] = kp["bgn"]
+            reference_products.append(reactivated)
+            active_names_lower.add(name_lower)
+            reactivated_count += 1
+        else:
+            # Нов продукт
             reference_products.append({
                 "name": kp["name"],
                 "ref_eur": kp.get("eur"),
@@ -80,9 +103,11 @@ def update_product_list_with_new(reference_products, kashon_products):
                 "status": "new",
                 "active": True,
             })
-            all_names_lower.add(kp["name"].lower())
+            active_names_lower.add(name_lower)
             new_count += 1
 
+    if reactivated_count:
+        logger.info(f"Реактивирани {reactivated_count} продукта (бяха removed, намерени отново в Кашон)")
     if new_count:
         logger.info(f"Открити {new_count} нови продукта от Кашон (маркирани като 'new')")
 

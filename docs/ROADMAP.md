@@ -123,7 +123,7 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 | Продукти | 39 активни + 75 removed в reference list |
 | Runtime | ~330 секунди (production), ~30 секунди (dry-run) |
 | Модули | 20 (scraper.py + config, utils, products, matching, validation, run_history, price_history, 9 extractors, 4 fetchers, 2 output) |
-| Тестове | 178 (pytest), ~1.1s |
+| Тестове | 180 (pytest), ~0.7s |
 | Dependencies | 10 пакета, всички pinned + Dependabot за auto-upgrade PR |
 | Fallback верига | Firecrawl → Crawl4AI → curl_cffi (GraphQL за Lilly) |
 | Валидация | Claude Sonnet 4.5 ценова проверка |
