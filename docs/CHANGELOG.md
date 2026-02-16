@@ -5,6 +5,19 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v10.6.1 - 2026-02-16
+
+### Поправено
+- **NameError: `BrowserConfig` is not defined** — при cleanup на star imports (`from config import *` → explicit imports) в scraper.py, `BrowserConfig` и `AsyncWebCrawler` от crawl4ai не бяха включени. Добавен conditional import: `if CRAWL4AI_AVAILABLE: from crawl4ai import AsyncWebCrawler, BrowserConfig`
+- **Generic `brand_page=False` fallback** — BeFit-specific retry заменен с универсален fallback за всички магазини с ≤5 продукта. Ако `brand_page=True` връща малко резултати, автоматично се пробва `brand_page=False` и се ползва по-добрият резултат
+
+### Добавено
+- **Zelen debug markdown** — при ≤5 продукта, суровият markdown от Zelen се записва в `data/zelen_debug.md` за диагностика
+
+### Потвърдено
+- Production Weekly Scraper: 15 магазина, 88 продукта, 366 секунди — без грешки
+
+---
 ## v10.6.0 - 2026-02-16
 
 ### Променено
