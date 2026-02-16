@@ -1,6 +1,6 @@
 # Roadmap & Lessons Learned — Harmonica Price Tracker
 
-Последна актуализация: 2026-02-16 (v10.9.0)
+Последна актуализация: 2026-02-16 (v10.10.0)
 
 ---
 
@@ -115,7 +115,7 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 
 ---
 
-## Текущо състояние (v10.9.0)
+## Текущо състояние (v10.10.0)
 
 | Метрика | Стойност |
 |---------|----------|
@@ -123,7 +123,7 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 | Продукти | 88 в reference list |
 | Runtime | ~366 секунди (production), ~30 секунди (dry-run) |
 | Модули | 19 (scraper.py + config, utils, products, matching, validation, run_history, 9 extractors, 4 fetchers, 2 output) |
-| Тестове | 140 (pytest), ~1s |
+| Тестове | 168 (pytest), ~1.4s |
 | Dependencies | 10 пакета, всички pinned |
 | Fallback верига | Firecrawl → Crawl4AI → curl_cffi |
 | Валидация | Claude Sonnet 4.5 ценова проверка |
@@ -152,17 +152,18 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 
 ## Следващ план за действие (v11.x)
 
-### Фаза 6: Test coverage разширяване
+### Фаза 6: Test coverage разширяване — ЗАВЪРШЕНА (v10.10.0)
 
 **Цел:** Покриване на нетестираните модули и премахване на дупликация.
 
 **Задачи:**
-- [ ] `test_products.py` — тестове за `load_product_list()`, `update_product_list_with_new()`, `save_product_list()` (JSON roundtrip, new product discovery, status management)
-- [ ] `conftest.py` cleanup — премахване на дупликираната `load_fixture()` от `test_extractors.py`, ползване само на `conftest.py` версията
-- [ ] Smoke test за `send_email_report()` — проверка че HTML се генерира без грешка (без реален SMTP)
-- [ ] Smoke test за `write_to_sheets()` — проверка че форматиращият код не гърми (mock gspread)
+- [x] `test_products.py` — 15 теста за `load_product_list()`, `update_product_list_with_new()`, `save_product_list()` (JSON roundtrip, new product discovery, status management)
+- [x] `conftest.py` cleanup — `load_fixture()` преместен в `tests/helpers.py`, премахнат дубликат
+- [x] Smoke test за `send_email_report()` — 4 теста (без credentials, с credentials, health alerts, празен вход)
+- [x] Smoke test за `write_to_sheets()` — 2 теста (gspread unavailable, extract_weight import)
+- [x] `test_output.py` — `extract_weight()` — 7 unit теста
 
-**Очакван резултат:** 160+ теста, покриващи всички основни модули.
+**Резултат:** 168 теста (было 140), покриващи products, output, extractors, matching, utils, run_history, imports.
 
 ### Фаза 7: DM България — повторен опит
 
@@ -215,7 +216,7 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 ## Прогрес (v11.x)
 
 ```
-Фаза 6 (тестове)    ━━━ ПРЕДСТОИ    покриване на products, output модулите
+Фаза 6 (тестове)    ━━━ ЗАВЪРШЕНА ✓  168 теста, products + output покрити
        ↓
 Фаза 7 (DM)         ━━━ ПРЕДСТОИ    повторен опит за DM.bg
        ↓
