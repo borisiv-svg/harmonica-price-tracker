@@ -5,15 +5,7 @@ Each test loads a markdown fixture and verifies the extractor returns
 the expected products with correct names and prices.
 """
 
-import os
-
-FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
-
-
-def load_fixture(name: str) -> str:
-    with open(os.path.join(FIXTURES_DIR, name), "r", encoding="utf-8") as f:
-        return f.read()
-
+from helpers import load_fixture
 
 from extractors import (
     extract_kashon_products,

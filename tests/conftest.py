@@ -8,11 +8,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
-
-
-def load_fixture(name: str) -> str:
-    """Load a markdown fixture file by name."""
-    path = os.path.join(FIXTURES_DIR, name)
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
+# Ensure tests/ is on sys.path so `from helpers import ...` works
+TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
+if TESTS_DIR not in sys.path:
+    sys.path.insert(0, TESTS_DIR)

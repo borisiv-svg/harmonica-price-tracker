@@ -5,6 +5,18 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v10.10.0 - 2026-02-16
+
+### Добавено
+- **Test coverage разширяване (Фаза 6)** — 28 нови теста (140 → 168):
+  - `test_products.py` — 15 теста: load (active filtering, missing file, corrupted JSON, EUR calculation, field preservation), update (new products, duplicates, case-insensitive, removed re-add prevention), save (roundtrip, keywords, removed preservation, metadata, sequential IDs)
+  - `test_output.py` — 13 теста: `extract_weight()` (7 cases), `send_email_report()` smoke tests (no credentials, with credentials, health alerts, empty products), `write_to_sheets()` smoke tests (gspread unavailable, import check)
+
+### Променено
+- **conftest.py cleanup** — `load_fixture()` преместен в `tests/helpers.py` (споделен helper), премахнат дубликат от `test_extractors.py`
+- `conftest.py` добавя `tests/` dir в `sys.path` за достъп до `helpers.py`
+
+---
 ## v10.9.0 - 2026-02-16
 
 ### Добавено
