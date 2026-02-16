@@ -5,6 +5,31 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v10.7.0 - 2026-02-16
+
+### Добавено
+- **Тестова инфраструктура (pytest)** — 113 теста в 4 модула:
+  - `test_imports.py` — smoke import на всички 18 модула (хваща BrowserConfig/Firecrawl бъгове)
+  - `test_extractors.py` — 6 extractors с markdown fixtures (kashon, ebag, balev, metro, randi, generic)
+  - `test_utils.py` — EUR/BGN/fallback цени, name cleaning, food/harmonica филтри, категории, Cloudflare detection
+  - `test_matching.py` — name normalization, keyword extraction, weight parsing, matching engine scoring
+  - 6 markdown fixtures в `tests/fixtures/` за реалистични тестови данни
+- **`--dry-run` режим** — `python scraper.py --dry-run` краули само Кашон + eBag + Balev, пропуска Sheets/email, принтира summary, exit code 1 при 0 matched
+- **`crawl_all(only_stores=...)` параметър** — селективно краулване на подмножество магазини
+- **pytest стъпка в `production.yml`** — тестовете се изпълняват преди smoke test и scraper
+
+### Променено
+- **Dependency pinning** — всички 10 пакета с точни версии:
+  - `anthropic==0.79.0` (беше `>=0.40.0,<1.0.0`)
+  - `crawl4ai==0.8.0` (беше `>=0.4.0,<1.0.0`)
+  - `curl_cffi==0.14.0` (беше `>=0.7.0,<1.0.0`)
+  - `capsolver==1.0.7` (беше `>=1.0.0,<2.0.0`)
+  - `pytest==9.0.2` добавен в requirements.txt
+
+### Документация
+- **ROADMAP.md** — изводи от последните сесии, 5-фазен план за действие
+
+---
 ## v10.6.1 - 2026-02-16
 
 ### Поправено
