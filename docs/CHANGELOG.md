@@ -5,6 +5,35 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v10.6.0 - 2026-02-16
+
+### Променено
+- **Модуляризация на scraper.py** — монолитният файл (4,573 реда, 57 функции) е разделен на 18 модула:
+  - `config.py` — константи, магазинни конфигурации, feature flags, logger
+  - `utils.py` — извличане на цени, почистване на имена, food филтриране, retry декоратор
+  - `products.py` — управление на продуктовия списък (load/update/save JSON)
+  - `matching.py` — keyword-based matching engine с тежести
+  - `validation.py` — Claude Sonnet ценова валидация
+  - `extractors/` пакет (9 модула) — по един за всеки магазин + generic
+  - `fetchers/` пакет (4 модула) — Firecrawl, Crawl4AI, curl_cffi, Glovo
+  - `output/` пакет (2 модула) — Google Sheets + имейл отчети
+- **scraper.py** остава entry point с `crawl_all()` + `main()` — 642 реда (86% редукция)
+- Версия обновена от v10.5 на v10.6
+
+### Поправено
+- **Zelen покритие** — добавен `brand_page=False` fallback (аналогично на BeFit), увеличен `scroll_times` от 10 на 15, добавена диагностика за запис на markdown при малко продукти
+
+### Премахнато
+- **experimental.yml** — workflow реферираше несъществуващ `experimental/scraper_experimental.py`
+- **pilot-test.yml** — workflow реферираше несъществуващ `experimental/crawl4ai_pilot.py`
+
+### Технически детайли
+- Import hierarchy е DAG (без circular imports): config → utils → products → extractors → fetchers → output → scraper
+- Нулева промяна на логиката — чист refactor, запазено точно поведение
+- `production.yml` и `monthly-product-sync.yml` не са засегнати
+- `scripts/monthly_product_sync.py` е standalone и не се влияе
+
+---
 ## v10.5.1 - 2026-02-15
 
 ### Поправено
