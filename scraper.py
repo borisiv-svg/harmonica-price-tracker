@@ -25,6 +25,8 @@ from config import (
     ANTHROPIC_AVAILABLE, ANTHROPIC_API_KEY, CLAUDE_MODEL,
     BS4_AVAILABLE, PROJECT_ROOT,
 )
+if CRAWL4AI_AVAILABLE:
+    from crawl4ai import AsyncWebCrawler, BrowserConfig
 from products import load_product_list, update_product_list_with_new, save_product_list
 from matching import match_products
 from validation import validate_prices_with_claude
@@ -448,19 +450,27 @@ async def main():
                 md,
                 brand_page=store_info["brand_page"],
             )
-            # BeFit: ако generic extractor не намери нищо, пробваме без brand_page filter
-            if store_key == "befit" and not store_info["products"]:
-                store_info["products"] = _extract_generic_products(
-                    md,
-                    brand_page=False,
-                )
+            # Fallback: ако намерим ≤5 продукта с brand_page=True, пробваме без
+            if len(store_info["products"]) <= 5 and store_info["brand_page"]:
+                retry_prods = _extract_generic_products(md, brand_page=False)
+                if len(retry_prods) > len(store_info["products"]):
+                    logger.info(f"  brand_page=False retry: {len(retry_prods)} > {len(store_info['products'])}")
+                    store_info["products"] = retry_prods
+            # Debug: save Zelen markdown when ≤5 products for analysis
+            if store_key == "zelen" and len(store_info["products"]) <= 5:
+                try:
+                    debug_path = os.path.join(PROJECT_ROOT, "data", "zelen_debug.md")
+                    os.makedirs(os.path.dirname(debug_path), exist_ok=True)
+                    with open(debug_path, "w", encoding="utf-8") as f:
+                        f.write(md)
+                    logger.info(f"  Zelen debug markdown saved: {debug_path}")
+                except Exception as e:
+                    logger.warning(f"  Zelen debug save failed: {e}")
             prods = store_info["products"]
             logger.info(f"{STORES[store_key]['name']}: {len(prods)} Harmonica products")
             if not prods:
-                # Debug: показваме начало на markdown за диагностика
                 md_preview = store_data["markdown"][:300].replace('\n', ' ')
                 logger.info(f"  [DEBUG] markdown preview: {md_preview}")
-            # Debug: показваме извлечените имена за магазини с малко продукти
             if len(prods) <= 10:
                 for p in prods:
                     logger.info(f"  → {p['name'][:60]} = {p.get('eur', '?')}€")
