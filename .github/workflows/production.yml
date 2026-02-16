@@ -1,8 +1,11 @@
 # =============================================================================
-# PRODUCTION WORKFLOW - Harmonica Price Tracker v10.2
+# PRODUCTION WORKFLOW - Harmonica Price Tracker v10.10
 # =============================================================================
 # Unified async scraper (Crawl4AI + curl_cffi + Firecrawl + Claude validation).
 # Стартира автоматично всеки понеделник в 05:00 UTC (07:00 българско зимно време).
+#
+# Pipeline: tests → smoke test → DRY-RUN → production scrape → commit → upload
+# Dry-run краулва 3 магазина (~30s) и спира workflow-а при 0 matched продукти.
 # =============================================================================
 
 name: Production Weekly Scraper
@@ -17,6 +20,11 @@ on:
         required: false
         default: ''
         type: string
+      skip_dry_run:
+        description: 'Skip the dry-run pre-check (use only for debugging)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -24,6 +32,7 @@ permissions:
 jobs:
   production-scrape:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
@@ -122,13 +131,46 @@ jobs:
       - name: Environment info
         run: |
           echo "=========================================="
-          echo "HARMONICA PRICE TRACKER v10.2"
+          echo "HARMONICA PRICE TRACKER v10.10"
           echo "=========================================="
           echo "Python: $(python --version)"
           echo "Branch: $(git branch --show-current)"
           echo "Commit: $(git log -1 --oneline)"
           echo "Date: $(date)"
           echo "=========================================="
+
+      # =====================================================================
+      # DRY-RUN: бързо краулване на 3 магазина (~30s) преди production run.
+      # Ако dry-run върне exit code 1 (0 matched за някой магазин), workflow
+      # спира и production scrape НЕ се изпълнява. Предотвратява пълен run
+      # при счупена инфраструктура (Cloudflare блок, API промяна, и т.н.)
+      # =====================================================================
+      - name: Dry-run pre-check (Kashon + eBag + Balev)
+        id: dry_run
+        if: ${{ github.event.inputs.skip_dry_run != 'true' }}
+        env:
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+        run: |
+          echo "::group::Dry-run output"
+          echo "Starting dry-run at $(date)"
+          if python scraper.py --dry-run; then
+            echo "::endgroup::"
+            echo "✓ Dry-run PASSED — proceeding to production scrape"
+            echo "## ✅ Dry-run passed" >> $GITHUB_STEP_SUMMARY
+            echo "Kashon + eBag + Balev returned products successfully." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "::endgroup::"
+            echo "::error::Dry-run FAILED — one or more stores returned 0 matched products. Production scrape aborted."
+            echo "## ❌ Dry-run FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "One or more stores (Kashon, eBag, Balev) returned 0 matched products." >> $GITHUB_STEP_SUMMARY
+            echo "Production scrape was **not executed** to prevent incomplete data." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Next steps" >> $GITHUB_STEP_SUMMARY
+            echo "1. Check the dry-run output above for details" >> $GITHUB_STEP_SUMMARY
+            echo "2. Re-run with \`skip_dry_run: true\` to bypass (manual dispatch only)" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
 
       - name: Run Scraper
         env:
