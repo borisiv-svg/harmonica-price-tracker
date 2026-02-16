@@ -237,16 +237,19 @@ STORES = {
         "scroll_times": 40,
         "scroll_delay": 3000,
         "is_master": True,
+        "skip_firecrawl": True,  # Crawl4AI винаги дава повече (73k vs 36k chars)
     },
     "ebag": {
         "name": "eBag",
         "url": "https://www.ebag.bg/search/?products%5BrefinementList%5D%5Bbrand_name_bg%5D%5B0%5D=%D0%A5%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
         "scroll_times": 12,
+        "skip_firecrawl": True,  # Хроничен timeout
     },
     "balev": {
         "name": "Balev Bio",
         "url": "https://balevbiomarket.com/productBrands/harmonica",
         "scroll_times": 8,
+        "skip_firecrawl": True,  # Хроничен timeout
     },
     "lilly": {
         "name": "Lilly",
@@ -254,6 +257,7 @@ STORES = {
         "scroll_times": 4,
         "brand_page": True,
         "use_magic": True,
+        "skip_firecrawl": True,  # Хроничен timeout, curl_cffi GraphQL работи
     },
     "tmarket": {
         "name": "T-Market",
@@ -261,11 +265,13 @@ STORES = {
         "scroll_times": 8,
         "brand_page": True,
         "needs_captcha_solver": True,
+        "skip_firecrawl": True,  # Хроничен timeout + Cloudflare блокира
     },
     "metro": {
         "name": "Metro",
         "url": "https://shop.metro.bg/shop/search?q=%D1%85%D0%B0%D1%80%D0%BC%D0%BE%D0%BD%D0%B8%D0%BA%D0%B0",
         "scroll_times": 15,
+        "skip_firecrawl": True,  # Хроничен timeout
     },
     "zelen": {
         "name": "Zelen",
@@ -277,18 +283,21 @@ STORES = {
         "name": "Randi",
         "url": "https://randi.bg/search?search=harmonica",
         "scroll_times": 10,
+        "skip_firecrawl": True,  # Хроничен timeout
     },
     "biomarket": {
         "name": "Bio-Market",
         "url": "https://bio-market.bg/brand/harmonica",
         "scroll_times": 10,
         "brand_page": True,
+        "skip_firecrawl": True,  # Хроничен timeout
     },
     "befit": {
         "name": "BeFit",
         "url": "https://befit.bg/brands/harmonica",
         "scroll_times": 10,
         "brand_page": True,
+        "skip_firecrawl": True,  # Хроничен timeout
         # Accessibility popup трябва да се затвори преди скролиране
         "pre_js": """
             // Затваряме accessibility popup (UserWay/EqualWeb widget)
@@ -310,6 +319,7 @@ STORES = {
         "url": "https://laika.bg/harmonica-bio-bulgaria-proizvodstvo-magi-maleeva-shoko-ghi-kefir-boza-koze-sirene-ovche-izvara-bulgarska-tzena-kade-da-kupia-magazin-online",
         "scroll_times": 10,
         "brand_page": True,
+        "skip_firecrawl": True,  # Хроничен timeout
     },
 }
 
@@ -2505,7 +2515,7 @@ async def fetch_lilly_via_curl():
 async def fetch_tmarket_via_curl(url="https://tmarketonline.bg/vendor/harmonica-1881705916"):
     """
     Директен fetch на T-Market чрез curl_cffi (TLS impersonation).
-    T-Market е CloudCart сайт с Cloudflare — curl_cffi може да bypass-не.
+    T-Market е CloudCart сайт с Cloudflare — опитваме няколко browser profiles.
     """
     if not CURL_CFFI_AVAILABLE:
         return {"success": False, "error": "curl_cffi not available"}
@@ -2513,52 +2523,68 @@ async def fetch_tmarket_via_curl(url="https://tmarketonline.bg/vendor/harmonica-
     logger.info("T-Market: curl_cffi директен fetch...")
     start = time.time()
 
-    try:
-        async with CurlAsyncSession(impersonate="chrome") as session:
+    # Реалистични headers за модерен Chrome браузър
+    browser_headers = {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "bg-BG,bg;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Sec-Ch-Ua": '"Chromium";v="131", "Not_A Brand";v="24"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Upgrade-Insecure-Requests": "1",
+        "Cache-Control": "max-age=0",
+    }
 
-            resp = await session.get(
-                url,
+    # Опитваме няколко browser profiles — различни TLS fingerprints
+    # curl_cffi 0.7+ поддържа: chrome99-chrome120, edge99/101, safari15/17
+    profiles = ["chrome120", "chrome116", "chrome110", "chrome"]
+    last_error = None
 
-                timeout=30,
-                headers={
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "bg-BG,bg;q=0.9,en;q=0.8",
-                },
-            )
+    for profile in profiles:
+        try:
+            async with CurlAsyncSession(impersonate=profile) as session:
+                resp = await session.get(
+                    url,
+                    timeout=30,
+                    headers=browser_headers,
+                )
 
-            elapsed = time.time() - start
+                if resp.status_code != 200:
+                    last_error = f"HTTP {resp.status_code} ({profile})"
+                    logger.warning(f"T-Market curl_cffi ({profile}): HTTP {resp.status_code}")
+                    continue
 
-            if resp.status_code != 200:
-                logger.warning(f"T-Market curl_cffi: HTTP {resp.status_code}")
-                return {"success": False, "error": f"HTTP {resp.status_code}"}
+                html = resp.text
 
-            html = resp.text
+                # Проверка за Cloudflare challenge
+                is_challenge, sitekey = detect_cloudflare_challenge(html)
+                if is_challenge:
+                    last_error = f"Cloudflare challenge ({profile})"
+                    logger.warning(f"T-Market curl_cffi ({profile}): Cloudflare challenge")
+                    continue
 
-            # Проверка за Cloudflare challenge
-            is_challenge, sitekey = detect_cloudflare_challenge(html)
-            if is_challenge:
-                logger.warning(f"T-Market curl_cffi: Cloudflare challenge ({elapsed:.1f}s)")
+                elapsed = time.time() - start
+                logger.info(f"T-Market curl_cffi ({profile}): OK {elapsed:.1f}s, {len(html)} chars")
                 return {
-                    "success": False,
-                    "error": "Cloudflare challenge via curl_cffi",
+                    "success": True,
+                    "method": f"curl_cffi_{profile}",
                     "html": html,
-                    "sitekey": sitekey,
+                    "markdown": "",
+                    "elapsed": elapsed,
+                    "store_key": "tmarket",
                 }
 
-            logger.info(f"T-Market curl_cffi: OK {elapsed:.1f}s, {len(html)} chars")
-            return {
-                "success": True,
-                "method": "curl_cffi",
-                "html": html,
-                "markdown": "",
-                "elapsed": elapsed,
-                "store_key": "tmarket",
-            }
+        except Exception as e:
+            last_error = f"{profile}: {e}"
+            continue
 
-    except Exception as e:
-        elapsed = time.time() - start
-        logger.error(f"T-Market curl_cffi грешка: {e} ({elapsed:.1f}s)")
-        return {"success": False, "error": str(e)}
+    elapsed = time.time() - start
+    logger.warning(f"T-Market curl_cffi: всички profiles неуспешни ({elapsed:.1f}s)")
+    return {"success": False, "error": f"All curl_cffi profiles failed: {last_error}"}
 
 
 # =============================================================================
@@ -3360,19 +3386,21 @@ async def crawl_all():
     # ==========================================================================
     firecrawl_futures = {}
 
+    # Магазини с skip_firecrawl отиват директно на Crawl4AI (спестява ~60s timeout)
+    skipped_firecrawl = []
     if has_firecrawl:
         # Randi — специализиран Firecrawl (JS-heavy)
-        if "randi" in STORES:
+        if "randi" in STORES and not STORES["randi"].get("skip_firecrawl"):
             firecrawl_futures["randi"] = loop.run_in_executor(
                 None, _fetch_randi_via_firecrawl)
 
         # Lilly — специализиран Firecrawl (Magento 2 + Hyvä)
-        if "lilly" in STORES:
+        if "lilly" in STORES and not STORES["lilly"].get("skip_firecrawl"):
             firecrawl_futures["lilly"] = loop.run_in_executor(
                 None, _fetch_lilly_via_firecrawl)
 
         # T-Market — специализиран Firecrawl (CloudCart + Cloudflare)
-        if "tmarket" in STORES:
+        if "tmarket" in STORES and not STORES["tmarket"].get("skip_firecrawl"):
             firecrawl_futures["tmarket"] = loop.run_in_executor(
                 None, _fetch_tmarket_via_firecrawl)
 
@@ -3383,8 +3411,20 @@ async def crawl_all():
         for store_key in generic_firecrawl_stores:
             if store_key in STORES:
                 cfg = STORES[store_key]
+                if cfg.get("skip_firecrawl"):
+                    skipped_firecrawl.append(store_key)
+                    continue
                 firecrawl_futures[store_key] = loop.run_in_executor(
                     None, _fetch_store_via_firecrawl, store_key, cfg)
+
+        # Магазини с skip_firecrawl от специализираните
+        for sk in ["randi", "lilly", "tmarket"]:
+            if sk in STORES and STORES[sk].get("skip_firecrawl") and sk not in skipped_firecrawl:
+                skipped_firecrawl.append(sk)
+
+        if skipped_firecrawl:
+            logger.info(f"Skip Firecrawl (директно Crawl4AI) за {len(skipped_firecrawl)} магазина: "
+                        f"{', '.join(STORES[s]['name'] for s in skipped_firecrawl)}")
 
     # ==========================================================================
     # Стъпка 2: Събираме Firecrawl резултати, маркираме неуспешните за fallback
@@ -3417,6 +3457,11 @@ async def crawl_all():
     # Магазини, за които Firecrawl изобщо не беше стартиран (липсва API key)
     if not has_firecrawl:
         failed_stores = list(STORES.keys())
+
+    # Магазини с skip_firecrawl → директно към Crawl4AI fallback
+    for sk in skipped_firecrawl:
+        if sk not in failed_stores:
+            failed_stores.append(sk)
 
     # Магазини, за които Firecrawl успя но с ограничени scrolls —
     # Crawl4AI ще скролира пълния обхват и ще заместим ако е по-добър
