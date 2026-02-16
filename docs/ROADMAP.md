@@ -120,16 +120,47 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 | Метрика | Стойност |
 |---------|----------|
 | Магазини | 15 (Кашон, eBag, Balev, Lilly, T-Market, Metro, Zelen, Randi, Bio-Market, BeFit, Laika, Glovo ×4) |
-| Продукти | 88 в reference list |
-| Runtime | ~366 секунди (production), ~30 секунди (dry-run) |
+| Продукти | 39 активни + 75 removed в reference list |
+| Runtime | ~330 секунди (production), ~30 секунди (dry-run) |
 | Модули | 20 (scraper.py + config, utils, products, matching, validation, run_history, price_history, 9 extractors, 4 fetchers, 2 output) |
 | Тестове | 178 (pytest), ~1.1s |
 | Dependencies | 10 пакета, всички pinned + Dependabot за auto-upgrade PR |
-| Fallback верига | Firecrawl → Crawl4AI → curl_cffi |
+| Fallback верига | Firecrawl → Crawl4AI → curl_cffi (GraphQL за Lilly) |
 | Валидация | Claude Sonnet 4.5 ценова проверка |
 | Health monitoring | run_history.json + auto-alert при 0 или >50% спад |
 | Price history | price_history.json (local) + История_{year} tab (Sheets) |
 | Schedule | Понеделник 07:00 BG time |
+
+### Известни проблеми (от production run 2026-02-16)
+
+| Проблем | Детайли | Приоритет |
+|---------|---------|-----------|
+| **T-Market Cloudflare** | Блокиран напълно — Firecrawl timeout + Crawl4AI captcha fail + curl_cffi 403. 0/39 продукта | Висок |
+| **Glovo Kaufland** | Firecrawl actions fail: "All scraping engines failed". 0/39 продукта | Среден |
+| **Firecrawl масови timeouts** | 5/11 магазина timeout (T-Market, eBag, Balev, Zelen, Bio-Market). Crawl4AI fallback спасява 4/5 | Нисък (fallback работи) |
+| **BeFit Firecrawl actions** | "Element not found" — selector проблем. Crawl4AI fallback OK | Нисък |
+| **Lilly Firecrawl** | Firecrawl+BS4 дава само 1 продукт, GraphQL дава 11 (всички изчерпани) | Нисък (GraphQL работи) |
+| **Version string** | Показваше v10.8 вместо v10.12 — фикснато | Фикснато |
+
+### Покритие по магазин (2026-02-16)
+
+```
+Кашон             ████████████████████████████████████████████████  97% (38/39)
+Glovo Fantastico  ████████████████████████                          49% (19/39)
+eBag              ██████████████████████                            44% (17/39)
+BeFit             ██████████████████                                36% (14/39)
+Balev Bio         ██████████████                                    28% (11/39)
+Bio-Market        ██████████████                                    28% (11/39)
+Zelen             ████████████                                      23% (9/39)
+Glovo CBA         ████████                                          15% (6/39)
+Randi             █████                                             10% (4/39)
+Lilly             █████                                             10% (4/39) — изчерпани
+Glovo Billa       █████                                             10% (4/39)
+Metro             ███                                                5% (2/39)
+Laika             ███                                                5% (2/39)
+T-Market          ░                                                  0% (0/39) — Cloudflare
+Glovo Kaufland    ░                                                  0% (0/39) — scrape fail
+```
 
 ---
 
@@ -228,3 +259,34 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 ```
 
 Всички 10 фази от roadmap-а са завършени.
+
+---
+
+## Следващи стъпки (v11.x)
+
+### Фаза 11: T-Market — нов scraping подход
+
+**Статус:** Планирана
+
+**Проблем:** Cloudflare блокира всички три fallback метода (Firecrawl timeout, Crawl4AI captcha fail, curl_cffi 403).
+
+**Възможни решения:**
+- [ ] Намиране на T-Market REST/GraphQL API (подобно на Lilly)
+- [ ] Cloudflare bypass с managed browser (capsolver integration подобрение)
+- [ ] Премахване от мониторинга ако остане нерешим
+
+### Фаза 12: Glovo Kaufland stabilization
+
+**Статус:** Планирана
+
+**Проблем:** Firecrawl search-actions fail: "All scraping engines failed".
+
+**Възможни решения:**
+- [ ] Debug на Firecrawl actions sequence за Kaufland
+- [ ] Glovo REST API директен достъп (подобно на Lilly GraphQL)
+
+### Фаза 13: Сутрешен vs вечерен benchmark
+
+**Статус:** В ход — сравнителен run планиран за 2026-02-17 сутринта
+
+**Цел:** Определяне дали Firecrawl timeout-ите (5/11 = 45%) са свързани с натовареност или системен проблем.

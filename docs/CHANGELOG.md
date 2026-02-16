@@ -5,6 +5,26 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v10.12.1 - 2026-02-16
+
+### Поправено
+- **Version strings** — обновени от v10.8 на v10.12 в scraper.py (header + JSON output) и email footer
+
+### Документация
+- **ROADMAP.md** — актуализирано текущо състояние:
+  - Продукти: 39 активни + 75 removed (беше 88)
+  - Runtime: ~330s (беше ~366s)
+  - Fallback верига: добавена бележка за Lilly GraphQL
+- **Известни проблеми** — нова секция с 6 открити проблема от production run 2026-02-16:
+  - T-Market Cloudflare (0/39) — блокиран по всички 3 канала
+  - Glovo Kaufland (0/39) — Firecrawl actions fail
+  - Firecrawl масови timeouts (5/11 магазина) — Crawl4AI fallback компенсира
+  - BeFit Firecrawl actions "Element not found"
+  - Lilly Firecrawl (1 продукт vs 11 от GraphQL)
+- **Покритие по магазин** — визуална таблица с bar chart за всеки магазин
+- **Следващи стъпки (v11.x)** — Фази 11-13: T-Market нов подход, Glovo Kaufland, сутрешен benchmark
+
+---
 ## v10.12.0 - 2026-02-16
 
 ### Добавено
