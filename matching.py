@@ -16,9 +16,10 @@ def normalize_name(name):
     # Нормализация на тегловни единици
     name = re.sub(r'(\d+)\s*ml\b', r'\1мл', name)
     name = re.sub(r'(\d+)\s*g\b', r'\1г', name)
-    name = re.sub(r'(\d+)\s*kg\b', lambda m: f"{int(m.group(1))*1000}г", name)
+    # Decimal kg ПРЕДИ integer kg (иначе "1.5kg" → "1 5000г" вместо "1500г")
     name = re.sub(r'(\d+)[,.](\d+)\s*(?:кг|kg)\b',
                   lambda m: f"{int(float(f'{m.group(1)}.{m.group(2)}')*1000)}г", name)
+    name = re.sub(r'(\d+)\s*kg\b', lambda m: f"{int(m.group(1))*1000}г", name)
     # Премахване на пунктуация (запазваме % и цифри)
     name = re.sub(r'[^\w\s%]', ' ', name)
     name = re.sub(r'\s+', ' ', name).strip()

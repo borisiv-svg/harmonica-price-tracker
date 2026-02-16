@@ -153,7 +153,7 @@ def send_email_report(final_products, stats, health_alerts=None):
     if sheets_url:
         html += f'<div style="text-align:center;margin:20px;"><a href="{sheets_url}" class="button">Отвори в Google Sheets</a></div>'
 
-    html += f'<div class="footer"><p><strong>Harmonica Price Tracker v10.3</strong></p><p>Автоматично генерирано на {date_str} в {time_str} ч.</p></div></body></html>'
+    html += f'<div class="footer"><p><strong>Harmonica Price Tracker v10.8</strong></p><p>Автоматично генерирано на {date_str} в {time_str} ч.</p></div></body></html>'
 
     try:
         msg = MIMEMultipart('alternative')

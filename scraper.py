@@ -1,5 +1,5 @@
 """
-Harmonica Price Tracker v10.6
+Harmonica Price Tracker v10.8
 ==============================
 Modular scraper — Firecrawl-first + Crawl4AI fallback архитектура.
 Магазини, за които Firecrawl timeout-ва, автоматично преминават на Crawl4AI.
@@ -310,7 +310,7 @@ async def main(dry_run=False):
     else:
         logger.info("=" * 60)
     total_stores = len(STORES) + len(GLOVO_STORES)
-    logger.info(f"HARMONICA PRICE TRACKER v10.5 — {total_stores} магазина (Firecrawl + Crawl4AI)")
+    logger.info(f"HARMONICA PRICE TRACKER v10.8 — {total_stores} магазина (Firecrawl + Crawl4AI)")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}")
@@ -685,7 +685,7 @@ async def main(dry_run=False):
         products_for_json.append(clean)
 
     output = {
-        "version": "v10.3",
+        "version": "v10.8",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stores": len(STORES) + len(GLOVO_STORES),

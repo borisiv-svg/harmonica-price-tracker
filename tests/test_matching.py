@@ -36,8 +36,12 @@ class TestNormalizeName:
         assert "2000г" in result
 
     def test_converts_decimal_kg_cyrillic(self):
-        # Decimal kg with cyrillic "кг" is the common production format
         result = normalize_name("Product 1,5кг")
+        assert "1500г" in result
+
+    def test_converts_decimal_kg_latin(self):
+        # Bug fix: decimal kg regex must run before integer kg regex
+        result = normalize_name("Product 1.5kg")
         assert "1500г" in result
 
     def test_removes_punctuation(self):

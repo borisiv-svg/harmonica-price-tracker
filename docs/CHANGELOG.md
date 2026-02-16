@@ -5,6 +5,20 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v10.9.0 - 2026-02-16
+
+### Добавено
+- **Zelen deep-dive (Фаза 5)** — стабилизиране на Zelen extraction:
+  - Cookie consent handling в Zelen config (`pre_js` + `firecrawl_pre_actions`) — основна причина за малко продукти
+  - `_normalize_image_links()` в generic extractor — `[![alt](img)](url)` → `[alt](url)`, елиминира дубликати
+  - Zelen fixture (`tests/fixtures/zelen.md`) с 16 продукта от реалната структура на сайта
+  - 5 нови теста за Zelen extraction + image-link normalization
+
+### Поправено
+- **`normalize_name()` decimal kg bug** — `"Product 1.5kg"` връщаше `"product 1 5000г"` вместо `"product 1500г"`. Decimal kg regex (`1.5kg` → `1500г`) сега се прилага преди integer kg regex (`5kg` → `5000г`)
+- **Version strings** — обновени от v10.3/v10.5/v10.6 на v10.8 в scraper.py и email footer
+
+---
 ## v10.8.0 - 2026-02-16
 
 ### Добавено

@@ -191,6 +191,46 @@ class TestGenericExtractor:
         assert _extract_generic_products("", brand_page=True) == []
 
 
+# -- Zelen (generic with image-link normalization) --
+
+class TestZelenExtractor:
+    def test_extracts_products(self):
+        md = load_fixture("zelen.md")
+        products = _extract_generic_products(md, brand_page=True)
+        assert len(products) >= 14
+
+    def test_no_image_link_duplicates(self):
+        """[![Name](img)](url) should not create duplicates with [Name](url)."""
+        md = load_fixture("zelen.md")
+        products = _extract_generic_products(md, brand_page=True)
+        names = _names(products)
+        # No names should start with '!['
+        assert not any(n.startswith("![") for n in names)
+
+    def test_price_extraction(self):
+        md = load_fixture("zelen.md")
+        products = _extract_generic_products(md, brand_page=True)
+        lokum = _find(products, "Локум роза")
+        assert lokum is not None
+        assert lokum["bgn"] == 3.43
+
+    def test_products_have_eur_conversion(self):
+        md = load_fixture("zelen.md")
+        products = _extract_generic_products(md, brand_page=True)
+        for p in products:
+            assert p.get("eur") is not None
+            assert p["eur"] > 0
+
+    def test_image_link_normalization_standalone(self):
+        """Direct test of [![alt](img)](url) → [alt](url) normalization."""
+        from extractors.generic import _normalize_image_links
+        md = '[![Продукт 100г](https://img.jpg)](https://shop.bg/product)'
+        result = _normalize_image_links(md)
+        assert result == '[Продукт 100г](https://shop.bg/product)'
+        # Not modified if no image-link
+        assert _normalize_image_links('[Normal link](url)') == '[Normal link](url)'
+
+
 # -- Edge cases --
 
 class TestExtractorEdgeCases:

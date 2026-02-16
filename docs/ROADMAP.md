@@ -1,6 +1,6 @@
 # Roadmap & Lessons Learned — Harmonica Price Tracker
 
-Последна актуализация: 2026-02-16 (v10.8.0)
+Последна актуализация: 2026-02-16 (v10.9.0)
 
 ---
 
@@ -96,21 +96,26 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 
 **Резултат:** `run_history.py` модул с 21 теста. Health alerts в лог + имейл. Debug markdown за всички проблемни магазини.
 
-### Фаза 5: Zelen deep-dive
+### Фаза 5: Zelen deep-dive — ЗАВЪРШЕНА (v10.9.0)
 
 **Цел:** Разбиране защо Zelen връща малко продукти и стабилизиране.
 
 **Задачи:**
-- [ ] Анализ на `data/zelen_debug.md` след следващия production run
-- [ ] Определяне на root cause: crawl (непълно зареждане), extract (regex miss), или match (naming mismatch)
-- [ ] Fix на конкретния проблем
-- [ ] Добавяне на Zelen fixture в тестовете (от Фаза 1)
+- [x] Анализ на Zelen crawl + extraction pipeline
+- [x] Определяне на root cause: GDPR cookie consent overlay блокира зареждането на продукти
+- [x] Fix: cookie consent handling в config (`pre_js` + `firecrawl_pre_actions`)
+- [x] Fix: `_normalize_image_links()` — `[![alt](img)](url)` дубликати в generic extractor
+- [x] Добавяне на Zelen fixture в тестовете (16 продукта) + 5 нови теста
 
-**Очакван резултат:** Zelen стабилно над 20 продукта при всеки run.
+**Допълнителни fixes:**
+- [x] `normalize_name()` decimal kg regex order bug (1.5kg → 1500г)
+- [x] Version strings обновени навсякъде (scraper.py, email footer)
+
+**Резултат:** Cookie overlay се затваря автоматично. Image-link дубликати елиминирани. 140 теста, всички минават.
 
 ---
 
-## Текущо състояние (v10.8.0)
+## Текущо състояние (v10.9.0)
 
 | Метрика | Стойност |
 |---------|----------|
@@ -118,7 +123,7 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 | Продукти | 88 в reference list |
 | Runtime | ~366 секунди (production), ~30 секунди (dry-run) |
 | Модули | 19 (scraper.py + config, utils, products, matching, validation, run_history, 9 extractors, 4 fetchers, 2 output) |
-| Тестове | 134 (pytest), 0.86s |
+| Тестове | 140 (pytest), ~1s |
 | Dependencies | 10 пакета, всички pinned |
 | Fallback верига | Firecrawl → Crawl4AI → curl_cffi |
 | Валидация | Claude Sonnet 4.5 ценова проверка |
@@ -138,7 +143,7 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
        ↓
 Фаза 4 (health)  ━━━ ЗАВЪРШЕНА ✓  run_history.json + auto-alert + email
        ↓
-Фаза 5 (Zelen)   ━━━ ПРЕДСТОИ    debug markdown анализ
+Фаза 5 (Zelen)   ━━━ ЗАВЪРШЕНА ✓  cookie consent + image-link fix + fixture
 ```
 
-Следваща стъпка: Фаза 5 (Zelen deep-dive) — анализ на debug markdown и стабилизиране.
+Всички 5 фази от оригиналния roadmap са завършени.

@@ -19,6 +19,19 @@ from utils import (
 )
 
 
+def _normalize_image_links(markdown):
+    """
+    Нормализира [![alt](img)](url) → [alt](url).
+    Тази комбинация (image-wrapped-in-link) объркваше link regex-а
+    и създаваше дубликати с '![' в имената.
+    """
+    return re.sub(
+        r'\[!\[([^\]]+)\]\([^\)]+\)\]\(([^\)]+)\)',
+        r'[\1](\2)',
+        markdown,
+    )
+
+
 def _extract_generic_products(markdown, brand_page=False):
     """
     Универсален fallback extractor. Работи с всякакъв markdown.
@@ -30,6 +43,7 @@ def _extract_generic_products(markdown, brand_page=False):
     4. Ако brand_page=True, не проверява за "harmonica" в името
     5. Винаги пробва и двата подхода, взима по-добрия резултат
     """
+    markdown = _normalize_image_links(markdown)
     block_products = _extract_generic_block_based(markdown, brand_page)
     line_products = _extract_generic_line_by_line(markdown, brand_page)
 
