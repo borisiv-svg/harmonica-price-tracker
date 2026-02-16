@@ -1,6 +1,6 @@
 # Roadmap & Lessons Learned — Harmonica Price Tracker
 
-Последна актуализация: 2026-02-16 (v10.12.0)
+Последна актуализация: 2026-02-16 (v10.13.0)
 
 ---
 
@@ -41,6 +41,33 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 Един невалиден `unmergeCells` range блокира 138 форматиращи заявки. Решение: отделен `batch_update` + `try/except`.
 
 **Извод:** Критични Sheets операции — в отделни batch-ове с независим error handling.
+
+### 6. Еднопосочен product lifecycle води до тиха загуба на данни (v10.13.0)
+
+Кашон (kashonharmonica.bg) е infinite scroll сайт с ~85+ продукта. Конфигурацията изисква 40 scroll-а × 3s = 120s чисто скролиране. Но:
+
+- **Firecrawl лимити**: max 50 actions → 17/40 scrolls → вижда само горната половина
+- **Crawl4AI**: прави всичките 40 scroll-а, но отнема 134s и понякога timeout-ва
+
+При непълно зареждане на Кашон (17 вместо 40 scrolls), продукти от долната част на страницата не се виждат. Старата логика в `update_product_list_with_new()` имаше **еднопосочен lifecycle**:
+
+```
+active → removed (ако не е намерен в Кашон)
+removed → ❌ НИКОГА обратно в active
+```
+
+Продуктите попадаха в `_all_loaded_products` като removed и функцията ги пропускаше, защото проверяваше срещу **всички** имена (ред 70-71). Резултат: **75 от 114 продукта** (66%) бяха неправилно деактивирани за 2 run-а (2026-02-05 и 2026-02-15).
+
+**Fix (v10.13.0):** Двупосочен lifecycle с re-activation:
+
+```
+active → removed (ако не е в Кашон)
+removed → reactivated → active (ако се появи отново)
+```
+
+Ключовата промяна: вместо `all_names_lower` (active + removed), сега се поддържа отделен `removed_map` за re-activation. Когато Кашон продукт съвпадне с removed запис: `active=True`, `status="reactivated"`, цената се обновява.
+
+**Извод:** Всеки автоматичен процес, който маркира данни като невалидни, **трябва** да има обратен път за възстановяване. Особено когато source-ът (Кашон) е ненадежден (infinite scroll, timeout-и, непълно зареждане). Тихата загуба на продукти е по-опасна от фалшиво положителни, защото никога не генерира alert — health monitoring следи магазини, не reference list.
 
 ---
 
@@ -115,12 +142,12 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 
 ---
 
-## Текущо състояние (v10.12.0)
+## Текущо състояние (v10.13.0)
 
 | Метрика | Стойност |
 |---------|----------|
 | Магазини | 15 (Кашон, eBag, Balev, Lilly, T-Market, Metro, Zelen, Randi, Bio-Market, BeFit, Laika, Glovo ×4) |
-| Продукти | 39 активни + 75 removed в reference list |
+| Продукти | 39 активни + 75 removed (очаква се ~114 активни след re-activation при следващ пълен Кашон crawl) |
 | Runtime | ~330 секунди (production), ~30 секунди (dry-run) |
 | Модули | 20 (scraper.py + config, utils, products, matching, validation, run_history, price_history, 9 extractors, 4 fetchers, 2 output) |
 | Тестове | 180 (pytest), ~0.7s |
@@ -182,7 +209,7 @@ Glovo Kaufland    ░                                                  0% (0/39)
 
 ---
 
-## Следващ план за действие (v11.x)
+## План за действие (v11.x)
 
 ### Фаза 6: Test coverage разширяване — ЗАВЪРШЕНА (v10.10.0)
 
@@ -242,27 +269,50 @@ Glovo Kaufland    ░                                                  0% (0/39)
 
 **Резултат:** Ценова история се записва в local JSON + Google Sheets История_{year} tab. 178 теста, всички минават.
 
+### Фаза 10.5: Product re-activation — ЗАВЪРШЕНА (v10.13.0)
+
+**Цел:** Предотвратяване на тиха загуба на продукти при непълно зареждане на Кашон.
+
+**Проблем:** 75 от 114 продукта (66%) бяха неправилно деактивирани. Еднопосочният lifecycle (`active → removed`, без обратен път) означаваше, че продукти, невидими заради непълен scroll на Кашон, изчезваха завинаги от мониторинга.
+
+**Root cause:**
+- Кашон е infinite scroll сайт: 40 scrolls × 3s = 120s
+- Firecrawl лимит: max 17/40 scrolls → вижда само горната половина
+- Crawl4AI: 40 scrolls = 134s, но понякога timeout-ва
+- `update_product_list_with_new()` проверяваше срещу **всички** имена (active + removed) → removed продукти никога не се връщаха
+
+**Решение:**
+- [x] Двупосочен product lifecycle: `removed → reactivated → active`
+- [x] Отделен `removed_map` в `update_product_list_with_new()` за бързо lookup
+- [x] При re-activation: `active=True`, `status="reactivated"`, цената се обновява от Кашон
+- [x] Запазване на оригиналното име и `added_date`
+- [x] 3 нови теста: re-activation, case-insensitive, preservation на полета
+
+**Резултат:** 180 теста. При следващ run с пълно зареждане на Кашон, ~75 продукта ще бъдат автоматично реактивирани.
+
 ---
 
 ## Прогрес (v11.x)
 
 ```
-Фаза 6 (тестове)    ━━━ ЗАВЪРШЕНА ✓  168 теста, products + output покрити
+Фаза 6 (тестове)       ━━━ ЗАВЪРШЕНА ✓  168 теста, products + output покрити
        ↓
-Фаза 7 (DM)         ━━━ ОТЛОЖЕНА     достатъчно магазини (15)
+Фаза 7 (DM)            ━━━ ОТЛОЖЕНА     достатъчно магазини (15)
        ↓
-Фаза 8 (CI dry-run) ━━━ ЗАВЪРШЕНА ✓  fail-fast + annotation + step summary
+Фаза 8 (CI dry-run)    ━━━ ЗАВЪРШЕНА ✓  fail-fast + annotation + step summary
        ↓
-Фаза 9 (deps)       ━━━ ЗАВЪРШЕНА ✓  Dependabot за pip + github-actions
+Фаза 9 (deps)          ━━━ ЗАВЪРШЕНА ✓  Dependabot за pip + github-actions
        ↓
-Фаза 10 (analytics) ━━━ ЗАВЪРШЕНА ✓  price_history.json + История tab възстановен
+Фаза 10 (analytics)    ━━━ ЗАВЪРШЕНА ✓  price_history.json + История tab възстановен
+       ↓
+Фаза 10.5 (re-activation) ━━━ ЗАВЪРШЕНА ✓  двупосочен product lifecycle, 75 продукта ще се възстановят
 ```
 
-Всички 10 фази от roadmap-а са завършени.
+Всички 11 фази от roadmap-а са завършени.
 
 ---
 
-## Следващи стъпки (v11.x)
+## Следващи стъпки
 
 ### Фаза 11: T-Market — нов scraping подход
 
