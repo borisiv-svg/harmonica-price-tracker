@@ -5,6 +5,25 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v10.8.0 - 2026-02-16
+
+### Добавено
+- **Store health мониторинг** — автоматично откриване на деградация по магазини:
+  - `run_history.py` — нов модул за запис на `data/run_history.json` с брой продукти по магазин при всеки run
+  - Alert логика: 0 продукта от магазин ИЛИ >50% спад спрямо предишен run
+  - Health summary в логовете: `HEALTH CHECK` секция при всяко изпълнение
+  - Health alerts в имейл отчета — оранжева секция с детайли за проблемни магазини
+  - Генерализиран debug markdown save — при аномалия суровият markdown на всеки проблемен магазин се записва в `data/{store}_debug.md`
+- **21 нови теста** за `run_history.py` — load/save, build entry, health checks, alerts, integration
+- **Import smoke test** за `run_history` модула
+- `data/run_history.json` се commit-ва автоматично от CI (заедно с `harmonica_products.json`)
+
+### Променено
+- Zelen-only debug markdown save заменен с генерализиран debug save за всички магазини при health alert
+- `send_email_report()` приема нов `health_alerts` параметър
+- `production.yml` commit step обновен да включва `data/run_history.json`
+
+---
 ## v10.7.0 - 2026-02-16
 
 ### Добавено

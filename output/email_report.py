@@ -11,9 +11,10 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from config import STORES, GLOVO_STORES, logger
+from run_history import get_store_display_name
 
 
-def send_email_report(final_products, stats):
+def send_email_report(final_products, stats, health_alerts=None):
     """
     Изпраща HTML имейл с обобщение на резултатите от experimental scraper.
     """
@@ -71,7 +72,10 @@ def send_email_report(final_products, stats):
     warning_count = len(alerts)
     ok_count = total_products - warning_count
 
-    if warning_count > 0:
+    health_count = len(health_alerts) if health_alerts else 0
+    if health_count > 0:
+        subject = f"Harmonica: {health_count} store alert(s), {warning_count} ценови отклонения"
+    elif warning_count > 0:
         subject = f"Harmonica: {warning_count} продукта с отклонение >10%"
     else:
         subject = f"Harmonica: Всички цени в норма ({total_products} продукта)"
@@ -121,6 +125,23 @@ def send_email_report(final_products, stats):
         html += '</div>'
     else:
         html += '<div class="summary" style="background:#e8f5e9;border-left:4px solid #2e7d32;margin:20px;"><h2 style="color:#2e7d32;margin-top:0;">Всички цени са в норма</h2></div>'
+
+    # Health alerts section (store anomalies)
+    if health_alerts:
+        html += ('<div class="alert-section" style="background:#fff3e0;border-left:4px solid #e65100;">'
+                 '<h2 style="color:#e65100;margin-top:0;">Store Health Alerts</h2>')
+        for ha in health_alerts:
+            name = get_store_display_name(ha["store"])
+            if ha["type"] == "zero":
+                prev = ha.get("previous")
+                if prev and prev > 0:
+                    html += f'<p><strong>{name}</strong>: 0 продукта (предишен run: {prev})</p>'
+                else:
+                    html += f'<p><strong>{name}</strong>: 0 продукта</p>'
+            elif ha["type"] == "drop":
+                html += (f'<p><strong>{name}</strong>: {ha["current"]} продукта '
+                         f'(спад {ha["drop_pct"]}% от {ha["previous"]})</p>')
+        html += '</div>'
 
     html += '<div class="coverage"><h2 style="color:#2e7d32;">Покритие по магазини</h2>'
     for store_name, count in store_coverage.items():

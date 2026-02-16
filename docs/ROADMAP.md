@@ -1,6 +1,6 @@
 # Roadmap & Lessons Learned — Harmonica Price Tracker
 
-Последна актуализация: 2026-02-16 (v10.7.0)
+Последна актуализация: 2026-02-16 (v10.8.0)
 
 ---
 
@@ -84,17 +84,17 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 
 **Резултат:** anthropic==0.79.0, crawl4ai==0.8.0, curl_cffi==0.14.0, capsolver==1.0.7. При upgrade — ръчна промяна + dry-run + тестове преди merge.
 
-### Фаза 4: Store health мониторинг
+### Фаза 4: Store health мониторинг — ЗАВЪРШЕНА (v10.8.0)
 
 **Цел:** Автоматично откриване на деградация по магазини.
 
 **Задачи:**
-- [ ] `data/run_history.json` — запис на брой продукти по магазин при всеки run
-- [ ] Alert логика: ако магазин върне 0 продукта ИЛИ >50% спад спрямо предишен run
-- [ ] Включване на health summary в email отчета
-- [ ] Генерализиране на Zelen debug logging за всички магазини при anomaly
+- [x] `data/run_history.json` — запис на брой продукти по магазин при всеки run
+- [x] Alert логика: ако магазин върне 0 продукта ИЛИ >50% спад спрямо предишен run
+- [x] Включване на health summary в email отчета
+- [x] Генерализиране на Zelen debug logging за всички магазини при anomaly
 
-**Очакван резултат:** Проблеми с конкретен магазин се виждат веднага, не при ръчна проверка на Sheet-а.
+**Резултат:** `run_history.py` модул с 21 теста. Health alerts в лог + имейл. Debug markdown за всички проблемни магазини.
 
 ### Фаза 5: Zelen deep-dive
 
@@ -110,18 +110,19 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 
 ---
 
-## Текущо състояние (v10.7.0)
+## Текущо състояние (v10.8.0)
 
 | Метрика | Стойност |
 |---------|----------|
 | Магазини | 15 (Кашон, eBag, Balev, Lilly, T-Market, Metro, Zelen, Randi, Bio-Market, BeFit, Laika, Glovo ×4) |
 | Продукти | 88 в reference list |
 | Runtime | ~366 секунди (production), ~30 секунди (dry-run) |
-| Модули | 18 (scraper.py + config, utils, products, matching, validation, 9 extractors, 4 fetchers, 2 output) |
-| Тестове | 113 (pytest), 0.29s |
+| Модули | 19 (scraper.py + config, utils, products, matching, validation, run_history, 9 extractors, 4 fetchers, 2 output) |
+| Тестове | 134 (pytest), 0.86s |
 | Dependencies | 10 пакета, всички pinned |
 | Fallback верига | Firecrawl → Crawl4AI → curl_cffi |
 | Валидация | Claude Sonnet 4.5 ценова проверка |
+| Health monitoring | run_history.json + auto-alert при 0 или >50% спад |
 | Schedule | Понеделник 07:00 BG time |
 
 ---
@@ -135,9 +136,9 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
        ↓
 Фаза 3 (pinning) ━━━ ЗАВЪРШЕНА ✓  всички 10 пакета pinned
        ↓
-Фаза 4 (health)  ━━━ ПРЕДСТОИ    run history + auto-alert
+Фаза 4 (health)  ━━━ ЗАВЪРШЕНА ✓  run_history.json + auto-alert + email
        ↓
 Фаза 5 (Zelen)   ━━━ ПРЕДСТОИ    debug markdown анализ
 ```
 
-Следваща стъпка: Фаза 4 (store health мониторинг) — запис на run history и alert при деградация.
+Следваща стъпка: Фаза 5 (Zelen deep-dive) — анализ на debug markdown и стабилизиране.

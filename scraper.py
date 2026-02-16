@@ -30,6 +30,7 @@ if CRAWL4AI_AVAILABLE:
 from products import load_product_list, update_product_list_with_new, save_product_list
 from matching import match_products
 from validation import validate_prices_with_claude
+from run_history import record_run
 from extractors import (
     extract_kashon_products, extract_ebag_products, extract_balev_products,
     _extract_generic_products, extract_metro_products, extract_tmarket_products,
@@ -469,16 +470,6 @@ async def main(dry_run=False):
                 if len(retry_prods) > len(store_info["products"]):
                     logger.info(f"  brand_page=False retry: {len(retry_prods)} > {len(store_info['products'])}")
                     store_info["products"] = retry_prods
-            # Debug: save Zelen markdown when ≤5 products for analysis
-            if store_key == "zelen" and len(store_info["products"]) <= 5:
-                try:
-                    debug_path = os.path.join(PROJECT_ROOT, "data", "zelen_debug.md")
-                    os.makedirs(os.path.dirname(debug_path), exist_ok=True)
-                    with open(debug_path, "w", encoding="utf-8") as f:
-                        f.write(md)
-                    logger.info(f"  Zelen debug markdown saved: {debug_path}")
-                except Exception as e:
-                    logger.warning(f"  Zelen debug save failed: {e}")
             prods = store_info["products"]
             logger.info(f"{STORES[store_key]['name']}: {len(prods)} Harmonica products")
             if not prods:
@@ -610,6 +601,32 @@ async def main(dry_run=False):
 
     total_time = time.time() - total_start
 
+    # 4.5. Run history & health check
+    health_alerts, health_summary = record_run(store_counts, total_ref, total_time)
+    logger.info("=" * 40 + " HEALTH CHECK " + "=" * 40)
+    for line in health_summary.split("\n"):
+        if "ALERTS" in line or "⚠" in line:
+            logger.warning(line)
+        else:
+            logger.info(line)
+
+    # Save debug markdown for stores with anomalies
+    if health_alerts:
+        for alert in health_alerts:
+            store_key = alert["store"]
+            store_data = crawl_results.get(store_key, {})
+            md = store_data.get("markdown", "")
+            if md and len(md) > 100:
+                try:
+                    debug_path = os.path.join(
+                        PROJECT_ROOT, "data", f"{store_key}_debug.md")
+                    os.makedirs(os.path.dirname(debug_path), exist_ok=True)
+                    with open(debug_path, "w", encoding="utf-8") as f:
+                        f.write(md)
+                    logger.info(f"  Debug markdown saved: {debug_path}")
+                except Exception as e:
+                    logger.warning(f"  Debug save failed for {store_key}: {e}")
+
     # 5. Write to Google Sheets
     stats = {"total_products": total_ref, "kashon_products": kashon_count}
     for sk in all_keys:
@@ -641,7 +658,7 @@ async def main(dry_run=False):
     write_to_sheets(final_products, stats)
 
     # 6. Email report
-    send_email_report(final_products, stats)
+    send_email_report(final_products, stats, health_alerts=health_alerts)
 
     # 7. Save product list (with any new products discovered)
     if kashon_products:

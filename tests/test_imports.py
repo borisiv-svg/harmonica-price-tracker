@@ -49,6 +49,15 @@ def test_import_validation():
     assert callable(validation.validate_prices_with_claude)
 
 
+def test_import_run_history():
+    import run_history
+    assert callable(run_history.load_history)
+    assert callable(run_history.save_history)
+    assert callable(run_history.build_run_entry)
+    assert callable(run_history.check_health)
+    assert callable(run_history.record_run)
+
+
 # -- Extractors package --
 
 def test_import_extractors_package():
