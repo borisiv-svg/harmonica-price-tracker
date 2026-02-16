@@ -141,6 +141,32 @@ STORES = {
         "url": "https://zelen.bg/brand/94/harmonica",
         "scroll_times": 15,
         "brand_page": True,
+        # Cookie consent overlay блокира зареждането на продукти
+        "pre_js": """
+            // Затваряме GDPR cookie consent popup
+            document.querySelectorAll(
+                '[class*="cookie"] button, [class*="Cookie"] button, '
+                '[class*="consent"] button, [id*="cookie"] button, '
+                'button[class*="accept"], button[class*="Accept"], '
+                '.cc-btn.cc-dismiss, .cc-allow, '
+                '[data-action="accept"], [aria-label="Accept"]'
+            ).forEach(el => {
+                if (el.textContent.match(/accept|приемам|съгласен|разбрах|okay|ok/i)) {
+                    el.click();
+                }
+            });
+            // Премахваме overlay елементи
+            document.querySelectorAll(
+                '[class*="cookie-banner"], [class*="cookie-consent"], '
+                '[class*="CookieConsent"], [id*="cookie"], '
+                '.cc-window, .cc-banner'
+            ).forEach(el => el.remove());
+        """,
+        "firecrawl_pre_actions": [
+            {"type": "wait", "milliseconds": 2000},
+            {"type": "click", "selector": "button[class*='accept'], button[class*='Accept'], .cc-allow, [data-action='accept']"},
+            {"type": "wait", "milliseconds": 1000},
+        ],
     },
     "randi": {
         "name": "Randi",

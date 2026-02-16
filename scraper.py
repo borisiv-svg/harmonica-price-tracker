@@ -1,5 +1,5 @@
 """
-Harmonica Price Tracker v10.6
+Harmonica Price Tracker v10.12
 ==============================
 Modular scraper — Firecrawl-first + Crawl4AI fallback архитектура.
 Магазини, за които Firecrawl timeout-ва, автоматично преминават на Crawl4AI.
@@ -30,6 +30,7 @@ if CRAWL4AI_AVAILABLE:
 from products import load_product_list, update_product_list_with_new, save_product_list
 from matching import match_products
 from validation import validate_prices_with_claude
+from run_history import record_run
 from extractors import (
     extract_kashon_products, extract_ebag_products, extract_balev_products,
     _extract_generic_products, extract_metro_products, extract_tmarket_products,
@@ -53,16 +54,20 @@ from fetchers import (
 )
 
 # Output modules
-from output import write_to_sheets, send_email_report
+from output import write_to_sheets, send_email_report, append_history_to_sheets
+from price_history import record_prices
 
 
 # =============================================================================
 # CRAWLING — с retry и паралелно изпълнение
 # =============================================================================
 
-async def crawl_all():
+async def crawl_all(only_stores=None):
     """
     Сканира всички магазини: Firecrawl-first + Crawl4AI fallback.
+
+    Args:
+        only_stores: optional set of store keys to crawl (None = all)
 
     Стратегия:
     1. Стартираме Firecrawl за всички магазини паралелно
@@ -80,6 +85,9 @@ async def crawl_all():
     results = {}
     loop = asyncio.get_event_loop()
 
+    def _should_crawl(key):
+        return only_stores is None or key in only_stores
+
     # ==========================================================================
     # Стъпка 1: Стартираме Firecrawl задачи паралелно (ако е наличен)
     # ==========================================================================
@@ -87,17 +95,17 @@ async def crawl_all():
 
     if has_firecrawl:
         # Randi — специализиран Firecrawl (JS-heavy)
-        if "randi" in STORES:
+        if "randi" in STORES and _should_crawl("randi"):
             firecrawl_futures["randi"] = loop.run_in_executor(
                 None, _fetch_randi_via_firecrawl)
 
         # Lilly — специализиран Firecrawl (Magento 2 + Hyvä)
-        if "lilly" in STORES:
+        if "lilly" in STORES and _should_crawl("lilly"):
             firecrawl_futures["lilly"] = loop.run_in_executor(
                 None, _fetch_lilly_via_firecrawl)
 
         # T-Market — специализиран Firecrawl (CloudCart + Cloudflare)
-        if "tmarket" in STORES:
+        if "tmarket" in STORES and _should_crawl("tmarket"):
             firecrawl_futures["tmarket"] = loop.run_in_executor(
                 None, _fetch_tmarket_via_firecrawl)
 
@@ -106,7 +114,7 @@ async def crawl_all():
             "kashon", "ebag", "balev", "metro", "zelen", "biomarket", "befit", "laika",
         ]
         for store_key in generic_firecrawl_stores:
-            if store_key in STORES:
+            if store_key in STORES and _should_crawl(store_key):
                 cfg = STORES[store_key]
                 firecrawl_futures[store_key] = loop.run_in_executor(
                     None, _fetch_store_via_firecrawl, store_key, cfg)
@@ -141,7 +149,7 @@ async def crawl_all():
 
     # Магазини, за които Firecrawl изобщо не беше стартиран (липсва API key)
     if not has_firecrawl:
-        failed_stores = list(STORES.keys())
+        failed_stores = [k for k in STORES if _should_crawl(k)]
 
     # Магазини, за които Firecrawl успя но с ограничени scrolls —
     # Crawl4AI ще скролира пълния обхват и ще заместим ако е по-добър
@@ -282,7 +290,7 @@ async def crawl_all():
     # ==========================================================================
     # Glovo магазини (паралелно, отделен Firecrawl pipeline)
     # ==========================================================================
-    if GLOVO_STORES and has_firecrawl:
+    if GLOVO_STORES and has_firecrawl and only_stores is None:
         glovo_results = await fetch_all_glovo_products("harmonica")
         results.update(glovo_results)
 
@@ -293,10 +301,17 @@ async def crawl_all():
 # MAIN
 # =============================================================================
 
-async def main():
-    logger.info("=" * 60)
+async def main(dry_run=False):
+    DRY_RUN_STORES = {"kashon", "ebag", "balev"}
+
+    if dry_run:
+        logger.info("=" * 60)
+        logger.info("DRY RUN MODE — само Кашон + eBag + Balev, без Sheets/email")
+        logger.info("=" * 60)
+    else:
+        logger.info("=" * 60)
     total_stores = len(STORES) + len(GLOVO_STORES)
-    logger.info(f"HARMONICA PRICE TRACKER v10.5 — {total_stores} магазина (Firecrawl + Crawl4AI)")
+    logger.info(f"HARMONICA PRICE TRACKER v10.8 — {total_stores} магазина (Firecrawl + Crawl4AI)")
     logger.info("=" * 60)
     logger.info(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Магазини: {len(STORES)} + {len(GLOVO_STORES)} Glovo, BS4: {BS4_AVAILABLE}")
@@ -323,7 +338,7 @@ async def main():
     reference_products = load_product_list()
 
     # 1. Crawl — паралелно
-    crawl_results = await crawl_all()
+    crawl_results = await crawl_all(only_stores=DRY_RUN_STORES if dry_run else None)
 
     # 2. Extract products
     logger.info("=" * 40 + " EXTRACTING " + "=" * 40)
@@ -456,16 +471,6 @@ async def main():
                 if len(retry_prods) > len(store_info["products"]):
                     logger.info(f"  brand_page=False retry: {len(retry_prods)} > {len(store_info['products'])}")
                     store_info["products"] = retry_prods
-            # Debug: save Zelen markdown when ≤5 products for analysis
-            if store_key == "zelen" and len(store_info["products"]) <= 5:
-                try:
-                    debug_path = os.path.join(PROJECT_ROOT, "data", "zelen_debug.md")
-                    os.makedirs(os.path.dirname(debug_path), exist_ok=True)
-                    with open(debug_path, "w", encoding="utf-8") as f:
-                        f.write(md)
-                    logger.info(f"  Zelen debug markdown saved: {debug_path}")
-                except Exception as e:
-                    logger.warning(f"  Zelen debug save failed: {e}")
             prods = store_info["products"]
             logger.info(f"{STORES[store_key]['name']}: {len(prods)} Harmonica products")
             if not prods:
@@ -597,15 +602,68 @@ async def main():
 
     total_time = time.time() - total_start
 
+    # 4.5. Run history & health check
+    health_alerts, health_summary = record_run(store_counts, total_ref, total_time)
+    logger.info("=" * 40 + " HEALTH CHECK " + "=" * 40)
+    for line in health_summary.split("\n"):
+        if "ALERTS" in line or "⚠" in line:
+            logger.warning(line)
+        else:
+            logger.info(line)
+
+    # Save debug markdown for stores with anomalies
+    if health_alerts:
+        for alert in health_alerts:
+            store_key = alert["store"]
+            store_data = crawl_results.get(store_key, {})
+            md = store_data.get("markdown", "")
+            if md and len(md) > 100:
+                try:
+                    debug_path = os.path.join(
+                        PROJECT_ROOT, "data", f"{store_key}_debug.md")
+                    os.makedirs(os.path.dirname(debug_path), exist_ok=True)
+                    with open(debug_path, "w", encoding="utf-8") as f:
+                        f.write(md)
+                    logger.info(f"  Debug markdown saved: {debug_path}")
+                except Exception as e:
+                    logger.warning(f"  Debug save failed for {store_key}: {e}")
+
     # 5. Write to Google Sheets
     stats = {"total_products": total_ref, "kashon_products": kashon_count}
     for sk in all_keys:
         stats[f"{sk}_matches"] = store_counts.get(sk, 0)
     stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
+
+    if dry_run:
+        logger.info("=" * 40 + " DRY RUN SUMMARY " + "=" * 40)
+        total_matched = sum(1 for p in final_products if any(p.get(sk) for sk in all_keys))
+        logger.info(f"Референтни продукти: {total_ref}")
+        logger.info(f"Кашон цени: {kashon_count}")
+        logger.info(f"Matched от external stores: {total_matched}")
+        for sk in all_keys:
+            if store_counts.get(sk, 0) > 0:
+                logger.info(f"  {all_display.get(sk, sk)}: {store_counts[sk]} matched")
+        total_time = time.time() - total_start
+        logger.info(f"Време: {total_time:.1f}s")
+        has_failures = any(
+            store_counts.get(sk, 0) == 0
+            for sk in (DRY_RUN_STORES - {"kashon"})  # kashon is master, check others
+            if sk in all_keys
+        )
+        if has_failures:
+            logger.warning("DRY RUN: някои магазини върнаха 0 matched продукта!")
+            return 1
+        logger.info("DRY RUN: OK")
+        return 0
+
     write_to_sheets(final_products, stats)
 
+    # 5.5. История tab + local price history
+    append_history_to_sheets(final_products)
+    record_prices(final_products)
+
     # 6. Email report
-    send_email_report(final_products, stats)
+    send_email_report(final_products, stats, health_alerts=health_alerts)
 
     # 7. Save product list (with any new products discovered)
     if kashon_products:
@@ -632,7 +690,7 @@ async def main():
         products_for_json.append(clean)
 
     output = {
-        "version": "v10.3",
+        "version": "v10.8",
         "date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "total_time": round(total_time, 2),
         "stores": len(STORES) + len(GLOVO_STORES),
@@ -654,4 +712,8 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import sys
+    dry_run = "--dry-run" in sys.argv
+    exit_code = asyncio.run(main(dry_run=dry_run))
+    if dry_run and exit_code:
+        sys.exit(exit_code)

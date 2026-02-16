@@ -5,6 +5,122 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v10.12.0 - 2026-02-16
+
+### Добавено
+- **Dependabot интеграция (Фаза 9)** — `.github/dependabot.yml`:
+  - Weekly проверка за `pip` и `github-actions` зависимости (сряда)
+  - Групиране на minor/patch updates в един PR
+  - Лимит от 5 едновременно отворени PR-и
+  - Labels: `dependencies` (pip), `ci` (actions)
+- **Ценова история — local JSON (Фаза 10)** — `price_history.py`:
+  - `record_prices()` — записва ценови snapshot от всеки run в `data/price_history.json`
+  - `get_price_trend()` — връща средна цена по дата за последните N седмици
+  - `load_history()` / `save_history()` — JSON persistence с лимит от 6000 записа
+  - 10 нови теста в `tests/test_price_history.py`
+- **Възстановяване на История_{year} tab** — `append_history_to_sheets()` в `output/sheets.py`:
+  - Записва редове за всеки продукт с цени от всички магазини + средна/мин/макс EUR
+  - Автоматично създава таб с зелен header + freeze row 1 ако липсва
+  - Интегрирано в `scraper.py main()` — записва след `write_to_sheets()`
+  - `data/price_history.json` се commit-ва автоматично от CI
+
+---
+## v10.11.0 - 2026-02-16
+
+### Добавено
+- **CI dry-run pre-check (Фаза 8)** — `production.yml` вече изпълнява `--dry-run` преди production scrape:
+  - Краулва Кашон + eBag + Balev (~30s) и проверява дали всеки магазин връща >0 matched продукта
+  - **Fail-fast** — ако dry-run върне exit code 1, production scrape НЕ се изпълнява
+  - **GitHub Actions error annotation** — `::error::` маркер при dry-run failure, видим директно в PR/workflow UI
+  - **Step Summary** — markdown summary с резултат (pass/fail) и next steps при failure
+  - `skip_dry_run` input за manual dispatch — позволява bypass при debugging
+  - `timeout-minutes: 30` за целия job (преди: без лимит)
+  - Version strings обновени в workflow header и Environment info step
+
+---
+## v10.10.0 - 2026-02-16
+
+### Добавено
+- **Test coverage разширяване (Фаза 6)** — 28 нови теста (140 → 168):
+  - `test_products.py` — 15 теста: load (active filtering, missing file, corrupted JSON, EUR calculation, field preservation), update (new products, duplicates, case-insensitive, removed re-add prevention), save (roundtrip, keywords, removed preservation, metadata, sequential IDs)
+  - `test_output.py` — 13 теста: `extract_weight()` (7 cases), `send_email_report()` smoke tests (no credentials, with credentials, health alerts, empty products), `write_to_sheets()` smoke tests (gspread unavailable, import check)
+
+### Променено
+- **conftest.py cleanup** — `load_fixture()` преместен в `tests/helpers.py` (споделен helper), премахнат дубликат от `test_extractors.py`
+- `conftest.py` добавя `tests/` dir в `sys.path` за достъп до `helpers.py`
+
+---
+## v10.9.0 - 2026-02-16
+
+### Добавено
+- **Zelen deep-dive (Фаза 5)** — стабилизиране на Zelen extraction:
+  - Cookie consent handling в Zelen config (`pre_js` + `firecrawl_pre_actions`) — основна причина за малко продукти
+  - `_normalize_image_links()` в generic extractor — `[![alt](img)](url)` → `[alt](url)`, елиминира дубликати
+  - Zelen fixture (`tests/fixtures/zelen.md`) с 16 продукта от реалната структура на сайта
+  - 5 нови теста за Zelen extraction + image-link normalization
+
+### Поправено
+- **`normalize_name()` decimal kg bug** — `"Product 1.5kg"` връщаше `"product 1 5000г"` вместо `"product 1500г"`. Decimal kg regex (`1.5kg` → `1500г`) сега се прилага преди integer kg regex (`5kg` → `5000г`)
+- **Version strings** — обновени от v10.3/v10.5/v10.6 на v10.8 в scraper.py и email footer
+
+---
+## v10.8.0 - 2026-02-16
+
+### Добавено
+- **Store health мониторинг** — автоматично откриване на деградация по магазини:
+  - `run_history.py` — нов модул за запис на `data/run_history.json` с брой продукти по магазин при всеки run
+  - Alert логика: 0 продукта от магазин ИЛИ >50% спад спрямо предишен run
+  - Health summary в логовете: `HEALTH CHECK` секция при всяко изпълнение
+  - Health alerts в имейл отчета — оранжева секция с детайли за проблемни магазини
+  - Генерализиран debug markdown save — при аномалия суровият markdown на всеки проблемен магазин се записва в `data/{store}_debug.md`
+- **21 нови теста** за `run_history.py` — load/save, build entry, health checks, alerts, integration
+- **Import smoke test** за `run_history` модула
+- `data/run_history.json` се commit-ва автоматично от CI (заедно с `harmonica_products.json`)
+
+### Променено
+- Zelen-only debug markdown save заменен с генерализиран debug save за всички магазини при health alert
+- `send_email_report()` приема нов `health_alerts` параметър
+- `production.yml` commit step обновен да включва `data/run_history.json`
+
+---
+## v10.7.0 - 2026-02-16
+
+### Добавено
+- **Тестова инфраструктура (pytest)** — 113 теста в 4 модула:
+  - `test_imports.py` — smoke import на всички 18 модула (хваща BrowserConfig/Firecrawl бъгове)
+  - `test_extractors.py` — 6 extractors с markdown fixtures (kashon, ebag, balev, metro, randi, generic)
+  - `test_utils.py` — EUR/BGN/fallback цени, name cleaning, food/harmonica филтри, категории, Cloudflare detection
+  - `test_matching.py` — name normalization, keyword extraction, weight parsing, matching engine scoring
+  - 6 markdown fixtures в `tests/fixtures/` за реалистични тестови данни
+- **`--dry-run` режим** — `python scraper.py --dry-run` краули само Кашон + eBag + Balev, пропуска Sheets/email, принтира summary, exit code 1 при 0 matched
+- **`crawl_all(only_stores=...)` параметър** — селективно краулване на подмножество магазини
+- **pytest стъпка в `production.yml`** — тестовете се изпълняват преди smoke test и scraper
+
+### Променено
+- **Dependency pinning** — всички 10 пакета с точни версии:
+  - `anthropic==0.79.0` (беше `>=0.40.0,<1.0.0`)
+  - `crawl4ai==0.8.0` (беше `>=0.4.0,<1.0.0`)
+  - `curl_cffi==0.14.0` (беше `>=0.7.0,<1.0.0`)
+  - `capsolver==1.0.7` (беше `>=1.0.0,<2.0.0`)
+  - `pytest==9.0.2` добавен в requirements.txt
+
+### Документация
+- **ROADMAP.md** — изводи от последните сесии, 5-фазен план за действие
+
+---
+## v10.6.1 - 2026-02-16
+
+### Поправено
+- **NameError: `BrowserConfig` is not defined** — при cleanup на star imports (`from config import *` → explicit imports) в scraper.py, `BrowserConfig` и `AsyncWebCrawler` от crawl4ai не бяха включени. Добавен conditional import: `if CRAWL4AI_AVAILABLE: from crawl4ai import AsyncWebCrawler, BrowserConfig`
+- **Generic `brand_page=False` fallback** — BeFit-specific retry заменен с универсален fallback за всички магазини с ≤5 продукта. Ако `brand_page=True` връща малко резултати, автоматично се пробва `brand_page=False` и се ползва по-добрият резултат
+
+### Добавено
+- **Zelen debug markdown** — при ≤5 продукта, суровият markdown от Zelen се записва в `data/zelen_debug.md` за диагностика
+
+### Потвърдено
+- Production Weekly Scraper: 15 магазина, 88 продукта, 366 секунди — без грешки
+
+---
 ## v10.6.0 - 2026-02-16
 
 ### Променено

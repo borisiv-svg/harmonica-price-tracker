@@ -3,19 +3,22 @@ gspread==6.1.0
 google-auth==2.27.0
 google-auth-oauthlib==1.2.0
 python-dotenv==1.0.0
-anthropic>=0.40.0,<1.0.0
+anthropic==0.79.0
 beautifulsoup4==4.12.3
 
 # Primary scraping engine (async, parallel)
-crawl4ai>=0.4.0,<1.0.0
+crawl4ai==0.8.0
 
 # TLS impersonation for Cloudflare bypass
-curl_cffi>=0.7.0,<1.0.0
+curl_cffi==0.14.0
 
 # Firecrawl — JS rendering for DM, Randi, Glovo
-# Pinned: 1.17.0 is last 1.x release. Code uses FirecrawlApp + .scrape_url()
+# 1.17.0 is last 1.x release. Code uses FirecrawlApp + .scrape_url()
 # which are 1.x API. 2.x+ has breaking changes.
 firecrawl-py==1.17.0
 
 # Anti-bot (optional)
-capsolver>=1.0.0,<2.0.0
+capsolver==1.0.7
+
+# Testing
+pytest==9.0.2
