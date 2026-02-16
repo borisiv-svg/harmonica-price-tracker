@@ -147,3 +147,81 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 ```
 
 Всички 5 фази от оригиналния roadmap са завършени.
+
+---
+
+## Следващ план за действие (v11.x)
+
+### Фаза 6: Test coverage разширяване
+
+**Цел:** Покриване на нетестираните модули и премахване на дупликация.
+
+**Задачи:**
+- [ ] `test_products.py` — тестове за `load_product_list()`, `update_product_list_with_new()`, `save_product_list()` (JSON roundtrip, new product discovery, status management)
+- [ ] `conftest.py` cleanup — премахване на дупликираната `load_fixture()` от `test_extractors.py`, ползване само на `conftest.py` версията
+- [ ] Smoke test за `send_email_report()` — проверка че HTML се генерира без грешка (без реален SMTP)
+- [ ] Smoke test за `write_to_sheets()` — проверка че форматиращият код не гърми (mock gspread)
+
+**Очакван резултат:** 160+ теста, покриващи всички основни модули.
+
+### Фаза 7: DM България — повторен опит
+
+**Цел:** Активиране на DM.bg като 16-ти магазин (отложен от v9.5 заради 403 anti-bot).
+
+**Задачи:**
+- [ ] Анализ на текущата DM.bg Cloudflare защита — дали CapSolver + Firecrawl я преминават
+- [ ] Тестване на `extract_dm_products()` и `extract_dm_from_curl_html()` с реални данни
+- [ ] Добавяне на DM в STORES dict ако crawl-ът е стабилен
+- [ ] DM fixture + тестове
+
+**Очакван резултат:** DM стабилно краулван с >5 продукта при всеки run, или документирана причина защо не е възможен в момента.
+
+### Фаза 8: Тестове в production-like среда
+
+**Цел:** Dry-run в CI за ранно откриване на integration проблеми.
+
+**Задачи:**
+- [ ] `--dry-run` стъпка в `production.yml` (преди реалния scrape) — бързо краулване на 3 магазина
+- [ ] Fail-fast: ако dry-run върне exit code 1, спиране на production run
+- [ ] Notification при dry-run failure (може и като GitHub Actions annotation)
+
+**Очакван резултат:** Production run стартира само след успешен dry-run smoke test.
+
+### Фаза 9: Dependabot / Renovate интеграция
+
+**Цел:** Контролирани dependency upgrades с автоматични PR.
+
+**Задачи:**
+- [ ] Конфигуриране на Dependabot за `requirements.txt` (weekly schedule)
+- [ ] Pin Python version в CI (вече е `3.11`, но да е explicit)
+- [ ] Документация за upgrade процедура: Dependabot PR → review → dry-run → merge
+
+**Очакван резултат:** Зависимостите се обновяват контролирано, не изненадващо.
+
+### Фаза 10: Ценова аналитика
+
+**Цел:** Исторически анализ на ценови тенденции.
+
+**Задачи:**
+- [ ] Запис на цени по магазин в `data/price_history.json` (или SQLite) при всеки run
+- [ ] Седмичен ценови отчет: средна цена по категория, тренд ↑/↓, outlier-и
+- [ ] Визуализация в Google Sheets (chart tab) или отделен HTML report
+- [ ] Алерт при необичайно голяма ценова промяна (>20% за един магазин за седмица)
+
+**Очакван резултат:** Възможност за анализ на ценови тенденции за всеки Harmonica продукт във времето.
+
+---
+
+## Прогрес (v11.x)
+
+```
+Фаза 6 (тестове)    ━━━ ПРЕДСТОИ    покриване на products, output модулите
+       ↓
+Фаза 7 (DM)         ━━━ ПРЕДСТОИ    повторен опит за DM.bg
+       ↓
+Фаза 8 (CI dry-run) ━━━ ПРЕДСТОИ    dry-run преди production
+       ↓
+Фаза 9 (deps)       ━━━ ПРЕДСТОИ    Dependabot за контролирани upgrades
+       ↓
+Фаза 10 (analytics) ━━━ ПРЕДСТОИ    ценова история + тренд анализ
+```
