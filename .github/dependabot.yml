@@ -1,0 +1,34 @@
+# Dependabot — автоматични PR при нови версии на dependencies.
+# Проверява веднъж седмично. PR-ите минават през CI (тестове + dry-run).
+# Merge е ръчен — review → dry-run → merge.
+
+version: 2
+
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+    # Лимит на едновременно отворени PR-и
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "deps"
+    # Групиране: minor/patch updates в един PR
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+    labels:
+      - "ci"
+    commit-message:
+      prefix: "ci"

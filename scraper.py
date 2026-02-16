@@ -1,5 +1,5 @@
 """
-Harmonica Price Tracker v10.8
+Harmonica Price Tracker v10.12
 ==============================
 Modular scraper — Firecrawl-first + Crawl4AI fallback архитектура.
 Магазини, за които Firecrawl timeout-ва, автоматично преминават на Crawl4AI.
@@ -54,7 +54,8 @@ from fetchers import (
 )
 
 # Output modules
-from output import write_to_sheets, send_email_report
+from output import write_to_sheets, send_email_report, append_history_to_sheets
+from price_history import record_prices
 
 
 # =============================================================================
@@ -656,6 +657,10 @@ async def main(dry_run=False):
         return 0
 
     write_to_sheets(final_products, stats)
+
+    # 5.5. История tab + local price history
+    append_history_to_sheets(final_products)
+    record_prices(final_products)
 
     # 6. Email report
     send_email_report(final_products, stats, health_alerts=health_alerts)

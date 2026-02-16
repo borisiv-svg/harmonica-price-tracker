@@ -521,3 +521,120 @@ def write_to_sheets(final_products, stats):
     except Exception as e:
         logger.warning(f"Форматиране пропуснато (данните са записани): {e}")
         return True
+
+
+# =============================================================================
+# ИСТОРИЯ TAB — append-only ценова история по седмици
+# =============================================================================
+
+def append_history_to_sheets(final_products):
+    """
+    Добавя ред за всеки продукт в История_{year} таба.
+    Append-only — не изтрива стари данни, натрупва история.
+    Използва същия spreadsheet като write_to_sheets().
+    """
+    if not GSPREAD_AVAILABLE:
+        logger.warning("gspread not available — skipping history append")
+        return False
+
+    current_year = datetime.now().year
+    tab_suffix = os.environ.get("SHEET_TAB_SUFFIX", "")
+    history_tab_name = f"История_{current_year}{tab_suffix}"
+
+    store_keys = [k for k, cfg in STORES.items() if not cfg.get("is_master")]
+    store_keys += list(GLOVO_STORES.keys())
+    store_display = {k: cfg["name"] for k, cfg in STORES.items()}
+    store_display.update({k: f"Glovo {cfg['name']}" for k, cfg in GLOVO_STORES.items()})
+
+    date_str = datetime.now().strftime("%d.%m.%Y")
+    time_str = datetime.now().strftime("%H:%M")
+
+    try:
+        creds_json = os.environ.get("GOOGLE_CREDENTIALS")
+        if creds_json:
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                f.write(creds_json)
+                creds_path = f.name
+            gc = gspread.service_account(filename=creds_path)
+            os.unlink(creds_path)
+        else:
+            gc = gspread.service_account(filename='credentials.json')
+
+        spreadsheet_id = os.environ.get("SPREADSHEET_ID")
+        if spreadsheet_id:
+            spreadsheet = gc.open_by_key(spreadsheet_id)
+        else:
+            spreadsheet = gc.open("Harmonica Price Tracker")
+
+    except Exception as e:
+        logger.error(f"История: Sheets връзка неуспешна: {e}")
+        return False
+
+    # Headers за История таба
+    headers = ['Дата', 'Час', 'Продукт', 'Грамаж', 'Кашон EUR']
+    for sk in store_keys:
+        headers.append(store_display.get(sk, sk))
+    headers.extend(['Ср.EUR', 'Мин.EUR', 'Макс.EUR'])
+
+    try:
+        try:
+            hist = spreadsheet.worksheet(history_tab_name)
+        except gspread.exceptions.WorksheetNotFound:
+            hist = spreadsheet.add_worksheet(title=history_tab_name, rows=5000, cols=len(headers))
+            hist.update(values=[headers], range_name='A1')
+            hist.freeze(rows=1)
+            # Bold + green header
+            hist.spreadsheet.batch_update({"requests": [{
+                "repeatCell": {
+                    "range": {"sheetId": hist.id,
+                              "startRowIndex": 0, "endRowIndex": 1,
+                              "startColumnIndex": 0, "endColumnIndex": len(headers)},
+                    "cell": {"userEnteredFormat": {
+                        "backgroundColor": {"red": 0.18, "green": 0.49, "blue": 0.20},
+                        "textFormat": {"bold": True, "fontSize": 10,
+                                       "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+                    }},
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                }
+            }]})
+            logger.info(f"Създаден нов таб: {history_tab_name}")
+
+        # Изграждаме редовете
+        hist_rows = []
+        for p in final_products:
+            kashon = p.get("kashon") or {}
+            kashon_eur = kashon.get("eur")
+
+            row = [date_str, time_str, p["name"], extract_weight(p["name"]),
+                   kashon_eur if kashon_eur else '']
+
+            all_eur = []
+            if kashon_eur:
+                all_eur.append(kashon_eur)
+
+            for sk in store_keys:
+                sd = p.get(sk)
+                if sd and sd.get("eur"):
+                    row.append(sd["eur"])
+                    all_eur.append(sd["eur"])
+                else:
+                    row.append('')
+
+            if all_eur:
+                avg = round(sum(all_eur) / len(all_eur), 2)
+                row.extend([avg, min(all_eur), max(all_eur)])
+            else:
+                row.extend(['', '', ''])
+
+            hist_rows.append(row)
+
+        if hist_rows:
+            hist.append_rows(hist_rows, value_input_option='USER_ENTERED')
+            logger.info(f"История: {len(hist_rows)} реда добавени в {history_tab_name}")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"История грешка: {str(e)[:120]}")
+        return False

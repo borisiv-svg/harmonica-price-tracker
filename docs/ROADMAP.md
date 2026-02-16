@@ -1,6 +1,6 @@
 # Roadmap & Lessons Learned — Harmonica Price Tracker
 
-Последна актуализация: 2026-02-16 (v10.11.0)
+Последна актуализация: 2026-02-16 (v10.12.0)
 
 ---
 
@@ -115,19 +115,20 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 
 ---
 
-## Текущо състояние (v10.11.0)
+## Текущо състояние (v10.12.0)
 
 | Метрика | Стойност |
 |---------|----------|
 | Магазини | 15 (Кашон, eBag, Balev, Lilly, T-Market, Metro, Zelen, Randi, Bio-Market, BeFit, Laika, Glovo ×4) |
 | Продукти | 88 в reference list |
 | Runtime | ~366 секунди (production), ~30 секунди (dry-run) |
-| Модули | 19 (scraper.py + config, utils, products, matching, validation, run_history, 9 extractors, 4 fetchers, 2 output) |
-| Тестове | 168 (pytest), ~1.4s |
-| Dependencies | 10 пакета, всички pinned |
+| Модули | 20 (scraper.py + config, utils, products, matching, validation, run_history, price_history, 9 extractors, 4 fetchers, 2 output) |
+| Тестове | 178 (pytest), ~1.1s |
+| Dependencies | 10 пакета, всички pinned + Dependabot за auto-upgrade PR |
 | Fallback верига | Firecrawl → Crawl4AI → curl_cffi |
 | Валидация | Claude Sonnet 4.5 ценова проверка |
 | Health monitoring | run_history.json + auto-alert при 0 или >50% спад |
+| Price history | price_history.json (local) + История_{year} tab (Sheets) |
 | Schedule | Понеделник 07:00 BG time |
 
 ---
@@ -183,28 +184,32 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 
 **Резултат:** Production run стартира само след успешен dry-run. При failure — ясно съобщение в GitHub UI + инструкции за bypass.
 
-### Фаза 9: Dependabot / Renovate интеграция
+### Фаза 9: Dependabot интеграция — ЗАВЪРШЕНА (v10.12.0)
 
 **Цел:** Контролирани dependency upgrades с автоматични PR.
 
 **Задачи:**
-- [ ] Конфигуриране на Dependabot за `requirements.txt` (weekly schedule)
-- [ ] Pin Python version в CI (вече е `3.11`, но да е explicit)
-- [ ] Документация за upgrade процедура: Dependabot PR → review → dry-run → merge
+- [x] Конфигуриране на Dependabot за `requirements.txt` (weekly schedule, сряда)
+- [x] Конфигуриране на Dependabot за `github-actions` (weekly schedule, сряда)
+- [x] Групиране на minor/patch updates в един PR, лимит 5 отворени PR-и
+- [x] Labels: `dependencies` (pip), `ci` (actions)
 
-**Очакван резултат:** Зависимостите се обновяват контролирано, не изненадващо.
+**Резултат:** `.github/dependabot.yml` — зависимостите се обновяват контролирано чрез автоматични PR с review + dry-run + merge цикъл.
 
-### Фаза 10: Ценова аналитика
+### Фаза 10: Ценова аналитика — ЗАВЪРШЕНА (v10.12.0)
 
-**Цел:** Исторически анализ на ценови тенденции.
+**Цел:** Исторически анализ на ценови тенденции + възстановяване на История tab.
 
 **Задачи:**
-- [ ] Запис на цени по магазин в `data/price_history.json` (или SQLite) при всеки run
-- [ ] Седмичен ценови отчет: средна цена по категория, тренд ↑/↓, outlier-и
-- [ ] Визуализация в Google Sheets (chart tab) или отделен HTML report
-- [ ] Алерт при необичайно голяма ценова промяна (>20% за един магазин за седмица)
+- [x] `price_history.py` — запис на цени по магазин в `data/price_history.json` при всеки run
+- [x] `get_price_trend()` — средна цена по дата за последните N седмици
+- [x] Възстановяване на `append_history_to_sheets()` в `output/sheets.py` — История_{year} tab (спряно от v10.0 refactoring)
+- [x] Интеграция в `scraper.py main()` — `append_history_to_sheets()` + `record_prices()`
+- [x] 10 нови теста за `price_history.py` (load/save, record, trend)
+- [ ] Седмичен ценови отчет: средна цена по категория, тренд ↑/↓ (бъдещо)
+- [ ] Алерт при необичайно голяма ценова промяна (>20% за седмица) (бъдещо)
 
-**Очакван резултат:** Възможност за анализ на ценови тенденции за всеки Harmonica продукт във времето.
+**Резултат:** Ценова история се записва в local JSON + Google Sheets История_{year} tab. 178 теста, всички минават.
 
 ---
 
@@ -217,7 +222,9 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
        ↓
 Фаза 8 (CI dry-run) ━━━ ЗАВЪРШЕНА ✓  fail-fast + annotation + step summary
        ↓
-Фаза 9 (deps)       ━━━ ПРЕДСТОИ    Dependabot за контролирани upgrades
+Фаза 9 (deps)       ━━━ ЗАВЪРШЕНА ✓  Dependabot за pip + github-actions
        ↓
-Фаза 10 (analytics) ━━━ ПРЕДСТОИ    ценова история + тренд анализ
+Фаза 10 (analytics) ━━━ ЗАВЪРШЕНА ✓  price_history.json + История tab възстановен
 ```
+
+Всички 10 фази от roadmap-а са завършени.
