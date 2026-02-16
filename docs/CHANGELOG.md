@@ -5,6 +5,26 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v10.12.0 - 2026-02-16
+
+### Добавено
+- **Dependabot интеграция (Фаза 9)** — `.github/dependabot.yml`:
+  - Weekly проверка за `pip` и `github-actions` зависимости (сряда)
+  - Групиране на minor/patch updates в един PR
+  - Лимит от 5 едновременно отворени PR-и
+  - Labels: `dependencies` (pip), `ci` (actions)
+- **Ценова история — local JSON (Фаза 10)** — `price_history.py`:
+  - `record_prices()` — записва ценови snapshot от всеки run в `data/price_history.json`
+  - `get_price_trend()` — връща средна цена по дата за последните N седмици
+  - `load_history()` / `save_history()` — JSON persistence с лимит от 6000 записа
+  - 10 нови теста в `tests/test_price_history.py`
+- **Възстановяване на История_{year} tab** — `append_history_to_sheets()` в `output/sheets.py`:
+  - Записва редове за всеки продукт с цени от всички магазини + средна/мин/макс EUR
+  - Автоматично създава таб с зелен header + freeze row 1 ако липсва
+  - Интегрирано в `scraper.py main()` — записва след `write_to_sheets()`
+  - `data/price_history.json` се commit-ва автоматично от CI
+
+---
 ## v10.11.0 - 2026-02-16
 
 ### Добавено
