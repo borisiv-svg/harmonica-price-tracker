@@ -5,6 +5,19 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v10.11.0 - 2026-02-16
+
+### Добавено
+- **CI dry-run pre-check (Фаза 8)** — `production.yml` вече изпълнява `--dry-run` преди production scrape:
+  - Краулва Кашон + eBag + Balev (~30s) и проверява дали всеки магазин връща >0 matched продукта
+  - **Fail-fast** — ако dry-run върне exit code 1, production scrape НЕ се изпълнява
+  - **GitHub Actions error annotation** — `::error::` маркер при dry-run failure, видим директно в PR/workflow UI
+  - **Step Summary** — markdown summary с резултат (pass/fail) и next steps при failure
+  - `skip_dry_run` input за manual dispatch — позволява bypass при debugging
+  - `timeout-minutes: 30` за целия job (преди: без лимит)
+  - Version strings обновени в workflow header и Environment info step
+
+---
 ## v10.10.0 - 2026-02-16
 
 ### Добавено

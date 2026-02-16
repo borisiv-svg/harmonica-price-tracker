@@ -1,6 +1,6 @@
 # Roadmap & Lessons Learned — Harmonica Price Tracker
 
-Последна актуализация: 2026-02-16 (v10.10.0)
+Последна актуализация: 2026-02-16 (v10.11.0)
 
 ---
 
@@ -115,7 +115,7 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 
 ---
 
-## Текущо състояние (v10.10.0)
+## Текущо състояние (v10.11.0)
 
 | Метрика | Стойност |
 |---------|----------|
@@ -165,28 +165,23 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 
 **Резултат:** 168 теста (было 140), покриващи products, output, extractors, matching, utils, run_history, imports.
 
-### Фаза 7: DM България — повторен опит
+### Фаза 7: DM България — ОТЛОЖЕНА
 
-**Цел:** Активиране на DM.bg като 16-ти магазин (отложен от v9.5 заради 403 anti-bot).
+**Статус:** Отложена — достатъчно магазини (15). Може да се активира в бъдеще.
 
-**Задачи:**
-- [ ] Анализ на текущата DM.bg Cloudflare защита — дали CapSolver + Firecrawl я преминават
-- [ ] Тестване на `extract_dm_products()` и `extract_dm_from_curl_html()` с реални данни
-- [ ] Добавяне на DM в STORES dict ако crawl-ът е стабилен
-- [ ] DM fixture + тестове
-
-**Очакван резултат:** DM стабилно краулван с >5 продукта при всеки run, или документирана причина защо не е възможен в момента.
-
-### Фаза 8: Тестове в production-like среда
+### Фаза 8: CI dry-run преди production — ЗАВЪРШЕНА (v10.11.0)
 
 **Цел:** Dry-run в CI за ранно откриване на integration проблеми.
 
 **Задачи:**
-- [ ] `--dry-run` стъпка в `production.yml` (преди реалния scrape) — бързо краулване на 3 магазина
-- [ ] Fail-fast: ако dry-run върне exit code 1, спиране на production run
-- [ ] Notification при dry-run failure (може и като GitHub Actions annotation)
+- [x] `--dry-run` стъпка в `production.yml` (преди реалния scrape) — краулва Кашон + eBag + Balev (~30s)
+- [x] Fail-fast: ако dry-run върне exit code 1, production scrape НЕ се изпълнява
+- [x] GitHub Actions error annotation (`::error::`) + Step Summary при failure
+- [x] `skip_dry_run` input за manual dispatch bypass
+- [x] `timeout-minutes: 30` за целия job
+- [x] Version strings обновени в workflow (v10.2 → v10.10)
 
-**Очакван резултат:** Production run стартира само след успешен dry-run smoke test.
+**Резултат:** Production run стартира само след успешен dry-run. При failure — ясно съобщение в GitHub UI + инструкции за bypass.
 
 ### Фаза 9: Dependabot / Renovate интеграция
 
@@ -218,9 +213,9 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 ```
 Фаза 6 (тестове)    ━━━ ЗАВЪРШЕНА ✓  168 теста, products + output покрити
        ↓
-Фаза 7 (DM)         ━━━ ПРЕДСТОИ    повторен опит за DM.bg
+Фаза 7 (DM)         ━━━ ОТЛОЖЕНА     достатъчно магазини (15)
        ↓
-Фаза 8 (CI dry-run) ━━━ ПРЕДСТОИ    dry-run преди production
+Фаза 8 (CI dry-run) ━━━ ЗАВЪРШЕНА ✓  fail-fast + annotation + step summary
        ↓
 Фаза 9 (deps)       ━━━ ПРЕДСТОИ    Dependabot за контролирани upgrades
        ↓
