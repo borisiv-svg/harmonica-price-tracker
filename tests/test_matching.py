@@ -98,6 +98,15 @@ class TestExtractWeightGrams:
     def test_no_weight(self):
         assert extract_weight_grams("Продукт без тегло") is None
 
+    def test_grams_cyrillic_gr(self):
+        """'гр' suffix should be recognized as grams."""
+        assert extract_weight_grams("Мляко 400гр") == 400
+
+    def test_gr_suffix_in_normalization(self):
+        """'400гр' should normalize to '400г' for keyword matching."""
+        result = normalize_name("Продукт 400гр")
+        assert "400г" in result
+
 
 # -- Product matching --
 
@@ -171,6 +180,13 @@ class TestMatchProducts:
         store = [{"name": "Кисело мляко Harmonica 400г", "eur": 2.50}]
         matches = match_products(ref, store)
         assert len(matches) <= 1
+
+    def test_gr_suffix_matches_g(self):
+        """'400гр' in store should match '400г' in reference."""
+        ref = [{"name": "Harmonica Кисело мляко 400г"}]
+        store = [{"name": "Кисело мляко Harmonica 400гр", "eur": 2.50}]
+        matches = match_products(ref, store)
+        assert ref[0]["name"] in matches
 
     def test_empty_inputs(self):
         assert match_products([], []) == {}

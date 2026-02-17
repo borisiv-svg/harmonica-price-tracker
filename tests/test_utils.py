@@ -7,8 +7,10 @@ from utils import (
     extract_bgn_price,
     extract_price_fallback,
     clean_product_name,
+    find_price_bounded,
     is_food_product,
     is_harmonica_product,
+    is_price_sane,
     deduplicate_check,
     categorize_product,
     detect_cloudflare_challenge,
@@ -179,10 +181,97 @@ class TestDeduplicateCheck:
 
     def test_truncates_to_key_length(self):
         seen = set()
-        name = "A" * 50
+        name = "A" * 70
         deduplicate_check(name, seen)
-        # Different ending but same first 30 chars
-        assert deduplicate_check("A" * 30 + "DIFFERENT", seen) is True
+        # Different ending but same first 50 chars
+        assert deduplicate_check("A" * 50 + "DIFFERENT", seen) is True
+
+    def test_distinguishes_similar_products(self):
+        """Products that differ after 30 chars should NOT be deduplicated."""
+        seen = set()
+        name1 = "Био Обикновени бисквити с краве масло и ванилия 150г"
+        name2 = "Био Обикновени бисквити с краве масло и шоколад 150г"
+        assert deduplicate_check(name1, seen) is False
+        assert deduplicate_check(name2, seen) is False  # Should be different
+
+
+# -- Bounded price search --
+
+class TestFindPriceBounded:
+    def test_finds_price_on_next_line(self):
+        lines = [
+            "Harmonica Кисело мляко 400г",
+            "4.89лв",
+        ]
+        eur, bgn = find_price_bounded(lines, 0)
+        assert bgn == 4.89
+
+    def test_stops_at_next_product(self):
+        """Should NOT grab price from the next product."""
+        lines = [
+            "Кисело мляко harmonica 2.0% 400г",
+            "Кисело мляко harmonica 3.6% 400г",
+            "5.39лв",
+        ]
+        eur, bgn = find_price_bounded(lines, 0)
+        # Should stop at line 1 (next product) and find no price
+        assert bgn is None
+        assert eur is None
+
+    def test_second_product_gets_correct_price(self):
+        lines = [
+            "Кисело мляко harmonica 2.0% 400г",
+            "Кисело мляко harmonica 3.6% 400г",
+            "5.39лв",
+        ]
+        eur, bgn = find_price_bounded(lines, 1)
+        assert bgn == 5.39
+
+    def test_finds_eur_price(self):
+        lines = [
+            "Harmonica вафла 30г",
+            "0.65€",
+        ]
+        eur, bgn = find_price_bounded(lines, 0)
+        assert eur == 0.65
+
+    def test_empty_context(self):
+        lines = ["Harmonica вафла 30г"]
+        eur, bgn = find_price_bounded(lines, 0)
+        assert eur is None
+        assert bgn is None
+
+
+# -- Price sanity check --
+
+class TestIsPriceSane:
+    def test_normal_yogurt_price(self):
+        assert is_price_sane("Кисело мляко 400г", 1.40) is True
+
+    def test_absurd_wafer_price(self):
+        # 14.65€ for 30g = 48.8€/100g → insane
+        assert is_price_sane("Вафла 30г", 14.65) is False
+
+    def test_normal_wafer_price(self):
+        assert is_price_sane("Вафла 30г", 0.65) is True
+
+    def test_no_weight_returns_true(self):
+        assert is_price_sane("Нещо без грамаж", 14.65) is True
+
+    def test_no_price_returns_true(self):
+        assert is_price_sane("Вафла 30г", None) is True
+
+    def test_kg_product(self):
+        # 6.14€ for 2kg = 0.307€/100g → sane
+        assert is_price_sane("Кисело мляко 2кг", 6.14) is True
+
+    def test_gr_suffix(self):
+        # "гр" should be recognized as grams
+        assert is_price_sane("Вафла 30гр", 14.65) is False
+
+    def test_expensive_cheese_ok(self):
+        # 7.67€ for 400g = 1.92€/100g → sane
+        assert is_price_sane("Сирене 400г", 7.67) is True
 
 
 # -- Categorization --

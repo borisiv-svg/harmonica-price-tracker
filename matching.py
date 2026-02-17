@@ -16,6 +16,7 @@ def normalize_name(name):
     # Нормализация на тегловни единици
     name = re.sub(r'(\d+)\s*ml\b', r'\1мл', name)
     name = re.sub(r'(\d+)\s*g\b', r'\1г', name)
+    name = re.sub(r'(\d+)\s*гр\b', r'\1г', name)  # "400гр" → "400г"
     # Decimal kg ПРЕДИ integer kg (иначе "1.5kg" → "1 5000г" вместо "1500г")
     name = re.sub(r'(\d+)[,.](\d+)\s*(?:кг|kg)\b',
                   lambda m: f"{int(float(f'{m.group(1)}.{m.group(2)}')*1000)}г", name)
@@ -36,13 +37,13 @@ def extract_keywords(name):
 def extract_weight_grams(name):
     """Извлича тегло в грамове за сравнение. '400г' → 400, '0.5кг' → 500."""
     name_lower = name.lower()
-    match = re.search(r'(\d+[.,]?\d*)\s*(г|g|мл|ml|кг|kg|л|l)\b', name_lower)
+    match = re.search(r'(\d+[.,]?\d*)\s*(гр|г|g|мл|ml|кг|kg|л|l)\b', name_lower)
     if match:
         value = float(match.group(1).replace(',', '.'))
         unit = match.group(2)
         if unit in ('кг', 'kg', 'л', 'l'):
             return int(value * 1000)
-        return int(value)
+        return int(value)  # г, гр, g, мл, ml — all in base units
     return None
 
 
