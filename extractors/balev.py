@@ -8,11 +8,9 @@ import re
 
 from config import EUR_BGN_RATE, logger
 from utils import (
-    extract_eur_price,
-    extract_bgn_price,
-    extract_price_fallback,
     clean_product_name,
     deduplicate_check,
+    find_price_bounded,
     is_food_product,
     is_harmonica_product,
 )
@@ -28,7 +26,7 @@ def extract_balev_products(markdown):
     for i, line in enumerate(lines):
         line = line.strip()
 
-        if not re.search(r'\d+\s*(?:г|мл|ml|g)\b', line, re.IGNORECASE):
+        if not re.search(r'\d+\s*(?:гр|г|мл|ml|g|kg|кг|л|l)\b', line, re.IGNORECASE):
             continue
 
         name = clean_product_name(line)
@@ -48,17 +46,9 @@ def extract_balev_products(markdown):
         if not is_food_product(name):
             continue
 
-        # Търсим цена НАПРЕД от името (тесен прозорец), за да не хванем
-        # цена от предходен продукт. Разширяваме само ако не намерим.
-        eur, bgn = None, None
-        for ctx_start, ctx_end in [(i, i + 3), (max(0, i - 1), i + 5)]:
-            ctx = '\n'.join(lines[ctx_start:min(len(lines), ctx_end)])
-            eur = extract_eur_price(ctx)
-            bgn = extract_bgn_price(ctx)
-            if not bgn and not eur:
-                bgn = extract_price_fallback(ctx)
-            if bgn or eur:
-                break
+        # Bounded forward search: търсим цена НАПРЕД, но спираме при
+        # следващия продуктов ред (предотвратява "price bleed")
+        eur, bgn = find_price_bounded(lines, i)
 
         if bgn and not eur:
             eur = round(bgn / EUR_BGN_RATE, 2)

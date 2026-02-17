@@ -115,6 +115,24 @@ class TestBalevExtractor:
         for p in products:
             assert p["eur"] is not None, f"{p['name']} should have EUR price"
 
+    def test_no_price_bleed_between_products(self):
+        """Price from next product should NOT bleed into previous product."""
+        md = (
+            "Harmonica Кисело мляко 2.0% 400г\n"
+            "Harmonica Кисело мляко 3.6% 400г\n"
+            "5.39лв\n"
+        )
+        products = extract_balev_products(md)
+        # The 2.0% variant should NOT get the 5.39лв price
+        for p in products:
+            if "2.0%" in p["name"] or "2,0%" in p["name"]:
+                # Should not have price (bounded search stops at next product)
+                assert False, f"2.0% variant should not get a price, got {p}"
+        # The 3.6% variant should get the correct price
+        p36 = _find(products, "3.6%") or _find(products, "3,6%")
+        assert p36 is not None
+        assert p36["bgn"] == 5.39
+
     def test_empty_input(self):
         assert extract_balev_products("") == []
 
@@ -178,6 +196,23 @@ class TestGenericExtractor:
         for p in products:
             name_lower = p["name"].lower()
             assert "harmonica" in name_lower or "хармоника" in name_lower
+
+    def test_rejects_absurd_price_per_weight(self):
+        """Products with absurd price/weight ratio should be filtered out."""
+        md = (
+            "[Вафла Harmonica 30г](https://example.com)\n"
+            "28.65лв\n"
+            "\n"
+            "[Кисело мляко Harmonica 400г](https://example.com)\n"
+            "2.50лв\n"
+        )
+        products = _extract_generic_products(md, brand_page=False)
+        # 28.65лв = ~14.65€ for 30g = 48.8€/100g → should be rejected
+        wafer = _find(products, "Вафла")
+        assert wafer is None
+        # 2.50лв = ~1.28€ for 400g = 0.32€/100g → should be kept
+        mlyako = _find(products, "мляко")
+        assert mlyako is not None
 
     def test_empty_input(self):
         assert _extract_generic_products("", brand_page=True) == []
