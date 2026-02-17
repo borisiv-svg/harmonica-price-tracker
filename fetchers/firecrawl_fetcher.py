@@ -180,11 +180,12 @@ def _fetch_randi_via_firecrawl():
 # UNIVERSAL FIRECRAWL FETCH — за всички магазини
 # =============================================================================
 
-def _fetch_store_via_firecrawl(store_key, store_config):
+def _fetch_store_via_firecrawl(store_key, store_config, _is_retry=False):
     """
     Универсален Firecrawl fetch за произволен магазин.
     Използва Firecrawl headless browser за рендериране на JS-heavy страници.
     Синхронна функция — ще се изпълнява в thread pool.
+    При timeout грешка автоматично retry-ва веднъж с 1.5× по-дълъг timeout.
 
     Връща dict с success, method, markdown, html, elapsed или None при грешка.
     """
@@ -194,6 +195,7 @@ def _fetch_store_via_firecrawl(store_key, store_config):
     store_name = store_config["name"]
     url = store_config["url"]
     scroll_times = store_config.get("scroll_times", 5)
+    timeout_multiplier = 1.5 if _is_retry else 1.0
     start = time.time()
 
     try:
@@ -227,8 +229,8 @@ def _fetch_store_via_firecrawl(store_key, store_config):
             logger.info(f"{store_name} Firecrawl: {firecrawl_scrolls}/{scroll_times} scrolls "
                         f"(лимит actions/wait), Crawl4AI ще обхване пълния обхват")
 
-        # Timeout: базов 60s + scroll_times × scroll_wait
-        timeout = max(90000, 60000 + firecrawl_scrolls * scroll_wait * 2)
+        # Timeout: базов 60s + scroll_times × scroll_wait (× 1.5 при retry)
+        timeout = int(max(90000, 60000 + firecrawl_scrolls * scroll_wait * 2) * timeout_multiplier)
         result = app.scrape_url(
             url,
             params={
@@ -268,6 +270,12 @@ def _fetch_store_via_firecrawl(store_key, store_config):
     except Exception as e:
         elapsed = time.time() - start
         logger.warning(f"{store_name} Firecrawl грешка: {e} ({elapsed:.1f}s)")
+
+        # Retry веднъж при timeout грешка с 1.5× по-дълъг timeout
+        if not _is_retry and 'timeout' in str(e).lower():
+            logger.info(f"{store_name}: Firecrawl retry с 1.5× timeout...")
+            return _fetch_store_via_firecrawl(store_key, store_config, _is_retry=True)
+
         return None
 
 

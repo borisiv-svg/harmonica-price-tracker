@@ -117,13 +117,6 @@ STORES = {
         "url": "https://balevbiomarket.com/productBrands/harmonica",
         "scroll_times": 8,
     },
-    "lilly": {
-        "name": "Lilly",
-        "url": "https://lillydrogerie.bg/brands/harmonica",
-        "scroll_times": 4,
-        "brand_page": True,
-        "use_magic": True,
-    },
     "tmarket": {
         "name": "T-Market",
         "url": "https://tmarketonline.bg/vendor/harmonica-1881705916",

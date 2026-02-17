@@ -6,7 +6,7 @@ Modular scraper — Firecrawl-first + Crawl4AI fallback архитектура.
 Claude Sonnet валидация на outlier цени (EUR).
 Продуктов списък от harmonica_products.json (месечен sync с Кашон).
 
-Магазини: Кашон, eBag, Balev, Lilly, DM, T-Market, Metro, Randi,
+Магазини: Кашон, eBag, Balev, T-Market, Metro, Randi,
           Zelen, BioMarket, BeFit, Laika + Glovo (Fantastico, Billa, CBA, Kaufland).
 """
 
@@ -34,7 +34,7 @@ from run_history import record_run
 from extractors import (
     extract_kashon_products, extract_ebag_products, extract_balev_products,
     _extract_generic_products, extract_metro_products, extract_tmarket_products,
-    extract_lilly_products, extract_dm_products, extract_dm_from_curl_html,
+    extract_dm_products, extract_dm_from_curl_html,
     extract_randi_products,
 )
 
@@ -43,12 +43,10 @@ from fetchers import (
     _fetch_dm_via_firecrawl,
     _fetch_randi_via_firecrawl,
     _fetch_store_via_firecrawl,
-    _fetch_lilly_via_firecrawl,
     _fetch_tmarket_via_firecrawl,
     crawl_with_captcha_solver,
     crawl_store,
     fetch_dm_via_algolia,
-    fetch_lilly_via_curl,
     fetch_tmarket_via_curl,
     fetch_all_glovo_products,
 )
@@ -98,11 +96,6 @@ async def crawl_all(only_stores=None):
         if "randi" in STORES and _should_crawl("randi"):
             firecrawl_futures["randi"] = loop.run_in_executor(
                 None, _fetch_randi_via_firecrawl)
-
-        # Lilly — специализиран Firecrawl (Magento 2 + Hyvä)
-        if "lilly" in STORES and _should_crawl("lilly"):
-            firecrawl_futures["lilly"] = loop.run_in_executor(
-                None, _fetch_lilly_via_firecrawl)
 
         # T-Market — специализиран Firecrawl (CloudCart + Cloudflare)
         if "tmarket" in STORES and _should_crawl("tmarket"):
@@ -167,7 +160,7 @@ async def crawl_all(only_stores=None):
     # Crawl4AI fallback за всички магазини — опитваме headless Chromium
     CRAWL4AI_CAPABLE = {
         "kashon", "ebag", "balev", "metro", "zelen", "biomarket",
-        "befit", "laika", "randi", "lilly", "tmarket",
+        "befit", "laika", "randi", "tmarket",
     }
     crawl4ai_needed = [s for s in failed_stores if s in CRAWL4AI_CAPABLE]
     # Добавяме partial stores (Firecrawl успя, но scrolls бяха лимитирани)
@@ -264,21 +257,6 @@ async def crawl_all(only_stores=None):
             except Exception as e:
                 logger.warning(f"T-Market curl_cffi fallback грешка: {e}")
 
-        # Lilly: Magento GraphQL/REST API (Hyvä Theme не дава продукти чрез Firecrawl)
-        lilly_result = results.get("lilly", {})
-        lilly_products = lilly_result.get("products", [])
-        lilly_has_enough = lilly_result.get("success") and len(lilly_products) >= 3
-        if not lilly_has_enough:
-            logger.info("Lilly: curl_cffi GraphQL/REST API fallback...")
-            try:
-                lilly_curl = await fetch_lilly_via_curl()
-                if lilly_curl and lilly_curl.get("success"):
-                    results["lilly"] = lilly_curl
-                    logger.info(f"Lilly: curl_cffi успех — "
-                                f"{len(lilly_curl.get('products', []))} продукта")
-            except Exception as e:
-                logger.warning(f"Lilly curl_cffi fallback грешка: {e}")
-
     # Маркираме останалите неуспешни
     for store_key in failed_stores:
         if store_key not in results:
@@ -372,26 +350,6 @@ async def main(dry_run=False):
     if crawl_results.get("balev", {}).get("success"):
         balev_products = extract_balev_products(crawl_results["balev"]["markdown"])
         logger.info(f"Balev: {len(balev_products)} Harmonica products")
-
-    # Lilly Drogerie
-    lilly_products = []
-    lilly_data = crawl_results.get("lilly", {})
-    if lilly_data.get("success"):
-        method = lilly_data.get("method", "unknown")
-        # GraphQL/REST API — продуктите са вече извлечени
-        if lilly_data.get("products"):
-            lilly_products = lilly_data["products"]
-        elif lilly_data.get("html") or lilly_data.get("markdown"):
-            lilly_products = extract_lilly_products(
-                lilly_data.get("markdown", ""),
-                html_text=lilly_data.get("html"),
-            )
-        logger.info(f"Lilly: {len(lilly_products)} Harmonica products (method: {method})")
-        in_stock = sum(1 for p in lilly_products if p.get('in_stock', True))
-        if in_stock < len(lilly_products):
-            logger.info(f"  Налични: {in_stock}, Изчерпани: {len(lilly_products) - in_stock}")
-    elif lilly_data.get("error"):
-        logger.warning(f"Lilly: {lilly_data['error']}")
 
     # T-Market
     tmarket_products = []
@@ -530,7 +488,6 @@ async def main(dry_run=False):
     all_store_products = {
         "ebag": ebag_products,
         "balev": balev_products,
-        "lilly": lilly_products,
         "tmarket": tmarket_products,
         "metro": metro_products,
         "randi": randi_products,
@@ -581,13 +538,7 @@ async def main(dry_run=False):
         store_counts[sk] = count
         if total_ref:
             pct = count / total_ref * 100
-            extra = ""
-            if sk == "lilly":
-                oos = len([p for p in final_products
-                           if p.get("lilly") and not p["lilly"].get("in_stock", True)])
-                extra = f" — {oos} изчерпани"
-                store_counts["lilly_oos"] = oos
-            logger.info(f"{all_display.get(sk, sk)}: {count}/{total_ref} ({pct:.0f}%){extra}")
+            logger.info(f"{all_display.get(sk, sk)}: {count}/{total_ref} ({pct:.0f}%)")
 
     # Примерни продукти — показваме EUR
     matched = [p for p in final_products
@@ -632,8 +583,6 @@ async def main(dry_run=False):
     stats = {"total_products": total_ref, "kashon_products": kashon_count}
     for sk in all_keys:
         stats[f"{sk}_matches"] = store_counts.get(sk, 0)
-    stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
-
     if dry_run:
         logger.info("=" * 40 + " DRY RUN SUMMARY " + "=" * 40)
         total_matched = sum(1 for p in final_products if any(p.get(sk) for sk in all_keys))
@@ -681,8 +630,6 @@ async def main(dry_run=False):
     for sk, prods in all_store_products.items():
         json_stats[f"{sk}_products"] = len(prods)
         json_stats[f"{sk}_matches"] = store_counts.get(sk, 0)
-    json_stats["lilly_out_of_stock"] = store_counts.get("lilly_oos", 0)
-
     # Почистваме _flags от final_products за JSON (вътрешни полета)
     products_for_json = []
     for p in final_products:
