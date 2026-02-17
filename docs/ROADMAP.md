@@ -1,6 +1,6 @@
 # Roadmap & Lessons Learned — Harmonica Price Tracker
 
-Последна актуализация: 2026-02-16 (v10.13.0)
+Последна актуализация: 2026-02-17 (v10.14.1)
 
 ---
 
@@ -142,51 +142,48 @@ removed → reactivated → active (ако се появи отново)
 
 ---
 
-## Текущо състояние (v10.13.0)
+## Текущо състояние (v10.14.1)
 
 | Метрика | Стойност |
 |---------|----------|
-| Магазини | 15 (Кашон, eBag, Balev, Lilly, T-Market, Metro, Zelen, Randi, Bio-Market, BeFit, Laika, Glovo ×4) |
-| Продукти | 39 активни + 75 removed (очаква се ~114 активни след re-activation при следващ пълен Кашон crawl) |
-| Runtime | ~330 секунди (production), ~30 секунди (dry-run) |
+| Магазини | 14 (Кашон, eBag, Balev, T-Market, Metro, Zelen, Randi, Bio-Market, BeFit, Laika, Glovo ×4) |
+| Продукти | 88 активни + 28 removed |
+| Runtime | ~375 секунди (production), ~30 секунди (dry-run) |
 | Модули | 20 (scraper.py + config, utils, products, matching, validation, run_history, price_history, 9 extractors, 4 fetchers, 2 output) |
-| Тестове | 180 (pytest), ~0.7s |
+| Тестове | 199 (pytest), ~0.7s |
 | Dependencies | 10 пакета, всички pinned + Dependabot за auto-upgrade PR |
-| Fallback верига | Firecrawl → Crawl4AI → curl_cffi (GraphQL за Lilly) |
-| Валидация | Claude Sonnet 4.5 ценова проверка |
+| Fallback верига | Firecrawl → Crawl4AI → curl_cffi |
+| Валидация | Claude Sonnet 4.5 ценова проверка с EUR/100g нормализация |
 | Health monitoring | run_history.json + auto-alert при 0 или >50% спад |
 | Price history | price_history.json (local) + История_{year} tab (Sheets) |
 | Schedule | Понеделник 07:00 BG time |
 
-### Известни проблеми (от production run 2026-02-16)
+### Известни проблеми (от production run 2026-02-17)
 
 | Проблем | Детайли | Приоритет |
 |---------|---------|-----------|
-| **T-Market Cloudflare** | Блокиран напълно — Firecrawl timeout + Crawl4AI captcha fail + curl_cffi 403. 0/39 продукта | Висок |
-| **Glovo Kaufland** | Firecrawl actions fail: "All scraping engines failed". 0/39 продукта | Среден |
-| **Firecrawl масови timeouts** | 5/11 магазина timeout (T-Market, eBag, Balev, Zelen, Bio-Market). Crawl4AI fallback спасява 4/5 | Нисък (fallback работи) |
-| **BeFit Firecrawl actions** | "Element not found" — selector проблем. Crawl4AI fallback OK | Нисък |
-| **Lilly Firecrawl** | Firecrawl+BS4 дава само 1 продукт, GraphQL дава 11 (всички изчерпани) | Нисък (GraphQL работи) |
-| **Version string** | Показваше v10.8 вместо v10.12 — фикснато | Фикснато |
+| **Firecrawl timeouts** | 5/10 магазина timeout на 1-ви опит. Retry с 1.5× спасява 4/5. Само 2 магазина отиват на Crawl4AI fallback | Среден |
+| **Zelen Firecrawl ISE** | Internal Server Error — Crawl4AI fallback OK (3s) | Нисък |
+| **BeFit Firecrawl ISE** | ISE след retry — Crawl4AI fallback OK (21.5s) | Нисък |
+| **Firecrawl разходи** | ~18-20 заявки/run, може да се оптимизира чрез Crawl4AI-first (вж. Предложение A) | Среден |
 
-### Покритие по магазин (2026-02-16)
+### Покритие по магазин (2026-02-17)
 
 ```
-Кашон             ████████████████████████████████████████████████  97% (38/39)
-Glovo Fantastico  ████████████████████████                          49% (19/39)
-eBag              ██████████████████████                            44% (17/39)
-BeFit             ██████████████████                                36% (14/39)
-Balev Bio         ██████████████                                    28% (11/39)
-Bio-Market        ██████████████                                    28% (11/39)
-Zelen             ████████████                                      23% (9/39)
-Glovo CBA         ████████                                          15% (6/39)
-Randi             █████                                             10% (4/39)
-Lilly             █████                                             10% (4/39) — изчерпани
-Glovo Billa       █████                                             10% (4/39)
-Metro             ███                                                5% (2/39)
-Laika             ███                                                5% (2/39)
-T-Market          ░                                                  0% (0/39) — Cloudflare
-Glovo Kaufland    ░                                                  0% (0/39) — scrape fail
+Кашон             ████████████████████████████████████████████████  95% (84/88)
+Glovo Fantastico  █████████████████████                             43% (38/88)
+BeFit             ████████████████████                              41% (36/88)
+eBag              ████████████████                                  32% (28/88)
+Balev Bio         ████████████                                      24% (21/88)
+Bio-Market        ███████████                                       23% (20/88)
+Glovo Kaufland    ██████████                                        19% (17/88)
+Glovo CBA         ███████                                           15% (13/88)
+Zelen             ███████                                           14% (12/88)
+T-Market          ██████                                            12% (11/88)
+Randi             █████                                             10% (9/88)
+Glovo Billa       ████                                               9% (8/88)
+Laika             ████                                               7% (6/88)
+Metro             ██                                                 3% (3/88)
 ```
 
 ---
@@ -295,48 +292,158 @@ Glovo Kaufland    ░                                                  0% (0/39)
 ## Прогрес (v11.x)
 
 ```
-Фаза 6 (тестове)       ━━━ ЗАВЪРШЕНА ✓  168 теста, products + output покрити
+Фаза 6 (тестове)          ━━━ ЗАВЪРШЕНА ✓  168 теста, products + output покрити
        ↓
-Фаза 7 (DM)            ━━━ ОТЛОЖЕНА     достатъчно магазини (15)
+Фаза 7 (DM)               ━━━ ОТЛОЖЕНА     достатъчно магазини
        ↓
-Фаза 8 (CI dry-run)    ━━━ ЗАВЪРШЕНА ✓  fail-fast + annotation + step summary
+Фаза 8 (CI dry-run)       ━━━ ЗАВЪРШЕНА ✓  fail-fast + annotation + step summary
        ↓
-Фаза 9 (deps)          ━━━ ЗАВЪРШЕНА ✓  Dependabot за pip + github-actions
+Фаза 9 (deps)             ━━━ ЗАВЪРШЕНА ✓  Dependabot за pip + github-actions
        ↓
-Фаза 10 (analytics)    ━━━ ЗАВЪРШЕНА ✓  price_history.json + История tab възстановен
+Фаза 10 (analytics)       ━━━ ЗАВЪРШЕНА ✓  price_history.json + История tab възстановен
        ↓
-Фаза 10.5 (re-activation) ━━━ ЗАВЪРШЕНА ✓  двупосочен product lifecycle, 75 продукта ще се възстановят
+Фаза 10.5 (re-activation) ━━━ ЗАВЪРШЕНА ✓  двупосочен product lifecycle
+       ↓
+Фаза 11 (extraction)      ━━━ ЗАВЪРШЕНА ✓  bounded search, price sanity, dedup 50, "гр" matching
+       ↓
+Фаза 12 (reliability)     ━━━ ЗАВЪРШЕНА ✓  Lilly премахнат, Firecrawl retry, Claude EUR/100g
 ```
 
-Всички 11 фази от roadmap-а са завършени.
+Всички 13 фази от roadmap-а са завършени.
 
 ---
 
-## Следващи стъпки
+### Фаза 11: Подобрена извличане на цени — ЗАВЪРШЕНА (v10.14.0)
 
-### Фаза 11: T-Market — нов scraping подход
+**Цел:** Отстраняване на грешни цени и подобряване на matching.
 
-**Статус:** Планирана
+**Задачи:**
+- [x] `find_price_bounded()` — bounded forward search, спира при следващ продукт (елиминира price bleed при Balev)
+- [x] `is_price_sane()` — EUR/100g валидация, отхвърля абсурдни цени (>10€/100g)
+- [x] Dedup key 30→50 символа — разграничава сходни продукти ("бисквити с масло и ванилия" vs "...и шоколад")
+- [x] "гр" (грам) суфикс — разпознаване навсякъде в matching, extractors и utils
+- [x] 19 нови теста: `TestFindPriceBounded` (5), `TestIsPriceSane` (8), dedup (2), "гр" matching (3), extractor regression (1)
 
-**Проблем:** Cloudflare блокира всички три fallback метода (Firecrawl timeout, Crawl4AI captcha fail, curl_cffi 403).
+**Резултат:** 199 теста. Елиминирани фалшиви цени от Balev (price bleed) и generic extractor (абсурдни EUR/100g).
 
-**Възможни решения:**
-- [ ] Намиране на T-Market REST/GraphQL API (подобно на Lilly)
-- [ ] Cloudflare bypass с managed browser (capsolver integration подобрение)
-- [ ] Премахване от мониторинга ако остане нерешим
+### Фаза 12: Надеждност и валидация — ЗАВЪРШЕНА (v10.14.1)
 
-### Фаза 12: Glovo Kaufland stabilization
+**Цел:** Намаляване на Firecrawl fallback-и и подобряване на Claude валидацията.
 
-**Статус:** Планирана
+**Задачи:**
+- [x] Премахване на Lilly от списъка (15→14 магазина) — всички продукти изчерпани, ниски цени изкривяват средните стойности
+- [x] Firecrawl retry при timeout — автоматичен retry с 1.5× по-дълъг timeout преди Crawl4AI fallback
+- [x] Claude валидация с EUR/100g — weight-normalized данни в prompt-а за по-прецизна аномалия детекция
 
-**Проблем:** Firecrawl search-actions fail: "All scraping engines failed".
+**Резултат от production run 2026-02-17:**
+- Firecrawl retry спаси 4/5 timeout-а (было: 5 магазина на Crawl4AI, сега: 2)
+- Claude откри 10 грешни цени (+ 9 флагнати) с по-информативни обяснения (EUR/100g reasoning)
+- 14/14 магазина работят, 88 продукта (2 нови)
 
-**Възможни решения:**
-- [ ] Debug на Firecrawl actions sequence за Kaufland
-- [ ] Glovo REST API директен достъп (подобно на Lilly GraphQL)
+---
 
-### Фаза 13: Сутрешен vs вечерен benchmark
+## Предложения за бъдещи промени
 
-**Статус:** В ход — сравнителен run планиран за 2026-02-17 сутринта
+### Предложение A: Crawl4AI-first архитектура (ПРЕПОРЪЧИТЕЛНО)
 
-**Цел:** Определяне дали Firecrawl timeout-ите (5/11 = 45%) са свързани с натовареност или системен проблем.
+**Статус:** В обсъждане
+
+**Цел:** Намаляване на разходите и опростяване на scraping процеса чрез обръщане на архитектурата — Crawl4AI primary, Firecrawl само за Glovo.
+
+**Контекст — защо:**
+
+Текущата архитектура е Firecrawl-first с ~18-20 платени API заявки на run. Анализ на production данните показва:
+- Firecrawl timeout rate: **50%** на първи опит (5/10 магазина)
+- Crawl4AI покрива 100% от провалите (Zelen 3s, BeFit 21.5s, Kashon upgrade)
+- За много магазини Crawl4AI е **по-бърз** от Firecrawl
+- Run-ът е cron job (04:23 UTC) — времето не е критично
+
+**Анализ по магазин:**
+
+| Магазин | JS нужен? | Anti-bot? | Crawl4AI може? | Бележка |
+|---------|:---------:|:---------:|:--------------:|---------|
+| Кашон | Да | Не | 100% | Вече работи като upgrade (131s) |
+| eBag | Да | Не | 100% | Стандартен e-commerce |
+| Balev | Да | Не | 100% | Няма Cloudflare |
+| Metro | Да | Не | 100% | Стандартен HTML |
+| Zelen | Да | Не | 100% | По-бърз от Firecrawl (3s vs ISE!) |
+| Bio-Market | Да | Не | 100% | Стандартна brand page |
+| BeFit | Да | Не | 100% | По-бърз от Firecrawl (21.5s vs ISE!) |
+| Laika | Да | Не | 100% | Стандартен HTML |
+| Randi | Да | Не | 95% | JS-heavy, но Crawl4AI се справя |
+| T-Market | Да | **Cloudflare** | 90% | curl_cffi TLS + CapSolver fallback |
+| Glovo ×4 | Да (SPA) | Не | **Не** | Нужни Firecrawl search actions ИЛИ Glovo API v3 |
+
+**Предложена нова архитектура:**
+
+```
+Обикновени магазини (10):  Crawl4AI (primary) → curl_cffi (fallback)
+T-Market:                  curl_cffi TLS → Crawl4AI + CapSolver
+Glovo (4):                 Firecrawl search actions → Glovo API v3 (fallback)
+```
+
+**Очакван ефект:**
+
+| Метрика | Сега (Firecrawl-first) | След (Crawl4AI-first) |
+|---------|------------------------|----------------------|
+| Firecrawl заявки/run | ~18-20 | 0-4 (само Glovo) |
+| Месечен разход Firecrawl | ~$15-30 | ~$3-5 |
+| Време на run | ~6 мин | ~8-10 мин |
+| Надеждност | 80% Firecrawl + fallback | 95%+ Crawl4AI |
+
+**Стъпки за имплементация:**
+- [ ] Промяна на `crawl_all()` — Crawl4AI primary за 10-те обикновени магазина
+- [ ] Запазване на Firecrawl само за Glovo search actions
+- [ ] Опростяване на `firecrawl_fetcher.py` — махане на generic fetch
+- [ ] Оптимизация на Crawl4AI scroll конфигурацията за всеки магазин
+- [ ] Performance тестване — сравнение на данни преди/след
+- [ ] Fallback: curl_cffi за T-Market, CapSolver за Cloudflare
+
+**Рискове:**
+- Crawl4AI е по-бавен (~1.5-2×), но run-ът не е time-critical
+- Нужен headless Chrome в CI (вече наличен)
+- Glovo search actions остават зависими от Firecrawl (няма Crawl4AI алтернатива)
+
+---
+
+### Предложение B: Без Firecrawl изобщо (максимална икономия)
+
+**Статус:** Алтернатива — обмисля се при наличие на Glovo API v3 token
+
+**Идея:** Пълно премахване на Firecrawl dependency. За Glovo — директен Glovo API v3.
+
+```
+Обикновени магазини (10):  Crawl4AI → curl_cffi fallback
+T-Market:                  curl_cffi TLS → Crawl4AI + CapSolver
+Glovo (4):                 Glovo API v3 (директен JSON)
+```
+
+**Плюсове:** Нулеви scraping разходи, без външна зависимост.
+**Минуси:** Glovo API token трябва refresh, ако сменят API — няма fallback.
+**Предпоставка:** Стабилен Glovo API v3 token с auto-refresh.
+
+---
+
+### Предложение C: Хибриден подход (минимален Firecrawl)
+
+**Статус:** Алтернатива — компромис между A и B
+
+**Идея:** Firecrawl само за Glovo (4 заявки). Всичко друго — Crawl4AI. Запазваме Firecrawl като backup в кода, но не го ползваме за обикновени магазини.
+
+**Очаквани Firecrawl заявки:** от ~18 → **4** на run.
+
+---
+
+### Други бъдещи подобрения (NICE-TO-HAVE)
+
+#### Per-store Firecrawl timeout tuning
+- [ ] Анализ на оптимални timeout стойности по магазин (базирано на исторически данни)
+- [ ] Адаптивен timeout: ако магазинът е бавен 3 пъти поред → увеличаваме базовия timeout
+
+#### Ценови тренд алерти
+- [ ] Алерт при необичайно голяма ценова промяна (>20% за седмица)
+- [ ] Седмичен ценови отчет: средна цена по категория, тренд ↑/↓
+
+#### DM България
+- [ ] Algolia API интеграция (кодът вече съществува в `fetchers/curl_api.py`)
+- [ ] Активиране на DM магазин при нужда

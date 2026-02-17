@@ -5,6 +5,50 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v10.14.1 - 2026-02-17
+
+### Променено
+- **Lilly премахнат от мониторинга** (15→14 магазина) — всички продукти изчерпани, ниските цени изкривяваха средните стойности по другите магазини
+- **Firecrawl retry при timeout** — автоматичен retry с 1.5× по-дълъг timeout преди Crawl4AI fallback. Параметър `_is_retry` в `_fetch_store_via_firecrawl()` контролира retry логиката
+- **Claude валидация с EUR/100g** — `validate_prices_with_claude()` изчислява weight_g и eur_per_100g за всяка съмнителна цена. Prompt-ът включва EUR/100g reasoning: "0.3-3€/100г е нормално, >10€/100г е почти сигурно грешка"
+
+### Премахнато
+- `extract_lilly_products` import и extraction секция от `scraper.py`
+- `_fetch_lilly_via_firecrawl`, `fetch_lilly_via_curl` imports от `scraper.py`
+- Lilly конфигурация от `STORES` dict в `config.py`
+- Lilly OOS статистика и JSON stats полета
+
+### Резултати (production run 2026-02-17)
+| Метрика | Преди (02-16) | След (02-17) |
+|---------|--------------|--------------|
+| Firecrawl timeout → Crawl4AI | 7 магазина | 2 магазина (retry спаси 4/5) |
+| Claude премахнати цени | 6 | 10 (EUR/100g по-строг) |
+| Магазини с данни | 13/15 | 13/14 (Metro нисък match) |
+| Продукти | 86 | 88 (+2 нови) |
+
+---
+## v10.14.0 - 2026-02-17
+
+### Добавено
+- **Bounded forward search** — `find_price_bounded()` в `utils.py`: търси цена напред от продуктов ред, спира при среща на следващ продукт. Елиминира "price bleed" при Balev (цена от съседен продукт). Разпознава дублирани редове (image-link + text-link) за съвместимост със Zelen
+- **Price sanity check** — `is_price_sane()` в `utils.py`: валидира EUR/100g съотношение, отхвърля цени >10€/100g. Решава проблеми с абсурдни цени от Laika (14.65€/30g) и BeFit (8.95€/500ml)
+- **"гр" (грам) суфикс** — разпознаване на кирилица "гр" навсякъде:
+  - `matching.py`: `normalize_name()` конвертира "400гр" → "400г", `extract_weight_grams()` pattern разширен
+  - `utils.py`: `is_food_product()` weight pattern разширен
+  - `extractors/balev.py`, `extractors/generic.py`: product line detection patterns
+- **19 нови теста**: `TestFindPriceBounded` (5), `TestIsPriceSane` (8), `TestDeduplicateCheck` (2), "гр" matching (3), extractor regression (1)
+
+### Променено
+- **Dedup key length** 30→50 символа — разграничава сходни продукти ("Био бисквити с масло и ванилия" vs "...и шоколад")
+- **Balev extractor** — заменен fixed 3-line window с `find_price_bounded()`
+- **Generic extractor** — заменен fixed window с `find_price_bounded()` + `is_price_sane()` guard
+
+### Поправено
+- **Zelen 0 products** — `find_price_bounded()` duplicate line detection: Zelen има image-link + text-link на отделни редове, които стават идентични след нормализация. Без skip на дубликати, текстовият ред се разпознаваше като нов продукт и price search спираше преждевременно
+
+**Резултат:** 199 теста, всички минават.
+
+---
 ## v10.13.0 - 2026-02-16
 
 ### Добавено
