@@ -44,14 +44,14 @@
     }
   },
   {
-    "date": "2026-02-23 06:02:27",
-    "total_ref": 39,
-    "total_time": 222.2,
+    "date": "2026-02-17 02:54:42",
+    "total_ref": 86,
+    "total_time": 216.7,
     "stores": {
-      "ebag": 14,
-      "balev": 13,
-      "lilly": 4,
-      "lilly_oos": 4,
+      "ebag": 29,
+      "balev": 19,
+      "lilly": 8,
+      "lilly_oos": 8,
       "tmarket": 0,
       "metro": 0,
       "zelen": 0,
@@ -66,25 +66,65 @@
     }
   },
   {
-    "date": "2026-02-23 06:08:24",
-    "total_ref": 39,
-    "total_time": 355.2,
+    "date": "2026-02-17 03:00:56",
+    "total_ref": 86,
+    "total_time": 372.9,
     "stores": {
-      "ebag": 13,
-      "balev": 10,
-      "lilly": 4,
-      "lilly_oos": 4,
+      "ebag": 28,
+      "balev": 16,
+      "lilly": 8,
+      "lilly_oos": 8,
+      "tmarket": 11,
+      "metro": 7,
+      "zelen": 14,
+      "randi": 9,
+      "biomarket": 17,
+      "befit": 34,
+      "laika": 20,
+      "glovo_kaufland": 14,
+      "glovo_billa": 6,
+      "glovo_cba": 10,
+      "glovo_fantastico": 34
+    }
+  },
+  {
+    "date": "2026-02-17 04:22:59",
+    "total_ref": 88,
+    "total_time": 414.4,
+    "stores": {
+      "ebag": 43,
+      "balev": 21,
       "tmarket": 0,
-      "metro": 5,
-      "zelen": 9,
-      "randi": 15,
-      "biomarket": 11,
-      "befit": 15,
-      "laika": 12,
+      "metro": 0,
+      "zelen": 0,
+      "randi": 0,
+      "biomarket": 0,
+      "befit": 0,
+      "laika": 0,
       "glovo_kaufland": 0,
       "glovo_billa": 0,
       "glovo_cba": 0,
       "glovo_fantastico": 0
+    }
+  },
+  {
+    "date": "2026-02-17 04:29:15",
+    "total_ref": 88,
+    "total_time": 374.5,
+    "stores": {
+      "ebag": 28,
+      "balev": 21,
+      "tmarket": 11,
+      "metro": 3,
+      "zelen": 12,
+      "randi": 9,
+      "biomarket": 20,
+      "befit": 36,
+      "laika": 6,
+      "glovo_kaufland": 17,
+      "glovo_billa": 8,
+      "glovo_cba": 13,
+      "glovo_fantastico": 38
     }
   }
 ]

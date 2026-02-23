@@ -151,7 +151,7 @@ class TestUpdateProductListWithNew:
         assert len(updated) == 1
         os.unlink(path)
 
-    def test_does_not_readd_removed_products(self, monkeypatch):
+    def test_reactivates_removed_products_found_in_kashon(self, monkeypatch):
         path = _with_tmp_products([
             {"name": "Active item", "ref_eur": 1.0, "ref_bgn": 1.96,
              "active": True, "status": "active"},
@@ -159,12 +159,44 @@ class TestUpdateProductListWithNew:
              "active": False, "status": "removed"},
         ])
         monkeypatch.setattr("products.PRODUCTS_JSON_PATH", path)
-        ref = load_product_list()  # returns only active
+        ref = load_product_list()  # returns only active (1 item)
 
-        kashon = [{"name": "Removed item", "eur": 2.0, "bgn": 3.91}]
+        kashon = [{"name": "Removed item", "eur": 2.5, "bgn": 4.89}]
         updated = update_product_list_with_new(ref, kashon)
-        # "Removed item" should NOT be re-added
+        assert len(updated) == 2
+        reactivated = [p for p in updated if p["name"] == "Removed item"][0]
+        assert reactivated["active"] is True
+        assert reactivated["status"] == "reactivated"
+        assert reactivated["ref_eur"] == 2.5
+        os.unlink(path)
+
+    def test_reactivation_is_case_insensitive(self, monkeypatch):
+        path = _with_tmp_products([
+            {"name": "Био вафла 30г", "ref_eur": 0.7, "ref_bgn": 1.37,
+             "active": False, "status": "removed"},
+        ])
+        monkeypatch.setattr("products.PRODUCTS_JSON_PATH", path)
+        ref = load_product_list()  # empty — all removed
+
+        kashon = [{"name": "био вафла 30г", "eur": 0.8, "bgn": 1.56}]
+        updated = update_product_list_with_new(ref, kashon)
         assert len(updated) == 1
+        assert updated[0]["active"] is True
+        assert updated[0]["status"] == "reactivated"
+        os.unlink(path)
+
+    def test_reactivation_preserves_original_name(self, monkeypatch):
+        path = _with_tmp_products([
+            {"name": "Кашкавал harmonica 300g", "ref_eur": 5.0, "ref_bgn": 9.78,
+             "active": False, "status": "removed", "added_date": "2026-01-15"},
+        ])
+        monkeypatch.setattr("products.PRODUCTS_JSON_PATH", path)
+        ref = load_product_list()
+
+        kashon = [{"name": "Кашкавал harmonica 300g", "eur": 5.2, "bgn": 10.17}]
+        updated = update_product_list_with_new(ref, kashon)
+        assert updated[0]["name"] == "Кашкавал harmonica 300g"
+        assert updated[0]["added_date"] == "2026-01-15"
         os.unlink(path)
 
 

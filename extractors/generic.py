@@ -14,8 +14,10 @@ from utils import (
     extract_price_fallback,
     clean_product_name,
     deduplicate_check,
+    find_price_bounded,
     is_food_product,
     is_harmonica_product,
+    is_price_sane,
 )
 
 
@@ -111,6 +113,10 @@ def _extract_generic_block_based(markdown, brand_page=False):
         if deduplicate_check(name, seen):
             continue
 
+        # Sanity: цена/100г > 10€ е абсурдна за храна (хваща bundle/грешни цени)
+        if not is_price_sane(name, eur):
+            continue
+
         products.append({"name": name, "eur": eur, "bgn": bgn})
 
     return products
@@ -137,7 +143,7 @@ def _extract_generic_line_by_line(markdown, brand_page=False):
                 name = candidate
         else:
             # Опит 2: Текстов ред с грамаж (признак за продукт)
-            if re.search(r'\d+\s*(?:г|мл|ml|g|kg|кг|л)\b', line_stripped, re.IGNORECASE):
+            if re.search(r'\d+\s*(?:гр|г|мл|ml|g|kg|кг|л|l)\b', line_stripped, re.IGNORECASE):
                 candidate = clean_product_name(line_stripped)
                 if is_food_product(candidate) and 8 <= len(candidate) <= 150:
                     name = candidate
@@ -174,21 +180,15 @@ def _extract_generic_line_by_line(markdown, brand_page=False):
         if deduplicate_check(name, seen):
             continue
 
-        # Търсим цена НАПРЕД от името (тесен прозорец: 3 реда), после разширяваме (5).
-        # По-тесен контекст намалява risk от price bleed между съседни продукти.
-        bgn, eur = None, None
-        for ctx_start, ctx_end in [(i, i + 3), (max(0, i - 1), i + 5)]:
-            ctx = '\n'.join(lines[ctx_start:min(len(lines), ctx_end)])
-            bgn = extract_bgn_price(ctx)
-            if not bgn:
-                bgn = extract_price_fallback(ctx)
-            eur = extract_eur_price(ctx)
-            if bgn or eur:
-                break
+        # Bounded forward search: спира при следващия продуктов ред
+        eur, bgn = find_price_bounded(lines, i)
 
         if bgn or eur:
             if bgn and not eur:
                 eur = round(bgn / EUR_BGN_RATE, 2)
+            # Sanity: цена/100г > 10€ е абсурдна за храна
+            if not is_price_sane(name, eur):
+                continue
             products.append({"name": name, "eur": eur, "bgn": bgn})
 
     return products

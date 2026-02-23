@@ -5,6 +5,85 @@
 Форматът е базиран на [Keep a Changelog](https://keepachangelog.com/bg/1.0.0/).
 
 ---
+## v10.14.1 - 2026-02-17
+
+### Променено
+- **Lilly премахнат от мониторинга** (15→14 магазина) — всички продукти изчерпани, ниските цени изкривяваха средните стойности по другите магазини
+- **Firecrawl retry при timeout** — автоматичен retry с 1.5× по-дълъг timeout преди Crawl4AI fallback. Параметър `_is_retry` в `_fetch_store_via_firecrawl()` контролира retry логиката
+- **Claude валидация с EUR/100g** — `validate_prices_with_claude()` изчислява weight_g и eur_per_100g за всяка съмнителна цена. Prompt-ът включва EUR/100g reasoning: "0.3-3€/100г е нормално, >10€/100г е почти сигурно грешка"
+
+### Премахнато
+- `extract_lilly_products` import и extraction секция от `scraper.py`
+- `_fetch_lilly_via_firecrawl`, `fetch_lilly_via_curl` imports от `scraper.py`
+- Lilly конфигурация от `STORES` dict в `config.py`
+- Lilly OOS статистика и JSON stats полета
+
+### Резултати (production run 2026-02-17)
+| Метрика | Преди (02-16) | След (02-17) |
+|---------|--------------|--------------|
+| Firecrawl timeout → Crawl4AI | 7 магазина | 2 магазина (retry спаси 4/5) |
+| Claude премахнати цени | 6 | 10 (EUR/100g по-строг) |
+| Магазини с данни | 13/15 | 13/14 (Metro нисък match) |
+| Продукти | 86 | 88 (+2 нови) |
+
+---
+## v10.14.0 - 2026-02-17
+
+### Добавено
+- **Bounded forward search** — `find_price_bounded()` в `utils.py`: търси цена напред от продуктов ред, спира при среща на следващ продукт. Елиминира "price bleed" при Balev (цена от съседен продукт). Разпознава дублирани редове (image-link + text-link) за съвместимост със Zelen
+- **Price sanity check** — `is_price_sane()` в `utils.py`: валидира EUR/100g съотношение, отхвърля цени >10€/100g. Решава проблеми с абсурдни цени от Laika (14.65€/30g) и BeFit (8.95€/500ml)
+- **"гр" (грам) суфикс** — разпознаване на кирилица "гр" навсякъде:
+  - `matching.py`: `normalize_name()` конвертира "400гр" → "400г", `extract_weight_grams()` pattern разширен
+  - `utils.py`: `is_food_product()` weight pattern разширен
+  - `extractors/balev.py`, `extractors/generic.py`: product line detection patterns
+- **19 нови теста**: `TestFindPriceBounded` (5), `TestIsPriceSane` (8), `TestDeduplicateCheck` (2), "гр" matching (3), extractor regression (1)
+
+### Променено
+- **Dedup key length** 30→50 символа — разграничава сходни продукти ("Био бисквити с масло и ванилия" vs "...и шоколад")
+- **Balev extractor** — заменен fixed 3-line window с `find_price_bounded()`
+- **Generic extractor** — заменен fixed window с `find_price_bounded()` + `is_price_sane()` guard
+
+### Поправено
+- **Zelen 0 products** — `find_price_bounded()` duplicate line detection: Zelen има image-link + text-link на отделни редове, които стават идентични след нормализация. Без skip на дубликати, текстовият ред се разпознаваше като нов продукт и price search спираше преждевременно
+
+**Резултат:** 199 теста, всички минават.
+
+---
+## v10.13.0 - 2026-02-16
+
+### Добавено
+- **Product re-activation** — `update_product_list_with_new()` реактивира removed продукти, намерени отново в Кашон:
+  - Ако продукт с `active: false` се появи в Кашон crawl, се маркира `status: "reactivated"` и `active: true`
+  - Актуализира референтната цена с текущата от Кашон
+  - Запазва оригиналното име и `added_date`
+  - Предпазва от загуба на продукти при непълно зареждане на Кашон (infinite scroll timeout)
+- **3 нови теста** в `test_products.py` — re-activation, case-insensitive re-activation, preservation на оригинални полета
+- Общо тестове: **180** (было 178)
+
+### Поправено
+- **75 removed продукта** бяха неправилно деактивирани от предишни run-ове с непълно зареждане на Кашон. При следващ run с пълно зареждане ще бъдат автоматично реактивирани
+
+---
+## v10.12.1 - 2026-02-16
+
+### Поправено
+- **Version strings** — обновени от v10.8 на v10.12 в scraper.py (header + JSON output) и email footer
+
+### Документация
+- **ROADMAP.md** — актуализирано текущо състояние:
+  - Продукти: 39 активни + 75 removed (беше 88)
+  - Runtime: ~330s (беше ~366s)
+  - Fallback верига: добавена бележка за Lilly GraphQL
+- **Известни проблеми** — нова секция с 6 открити проблема от production run 2026-02-16:
+  - T-Market Cloudflare (0/39) — блокиран по всички 3 канала
+  - Glovo Kaufland (0/39) — Firecrawl actions fail
+  - Firecrawl масови timeouts (5/11 магазина) — Crawl4AI fallback компенсира
+  - BeFit Firecrawl actions "Element not found"
+  - Lilly Firecrawl (1 продукт vs 11 от GraphQL)
+- **Покритие по магазин** — визуална таблица с bar chart за всеки магазин
+- **Следващи стъпки (v11.x)** — Фази 11-13: T-Market нов подход, Glovo Kaufland, сутрешен benchmark
+
+---
 ## v10.12.0 - 2026-02-16
 
 ### Добавено

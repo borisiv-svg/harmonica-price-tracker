@@ -1,6 +1,6 @@
 # Roadmap & Lessons Learned — Harmonica Price Tracker
 
-Последна актуализация: 2026-02-16 (v10.12.0)
+Последна актуализация: 2026-02-17 (v10.14.1)
 
 ---
 
@@ -41,6 +41,33 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 Един невалиден `unmergeCells` range блокира 138 форматиращи заявки. Решение: отделен `batch_update` + `try/except`.
 
 **Извод:** Критични Sheets операции — в отделни batch-ове с независим error handling.
+
+### 6. Еднопосочен product lifecycle води до тиха загуба на данни (v10.13.0)
+
+Кашон (kashonharmonica.bg) е infinite scroll сайт с ~85+ продукта. Конфигурацията изисква 40 scroll-а × 3s = 120s чисто скролиране. Но:
+
+- **Firecrawl лимити**: max 50 actions → 17/40 scrolls → вижда само горната половина
+- **Crawl4AI**: прави всичките 40 scroll-а, но отнема 134s и понякога timeout-ва
+
+При непълно зареждане на Кашон (17 вместо 40 scrolls), продукти от долната част на страницата не се виждат. Старата логика в `update_product_list_with_new()` имаше **еднопосочен lifecycle**:
+
+```
+active → removed (ако не е намерен в Кашон)
+removed → ❌ НИКОГА обратно в active
+```
+
+Продуктите попадаха в `_all_loaded_products` като removed и функцията ги пропускаше, защото проверяваше срещу **всички** имена (ред 70-71). Резултат: **75 от 114 продукта** (66%) бяха неправилно деактивирани за 2 run-а (2026-02-05 и 2026-02-15).
+
+**Fix (v10.13.0):** Двупосочен lifecycle с re-activation:
+
+```
+active → removed (ако не е в Кашон)
+removed → reactivated → active (ако се появи отново)
+```
+
+Ключовата промяна: вместо `all_names_lower` (active + removed), сега се поддържа отделен `removed_map` за re-activation. Когато Кашон продукт съвпадне с removed запис: `active=True`, `status="reactivated"`, цената се обновява.
+
+**Извод:** Всеки автоматичен процес, който маркира данни като невалидни, **трябва** да има обратен път за възстановяване. Особено когато source-ът (Кашон) е ненадежден (infinite scroll, timeout-и, непълно зареждане). Тихата загуба на продукти е по-опасна от фалшиво положителни, защото никога не генерира alert — health monitoring следи магазини, не reference list.
 
 ---
 
@@ -115,21 +142,49 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 
 ---
 
-## Текущо състояние (v10.12.0)
+## Текущо състояние (v10.14.1)
 
 | Метрика | Стойност |
 |---------|----------|
-| Магазини | 15 (Кашон, eBag, Balev, Lilly, T-Market, Metro, Zelen, Randi, Bio-Market, BeFit, Laika, Glovo ×4) |
-| Продукти | 88 в reference list |
-| Runtime | ~366 секунди (production), ~30 секунди (dry-run) |
+| Магазини | 14 (Кашон, eBag, Balev, T-Market, Metro, Zelen, Randi, Bio-Market, BeFit, Laika, Glovo ×4) |
+| Продукти | 88 активни + 28 removed |
+| Runtime | ~375 секунди (production), ~30 секунди (dry-run) |
 | Модули | 20 (scraper.py + config, utils, products, matching, validation, run_history, price_history, 9 extractors, 4 fetchers, 2 output) |
-| Тестове | 178 (pytest), ~1.1s |
+| Тестове | 199 (pytest), ~0.7s |
 | Dependencies | 10 пакета, всички pinned + Dependabot за auto-upgrade PR |
 | Fallback верига | Firecrawl → Crawl4AI → curl_cffi |
-| Валидация | Claude Sonnet 4.5 ценова проверка |
+| Валидация | Claude Sonnet 4.5 ценова проверка с EUR/100g нормализация |
 | Health monitoring | run_history.json + auto-alert при 0 или >50% спад |
 | Price history | price_history.json (local) + История_{year} tab (Sheets) |
 | Schedule | Понеделник 07:00 BG time |
+
+### Известни проблеми (от production run 2026-02-17)
+
+| Проблем | Детайли | Приоритет |
+|---------|---------|-----------|
+| **Firecrawl timeouts** | 5/10 магазина timeout на 1-ви опит. Retry с 1.5× спасява 4/5. Само 2 магазина отиват на Crawl4AI fallback | Среден |
+| **Zelen Firecrawl ISE** | Internal Server Error — Crawl4AI fallback OK (3s) | Нисък |
+| **BeFit Firecrawl ISE** | ISE след retry — Crawl4AI fallback OK (21.5s) | Нисък |
+| **Firecrawl разходи** | ~18-20 заявки/run, може да се оптимизира чрез Crawl4AI-first (вж. Предложение A) | Среден |
+
+### Покритие по магазин (2026-02-17)
+
+```
+Кашон             ████████████████████████████████████████████████  95% (84/88)
+Glovo Fantastico  █████████████████████                             43% (38/88)
+BeFit             ████████████████████                              41% (36/88)
+eBag              ████████████████                                  32% (28/88)
+Balev Bio         ████████████                                      24% (21/88)
+Bio-Market        ███████████                                       23% (20/88)
+Glovo Kaufland    ██████████                                        19% (17/88)
+Glovo CBA         ███████                                           15% (13/88)
+Zelen             ███████                                           14% (12/88)
+T-Market          ██████                                            12% (11/88)
+Randi             █████                                             10% (9/88)
+Glovo Billa       ████                                               9% (8/88)
+Laika             ████                                               7% (6/88)
+Metro             ██                                                 3% (3/88)
+```
 
 ---
 
@@ -151,7 +206,7 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 
 ---
 
-## Следващ план за действие (v11.x)
+## План за действие (v11.x)
 
 ### Фаза 6: Test coverage разширяване — ЗАВЪРШЕНА (v10.10.0)
 
@@ -211,20 +266,184 @@ Claude валидацията с фиксиран `max_tokens=2000` доведе
 
 **Резултат:** Ценова история се записва в local JSON + Google Sheets История_{year} tab. 178 теста, всички минават.
 
+### Фаза 10.5: Product re-activation — ЗАВЪРШЕНА (v10.13.0)
+
+**Цел:** Предотвратяване на тиха загуба на продукти при непълно зареждане на Кашон.
+
+**Проблем:** 75 от 114 продукта (66%) бяха неправилно деактивирани. Еднопосочният lifecycle (`active → removed`, без обратен път) означаваше, че продукти, невидими заради непълен scroll на Кашон, изчезваха завинаги от мониторинга.
+
+**Root cause:**
+- Кашон е infinite scroll сайт: 40 scrolls × 3s = 120s
+- Firecrawl лимит: max 17/40 scrolls → вижда само горната половина
+- Crawl4AI: 40 scrolls = 134s, но понякога timeout-ва
+- `update_product_list_with_new()` проверяваше срещу **всички** имена (active + removed) → removed продукти никога не се връщаха
+
+**Решение:**
+- [x] Двупосочен product lifecycle: `removed → reactivated → active`
+- [x] Отделен `removed_map` в `update_product_list_with_new()` за бързо lookup
+- [x] При re-activation: `active=True`, `status="reactivated"`, цената се обновява от Кашон
+- [x] Запазване на оригиналното име и `added_date`
+- [x] 3 нови теста: re-activation, case-insensitive, preservation на полета
+
+**Резултат:** 180 теста. При следващ run с пълно зареждане на Кашон, ~75 продукта ще бъдат автоматично реактивирани.
+
 ---
 
 ## Прогрес (v11.x)
 
 ```
-Фаза 6 (тестове)    ━━━ ЗАВЪРШЕНА ✓  168 теста, products + output покрити
+Фаза 6 (тестове)          ━━━ ЗАВЪРШЕНА ✓  168 теста, products + output покрити
        ↓
-Фаза 7 (DM)         ━━━ ОТЛОЖЕНА     достатъчно магазини (15)
+Фаза 7 (DM)               ━━━ ОТЛОЖЕНА     достатъчно магазини
        ↓
-Фаза 8 (CI dry-run) ━━━ ЗАВЪРШЕНА ✓  fail-fast + annotation + step summary
+Фаза 8 (CI dry-run)       ━━━ ЗАВЪРШЕНА ✓  fail-fast + annotation + step summary
        ↓
-Фаза 9 (deps)       ━━━ ЗАВЪРШЕНА ✓  Dependabot за pip + github-actions
+Фаза 9 (deps)             ━━━ ЗАВЪРШЕНА ✓  Dependabot за pip + github-actions
        ↓
-Фаза 10 (analytics) ━━━ ЗАВЪРШЕНА ✓  price_history.json + История tab възстановен
+Фаза 10 (analytics)       ━━━ ЗАВЪРШЕНА ✓  price_history.json + История tab възстановен
+       ↓
+Фаза 10.5 (re-activation) ━━━ ЗАВЪРШЕНА ✓  двупосочен product lifecycle
+       ↓
+Фаза 11 (extraction)      ━━━ ЗАВЪРШЕНА ✓  bounded search, price sanity, dedup 50, "гр" matching
+       ↓
+Фаза 12 (reliability)     ━━━ ЗАВЪРШЕНА ✓  Lilly премахнат, Firecrawl retry, Claude EUR/100g
 ```
 
-Всички 10 фази от roadmap-а са завършени.
+Всички 13 фази от roadmap-а са завършени.
+
+---
+
+### Фаза 11: Подобрена извличане на цени — ЗАВЪРШЕНА (v10.14.0)
+
+**Цел:** Отстраняване на грешни цени и подобряване на matching.
+
+**Задачи:**
+- [x] `find_price_bounded()` — bounded forward search, спира при следващ продукт (елиминира price bleed при Balev)
+- [x] `is_price_sane()` — EUR/100g валидация, отхвърля абсурдни цени (>10€/100g)
+- [x] Dedup key 30→50 символа — разграничава сходни продукти ("бисквити с масло и ванилия" vs "...и шоколад")
+- [x] "гр" (грам) суфикс — разпознаване навсякъде в matching, extractors и utils
+- [x] 19 нови теста: `TestFindPriceBounded` (5), `TestIsPriceSane` (8), dedup (2), "гр" matching (3), extractor regression (1)
+
+**Резултат:** 199 теста. Елиминирани фалшиви цени от Balev (price bleed) и generic extractor (абсурдни EUR/100g).
+
+### Фаза 12: Надеждност и валидация — ЗАВЪРШЕНА (v10.14.1)
+
+**Цел:** Намаляване на Firecrawl fallback-и и подобряване на Claude валидацията.
+
+**Задачи:**
+- [x] Премахване на Lilly от списъка (15→14 магазина) — всички продукти изчерпани, ниски цени изкривяват средните стойности
+- [x] Firecrawl retry при timeout — автоматичен retry с 1.5× по-дълъг timeout преди Crawl4AI fallback
+- [x] Claude валидация с EUR/100g — weight-normalized данни в prompt-а за по-прецизна аномалия детекция
+
+**Резултат от production run 2026-02-17:**
+- Firecrawl retry спаси 4/5 timeout-а (было: 5 магазина на Crawl4AI, сега: 2)
+- Claude откри 10 грешни цени (+ 9 флагнати) с по-информативни обяснения (EUR/100g reasoning)
+- 14/14 магазина работят, 88 продукта (2 нови)
+
+---
+
+## Предложения за бъдещи промени
+
+### Предложение A: Crawl4AI-first архитектура (ПРЕПОРЪЧИТЕЛНО)
+
+**Статус:** В обсъждане
+
+**Цел:** Намаляване на разходите и опростяване на scraping процеса чрез обръщане на архитектурата — Crawl4AI primary, Firecrawl само за Glovo.
+
+**Контекст — защо:**
+
+Текущата архитектура е Firecrawl-first с ~18-20 платени API заявки на run. Анализ на production данните показва:
+- Firecrawl timeout rate: **50%** на първи опит (5/10 магазина)
+- Crawl4AI покрива 100% от провалите (Zelen 3s, BeFit 21.5s, Kashon upgrade)
+- За много магазини Crawl4AI е **по-бърз** от Firecrawl
+- Run-ът е cron job (04:23 UTC) — времето не е критично
+
+**Анализ по магазин:**
+
+| Магазин | JS нужен? | Anti-bot? | Crawl4AI може? | Бележка |
+|---------|:---------:|:---------:|:--------------:|---------|
+| Кашон | Да | Не | 100% | Вече работи като upgrade (131s) |
+| eBag | Да | Не | 100% | Стандартен e-commerce |
+| Balev | Да | Не | 100% | Няма Cloudflare |
+| Metro | Да | Не | 100% | Стандартен HTML |
+| Zelen | Да | Не | 100% | По-бърз от Firecrawl (3s vs ISE!) |
+| Bio-Market | Да | Не | 100% | Стандартна brand page |
+| BeFit | Да | Не | 100% | По-бърз от Firecrawl (21.5s vs ISE!) |
+| Laika | Да | Не | 100% | Стандартен HTML |
+| Randi | Да | Не | 95% | JS-heavy, но Crawl4AI се справя |
+| T-Market | Да | **Cloudflare** | 90% | curl_cffi TLS + CapSolver fallback |
+| Glovo ×4 | Да (SPA) | Не | **Не** | Нужни Firecrawl search actions ИЛИ Glovo API v3 |
+
+**Предложена нова архитектура:**
+
+```
+Обикновени магазини (10):  Crawl4AI (primary) → curl_cffi (fallback)
+T-Market:                  curl_cffi TLS → Crawl4AI + CapSolver
+Glovo (4):                 Firecrawl search actions → Glovo API v3 (fallback)
+```
+
+**Очакван ефект:**
+
+| Метрика | Сега (Firecrawl-first) | След (Crawl4AI-first) |
+|---------|------------------------|----------------------|
+| Firecrawl заявки/run | ~18-20 | 0-4 (само Glovo) |
+| Месечен разход Firecrawl | ~$15-30 | ~$3-5 |
+| Време на run | ~6 мин | ~8-10 мин |
+| Надеждност | 80% Firecrawl + fallback | 95%+ Crawl4AI |
+
+**Стъпки за имплементация:**
+- [ ] Промяна на `crawl_all()` — Crawl4AI primary за 10-те обикновени магазина
+- [ ] Запазване на Firecrawl само за Glovo search actions
+- [ ] Опростяване на `firecrawl_fetcher.py` — махане на generic fetch
+- [ ] Оптимизация на Crawl4AI scroll конфигурацията за всеки магазин
+- [ ] Performance тестване — сравнение на данни преди/след
+- [ ] Fallback: curl_cffi за T-Market, CapSolver за Cloudflare
+
+**Рискове:**
+- Crawl4AI е по-бавен (~1.5-2×), но run-ът не е time-critical
+- Нужен headless Chrome в CI (вече наличен)
+- Glovo search actions остават зависими от Firecrawl (няма Crawl4AI алтернатива)
+
+---
+
+### Предложение B: Без Firecrawl изобщо (максимална икономия)
+
+**Статус:** Алтернатива — обмисля се при наличие на Glovo API v3 token
+
+**Идея:** Пълно премахване на Firecrawl dependency. За Glovo — директен Glovo API v3.
+
+```
+Обикновени магазини (10):  Crawl4AI → curl_cffi fallback
+T-Market:                  curl_cffi TLS → Crawl4AI + CapSolver
+Glovo (4):                 Glovo API v3 (директен JSON)
+```
+
+**Плюсове:** Нулеви scraping разходи, без външна зависимост.
+**Минуси:** Glovo API token трябва refresh, ако сменят API — няма fallback.
+**Предпоставка:** Стабилен Glovo API v3 token с auto-refresh.
+
+---
+
+### Предложение C: Хибриден подход (минимален Firecrawl)
+
+**Статус:** Алтернатива — компромис между A и B
+
+**Идея:** Firecrawl само за Glovo (4 заявки). Всичко друго — Crawl4AI. Запазваме Firecrawl като backup в кода, но не го ползваме за обикновени магазини.
+
+**Очаквани Firecrawl заявки:** от ~18 → **4** на run.
+
+---
+
+### Други бъдещи подобрения (NICE-TO-HAVE)
+
+#### Per-store Firecrawl timeout tuning
+- [ ] Анализ на оптимални timeout стойности по магазин (базирано на исторически данни)
+- [ ] Адаптивен timeout: ако магазинът е бавен 3 пъти поред → увеличаваме базовия timeout
+
+#### Ценови тренд алерти
+- [ ] Алерт при необичайно голяма ценова промяна (>20% за седмица)
+- [ ] Седмичен ценови отчет: средна цена по категория, тренд ↑/↓
+
+#### DM България
+- [ ] Algolia API интеграция (кодът вече съществува в `fetchers/curl_api.py`)
+- [ ] Активиране на DM магазин при нужда

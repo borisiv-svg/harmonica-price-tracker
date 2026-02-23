@@ -114,8 +114,8 @@
         "harmonica",
         "80g"
       ],
-      "ref_eur": 2.65,
-      "ref_bgn": 5.18,
+      "ref_eur": 1.28,
+      "ref_bgn": 2.5,
       "url_slug": "pecheni-leshnici-harmonica-80g",
       "active": true,
       "status": "active",
@@ -689,8 +689,8 @@
       "ref_eur": 1.4,
       "ref_bgn": 2.74,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -707,8 +707,8 @@
       "ref_eur": 6.62,
       "ref_bgn": 12.95,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -725,8 +725,8 @@
       "ref_eur": 6.62,
       "ref_bgn": 12.95,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -742,8 +742,8 @@
       "ref_eur": 8.13,
       "ref_bgn": 15.91,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -758,8 +758,8 @@
       "ref_eur": 1.84,
       "ref_bgn": 3.6,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -776,8 +776,8 @@
       "ref_eur": 0.74,
       "ref_bgn": 1.44,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -809,8 +809,8 @@
       "ref_eur": 0.65,
       "ref_bgn": 1.28,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -825,8 +825,8 @@
       "ref_eur": 8.12,
       "ref_bgn": 15.88,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -840,8 +840,8 @@
       "ref_eur": 1.94,
       "ref_bgn": 3.79,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -857,8 +857,8 @@
       "ref_eur": 9.16,
       "ref_bgn": 17.91,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -876,8 +876,8 @@
       "ref_eur": 9.12,
       "ref_bgn": 17.84,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -893,8 +893,8 @@
       "ref_eur": 4.51,
       "ref_bgn": 8.83,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -912,8 +912,8 @@
       "ref_eur": 9.63,
       "ref_bgn": 18.83,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -930,8 +930,8 @@
       "ref_eur": 4.55,
       "ref_bgn": 8.9,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -948,8 +948,8 @@
       "ref_eur": 4.74,
       "ref_bgn": 9.27,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -966,8 +966,8 @@
       "ref_eur": 1.12,
       "ref_bgn": 2.2,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -983,8 +983,8 @@
       "ref_eur": 3.02,
       "ref_bgn": 5.91,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -999,8 +999,8 @@
       "ref_eur": 3.23,
       "ref_bgn": 6.32,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1014,8 +1014,8 @@
       "ref_eur": 11.08,
       "ref_bgn": 21.67,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1031,8 +1031,8 @@
       "ref_eur": 1.01,
       "ref_bgn": 1.98,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1049,8 +1049,8 @@
       "ref_eur": 9.16,
       "ref_bgn": 17.91,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1065,8 +1065,8 @@
       "ref_eur": 5.47,
       "ref_bgn": 10.7,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1082,26 +1082,25 @@
       "ref_eur": 9.2,
       "ref_bgn": 17.99,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
       "id": 65,
       "name": "Био Бял сусамов тахан harmonica 250g",
       "keywords": [
-        "био",
         "бял",
         "сусамов",
         "тахан",
         "harmonica",
-        "250g"
+        "700g"
       ],
-      "ref_eur": 4.59,
-      "ref_bgn": 8.98,
+      "ref_eur": 9.16,
+      "ref_bgn": 17.91,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1116,8 +1115,8 @@
       "ref_eur": 2.73,
       "ref_bgn": 5.34,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1132,8 +1131,8 @@
       "ref_eur": 4.31,
       "ref_bgn": 8.42,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1147,8 +1146,8 @@
       "ref_eur": 7.11,
       "ref_bgn": 13.91,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1163,8 +1162,8 @@
       "ref_eur": 7.1,
       "ref_bgn": 13.88,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1178,8 +1177,8 @@
       "ref_eur": 1.97,
       "ref_bgn": 3.85,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1195,8 +1194,8 @@
       "ref_eur": 1.66,
       "ref_bgn": 3.26,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1212,8 +1211,8 @@
       "ref_eur": 1.2,
       "ref_bgn": 2.35,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1229,8 +1228,8 @@
       "ref_eur": 4.03,
       "ref_bgn": 7.88,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1246,8 +1245,8 @@
       "ref_eur": 7.62,
       "ref_bgn": 14.9,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1264,8 +1263,8 @@
       "ref_eur": 8.12,
       "ref_bgn": 15.88,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1283,8 +1282,8 @@
       "ref_eur": 7.62,
       "ref_bgn": 14.9,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1300,8 +1299,8 @@
       "ref_eur": 8.63,
       "ref_bgn": 16.88,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1319,8 +1318,8 @@
       "ref_eur": 9.12,
       "ref_bgn": 17.84,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1333,11 +1332,11 @@
         "harmonica",
         "750ml"
       ],
-      "ref_eur": 8.63,
-      "ref_bgn": 16.88,
+      "ref_eur": 9.12,
+      "ref_bgn": 17.84,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1353,8 +1352,8 @@
       "ref_eur": 1.28,
       "ref_bgn": 2.5,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1369,8 +1368,8 @@
       "ref_eur": 1.01,
       "ref_bgn": 1.98,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1386,8 +1385,8 @@
       "ref_eur": 1.01,
       "ref_bgn": 1.98,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1402,8 +1401,8 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1419,8 +1418,8 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1435,8 +1434,8 @@
       "ref_eur": 3.59,
       "ref_bgn": 7.02,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1451,8 +1450,8 @@
       "ref_eur": 3.83,
       "ref_bgn": 7.49,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {
@@ -1466,8 +1465,26 @@
       "ref_eur": 2.86,
       "ref_bgn": 5.59,
       "url_slug": "",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
+      "added_date": "2026-02-15"
+    },
+    {
+      "id": 86,
+      "name": "Био Бял сусамов тахан harmonica 250g",
+      "keywords": [
+        "био",
+        "бял",
+        "сусамов",
+        "тахан",
+        "harmonica",
+        "250g"
+      ],
+      "ref_eur": 4.59,
+      "ref_bgn": 8.98,
+      "url_slug": "",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-15"
     },
     {

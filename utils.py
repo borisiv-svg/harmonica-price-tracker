@@ -118,7 +118,7 @@ def is_food_product(name):
     for kw in FOOD_KEYWORDS:
         if kw in name_lower:
             return True
-    if re.search(r'\d+\s*(?:г|мл|ml|g|kg|л)\b', name_lower):
+    if re.search(r'\d+\s*(?:гр|г|мл|ml|g|kg|кг|л|l)\b', name_lower):
         return True
     return True
 
@@ -236,13 +236,63 @@ def clean_product_name(name):
     return name
 
 
-def deduplicate_check(name, seen_set, key_length=30):
+def deduplicate_check(name, seen_set, key_length=50):
     """Проверява за дубликат. Връща True ако е дубликат (вече видян)."""
     key = name.lower()[:key_length]
     if key in seen_set:
         return True
     seen_set.add(key)
     return False
+
+
+def find_price_bounded(lines, product_idx, max_forward=8):
+    """
+    Търси цена НАПРЕД от product_idx до следващия продуктов ред.
+    Спира при среща на ред, който изглежда като нов продукт (грамаж + букви).
+    Предотвратява "price bleed" между съседни продукти.
+    Дубликатни редове (напр. image-link + text-link) не се считат за граница.
+    """
+    boundary = min(len(lines), product_idx + max_forward)
+    start_key = lines[product_idx].strip().lower()[:40]
+    for j in range(product_idx + 1, boundary):
+        line_j = lines[j].strip()
+        # Пропускаме дубликати на текущия продуктов ред
+        if line_j.strip().lower()[:40] == start_key:
+            continue
+        # Ред с грамаж + поне 3 букви = вероятно нов продукт
+        if (len(line_j) > 8 and
+                re.search(r'\d+\s*(?:гр|г|мл|ml|g|kg|кг|л|l)\b', line_j, re.IGNORECASE) and
+                len(re.findall(r'[а-яА-Яa-zA-Z]', line_j)) >= 3):
+            boundary = j
+            break
+
+    ctx = '\n'.join(lines[product_idx:boundary])
+    eur = extract_eur_price(ctx)
+    bgn = extract_bgn_price(ctx)
+    if not bgn and not eur:
+        bgn = extract_price_fallback(ctx)
+    return eur, bgn
+
+
+def is_price_sane(name, eur_price, max_per_100=10.0):
+    """
+    Проверява дали цената е разумна спрямо грамажа на продукта.
+    Ако цена/100г > max_per_100 EUR, връща False (вероятно грешна цена).
+    Връща True ако не може да определи (липсва грамаж или цена).
+    """
+    if not eur_price or eur_price <= 0:
+        return True
+    match = re.search(r'(\d+[.,]?\d*)\s*(гр|г|g|мл|ml|кг|kg|л|l)\b', name.lower())
+    if not match:
+        return True
+    value = float(match.group(1).replace(',', '.'))
+    unit = match.group(2)
+    if unit in ('кг', 'kg', 'л', 'l'):
+        value *= 1000
+    if value <= 0:
+        return True
+    price_per_100 = eur_price / value * 100
+    return price_per_100 <= max_per_100
 
 
 def detect_cloudflare_challenge(html_text):

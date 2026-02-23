@@ -9,6 +9,7 @@ import re
 import time
 
 from config import ANTHROPIC_AVAILABLE, ANTHROPIC_API_KEY, CLAUDE_MODEL, logger
+from matching import extract_weight_grams
 
 if ANTHROPIC_AVAILABLE:
     import anthropic
@@ -39,9 +40,14 @@ def validate_prices_with_claude(final_products, all_store_keys):
         values = sorted(eur_prices.values())
         median = values[len(values) // 2]
 
+        weight_g = extract_weight_grams(product["name"])
+
         for store, price in eur_prices.items():
             deviation = abs(price - median) / median * 100
             if deviation > 50:
+                eur_per_100 = None
+                if weight_g and weight_g > 0:
+                    eur_per_100 = round(price / weight_g * 100, 2)
                 suspicious.append({
                     "product": product["name"],
                     "store": store,
@@ -49,6 +55,8 @@ def validate_prices_with_claude(final_products, all_store_keys):
                     "median_eur": round(median, 2),
                     "deviation_pct": round(deviation, 1),
                     "all_prices": {k: round(v, 2) for k, v in eur_prices.items()},
+                    "weight_g": weight_g,
+                    "eur_per_100g": eur_per_100,
                 })
 
     if not suspicious:
@@ -61,10 +69,14 @@ def validate_prices_with_claude(final_products, all_store_keys):
     price_lines = []
     for i, s in enumerate(suspicious, 1):
         prices_str = ", ".join(f"{k}={v:.2f}€" for k, v in s["all_prices"].items())
+        per_100_str = ""
+        if s.get("eur_per_100g") is not None:
+            per_100_str = f", {s['eur_per_100g']:.2f}€/100г"
+        weight_str = f" ({s['weight_g']}г)" if s.get("weight_g") else ""
         price_lines.append(
-            f"{i}. Продукт: \"{s['product']}\"\n"
-            f"   Магазин: {s['store']} → {s['price_eur']:.2f}€ (медиана: {s['median_eur']:.2f}€, "
-            f"отклонение: {s['deviation_pct']:.0f}%)\n"
+            f"{i}. Продукт: \"{s['product']}\"{weight_str}\n"
+            f"   Магазин: {s['store']} → {s['price_eur']:.2f}€{per_100_str} "
+            f"(медиана: {s['median_eur']:.2f}€, отклонение: {s['deviation_pct']:.0f}%)\n"
             f"   Всички цени: {prices_str}"
         )
 
@@ -84,7 +96,9 @@ def validate_prices_with_claude(final_products, all_store_keys):
 - Масло 125г: 1.53-2.56€
 - Тахан 250г: 2.56-4.09€
 
-ВАЖНО: Внимавай за грамажа! Ако едни магазини продават 400г, а съмнителната цена може да е за 2кг версия — тя може да е вярна.
+ВАЖНО:
+- Внимавай за грамажа! Ако едни магазини продават 400г, а съмнителната цена може да е за 2кг версия — тя може да е вярна.
+- Ако е показана цена/100г — ползвай я за сравнение. За масови продукти (мляко, вафли, бисквити) нормалната цена е 0.3-3€/100г. Над 5€/100г е съмнително, над 10€/100г е почти сигурно грешка.
 
 Съмнителни цени:
 {chr(10).join(price_lines)}
