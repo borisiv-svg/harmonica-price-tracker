@@ -1,8 +1,8 @@
 {
   "version": "2.0",
-  "last_sync": "2026-03-01",
+  "last_sync": "2026-03-02",
   "source": "kashonharmonica.bg",
-  "total_products": 40,
+  "total_products": 117,
   "products": [
     {
       "id": 1,
@@ -67,7 +67,7 @@
         "30 г"
       ],
       "ref_eur": 0.65,
-      "ref_bgn": 2.74,
+      "ref_bgn": 1.28,
       "url_slug": "bio-vafla-klasika-30-g",
       "active": true,
       "status": "active",
@@ -83,7 +83,7 @@
         "400g"
       ],
       "ref_eur": 6.63,
-      "ref_bgn": 2.74,
+      "ref_bgn": 12.97,
       "url_slug": "sirene-krave-harmonica-400g",
       "active": true,
       "status": "active",
@@ -114,8 +114,8 @@
         "harmonica",
         "80g"
       ],
-      "ref_eur": 2.65,
-      "ref_bgn": 5.18,
+      "ref_eur": 1.28,
+      "ref_bgn": 2.5,
       "url_slug": "pecheni-leshnici-harmonica-80g",
       "active": true,
       "status": "active",
@@ -158,25 +158,6 @@
     },
     {
       "id": 10,
-      "name": "Smiles с нахут, ориз с кокосово масло 50g",
-      "keywords": [
-        "smiles",
-        "нахут",
-        "ориз",
-        "кокосово",
-        "масло",
-        "50g"
-      ],
-      "ref_eur": 1.44,
-      "ref_bgn": 2.81,
-      "url_slug": "smiles-s-nahut-oriz-s-kokosovo-maslo-50g",
-      "active": false,
-      "status": "active",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-03-01"
-    },
-    {
-      "id": 11,
       "name": "Пълнозърнести кори harmonica 400g",
       "keywords": [
         "пълнозърнести",
@@ -192,7 +173,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 12,
+      "id": 11,
       "name": "Сироп от мента harmonica 750 ml",
       "keywords": [
         "сироп",
@@ -209,7 +190,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 13,
+      "id": 12,
       "name": "Лютеница Илиеви (№3) harmonica 260g",
       "keywords": [
         "лютеница",
@@ -225,7 +206,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 14,
+      "id": 13,
       "name": "Лютеница Хаджиеви (№1) harmonica 260g",
       "keywords": [
         "лютеница",
@@ -241,7 +222,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 15,
+      "id": 14,
       "name": "Био вафла Биотик+ 30 г",
       "keywords": [
         "био",
@@ -257,7 +238,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 16,
+      "id": 15,
       "name": "Био сладко от ягоди 240гр",
       "keywords": [
         "био",
@@ -274,7 +255,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 17,
+      "id": 16,
       "name": "Био сладко от малини 240гр",
       "keywords": [
         "био",
@@ -291,7 +272,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 18,
+      "id": 17,
       "name": "Био сладко от боровинки 240 гр",
       "keywords": [
         "био",
@@ -308,7 +289,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 19,
+      "id": 18,
       "name": "Био соленки с копър и естрагон 60 гр",
       "keywords": [
         "био",
@@ -325,7 +306,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 20,
+      "id": 19,
       "name": "Био соленки с домати и риган 60 гр",
       "keywords": [
         "био",
@@ -342,7 +323,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 21,
+      "id": 20,
       "name": "Био оранжада 330 мл",
       "keywords": [
         "био",
@@ -357,7 +338,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 22,
+      "id": 21,
       "name": "Био Локум роза 140г",
       "keywords": [
         "био",
@@ -373,7 +354,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 23,
+      "id": 22,
       "name": "Био Локум натурален 140г",
       "keywords": [
         "био",
@@ -389,7 +370,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 24,
+      "id": 23,
       "name": "Био сок от ябълка и морков 750мл",
       "keywords": [
         "био",
@@ -399,15 +380,15 @@
         "морков",
         "750мл"
       ],
-      "ref_eur": 3.71,
-      "ref_bgn": 7.26,
+      "ref_eur": 9.61,
+      "ref_bgn": 18.8,
       "url_slug": "bio-sok-ot-yablka-i-morkov-750ml",
       "active": true,
       "status": "active",
       "added_date": "2026-02-05"
     },
     {
-      "id": 25,
+      "id": 24,
       "name": "Био Обикновени бисквити с краве масло и какао 150 g",
       "keywords": [
         "био",
@@ -426,7 +407,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 26,
+      "id": 25,
       "name": "Био мюсли със смокини и черници 300 гр",
       "keywords": [
         "био",
@@ -444,7 +425,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 27,
+      "id": 26,
       "name": "Био мюсли с лешници и бадеми 300 гр",
       "keywords": [
         "био",
@@ -461,7 +442,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 28,
+      "id": 27,
       "name": "Био кетчуп 300 гр",
       "keywords": [
         "био",
@@ -469,14 +450,14 @@
         "300 г"
       ],
       "ref_eur": 3.47,
-      "ref_bgn": 11.5,
+      "ref_bgn": 6.79,
       "url_slug": "bio-ketchup-300-gr",
       "active": true,
       "status": "active",
       "added_date": "2026-02-05"
     },
     {
-      "id": 29,
+      "id": 28,
       "name": "Заквасена сметана 12% harmonica 200g",
       "keywords": [
         "заквасена",
@@ -493,7 +474,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 30,
+      "id": 29,
       "name": "Био Оризови топчета с бял шоколад и малина 50г.",
       "keywords": [
         "био",
@@ -512,7 +493,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 31,
+      "id": 30,
       "name": "Био Тунквана вафла без захар 40г",
       "keywords": [
         "био",
@@ -530,7 +511,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 32,
+      "id": 31,
       "name": "Био Слънчогледово олио за готвене 500 мл",
       "keywords": [
         "био",
@@ -548,7 +529,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 33,
+      "id": 32,
       "name": "Био Оризови топчета с черен шоколад 50 г",
       "keywords": [
         "био",
@@ -566,7 +547,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 34,
+      "id": 33,
       "name": "Био Оризови топчета с млечен шоколад 50 г",
       "keywords": [
         "био",
@@ -584,7 +565,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 35,
+      "id": 34,
       "name": "Био лимонада 330 мл",
       "keywords": [
         "био",
@@ -599,7 +580,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 36,
+      "id": 35,
       "name": "Био тънки претцели с морска сол 80 гр.",
       "keywords": [
         "био",
@@ -617,7 +598,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 37,
+      "id": 36,
       "name": "Био хумус - класически 200гр.",
       "keywords": [
         "био",
@@ -633,7 +614,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 38,
+      "id": 37,
       "name": "Био тунквана вафла Класика 40 г",
       "keywords": [
         "био",
@@ -650,7 +631,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 39,
+      "id": 38,
       "name": "Био бял боб 1.3 kg",
       "keywords": [
         "био",
@@ -666,22 +647,7 @@
       "added_date": "2026-02-22"
     },
     {
-      "id": 40,
-      "name": "Sunny Farm",
-      "keywords": [
-        "sunny",
-        "farm"
-      ],
-      "ref_eur": 1.4,
-      "ref_bgn": 2.74,
-      "url_slug": "",
-      "active": false,
-      "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
-    },
-    {
-      "id": 41,
+      "id": 39,
       "name": "Био овесена гранола с ябълки и канела 250гр",
       "keywords": [
         "био",
@@ -693,6 +659,38 @@
       ],
       "ref_eur": 6.62,
       "ref_bgn": 12.95,
+      "url_slug": "",
+      "active": true,
+      "status": "reactivated",
+      "added_date": "2026-02-15"
+    },
+    {
+      "id": 40,
+      "name": "Био Обикновени бисквити с краве масло 150 g",
+      "keywords": [
+        "био",
+        "обикновени",
+        "бисквити",
+        "краве",
+        "масло",
+        "150 g"
+      ],
+      "ref_eur": 2.14,
+      "ref_bgn": 4.19,
+      "url_slug": "",
+      "active": true,
+      "status": "new",
+      "added_date": "2026-02-23"
+    },
+    {
+      "id": 41,
+      "name": "Sunny Farm",
+      "keywords": [
+        "sunny",
+        "farm"
+      ],
+      "ref_eur": 1.4,
+      "ref_bgn": 2.74,
       "url_slug": "",
       "active": true,
       "status": "reactivated",
@@ -712,10 +710,9 @@
       "ref_eur": 6.62,
       "ref_bgn": 12.95,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 43,
@@ -730,10 +727,9 @@
       "ref_eur": 8.13,
       "ref_bgn": 15.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 44,
@@ -747,10 +743,9 @@
       "ref_eur": 1.84,
       "ref_bgn": 3.6,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 45,
@@ -766,10 +761,9 @@
       "ref_eur": 0.74,
       "ref_bgn": 1.44,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 46,
@@ -783,10 +777,9 @@
       "ref_eur": 0.65,
       "ref_bgn": 1.28,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 47,
@@ -800,10 +793,9 @@
       "ref_eur": 8.12,
       "ref_bgn": 15.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 48,
@@ -816,10 +808,9 @@
       "ref_eur": 1.94,
       "ref_bgn": 3.79,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 49,
@@ -834,10 +825,9 @@
       "ref_eur": 9.16,
       "ref_bgn": 17.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 50,
@@ -854,10 +844,9 @@
       "ref_eur": 9.12,
       "ref_bgn": 17.84,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 51,
@@ -872,10 +861,9 @@
       "ref_eur": 4.51,
       "ref_bgn": 8.83,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 52,
@@ -892,10 +880,9 @@
       "ref_eur": 9.63,
       "ref_bgn": 18.83,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 53,
@@ -911,10 +898,9 @@
       "ref_eur": 4.55,
       "ref_bgn": 8.9,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 54,
@@ -930,10 +916,9 @@
       "ref_eur": 4.74,
       "ref_bgn": 9.27,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 55,
@@ -949,10 +934,9 @@
       "ref_eur": 1.12,
       "ref_bgn": 2.2,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 56,
@@ -967,10 +951,9 @@
       "ref_eur": 3.02,
       "ref_bgn": 5.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 57,
@@ -984,10 +967,9 @@
       "ref_eur": 3.23,
       "ref_bgn": 6.32,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 58,
@@ -1000,10 +982,9 @@
       "ref_eur": 11.08,
       "ref_bgn": 21.67,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 59,
@@ -1018,10 +999,9 @@
       "ref_eur": 1.01,
       "ref_bgn": 1.98,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 60,
@@ -1037,10 +1017,9 @@
       "ref_eur": 9.16,
       "ref_bgn": 17.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 61,
@@ -1054,10 +1033,9 @@
       "ref_eur": 5.47,
       "ref_bgn": 10.7,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 62,
@@ -1072,29 +1050,26 @@
       "ref_eur": 9.2,
       "ref_bgn": 17.99,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 63,
-      "name": "Био Бял сусамов тахан harmonica 250g",
+      "name": "Бял сусамов тахан harmonica 700g",
       "keywords": [
-        "био",
         "бял",
         "сусамов",
         "тахан",
         "harmonica",
-        "250g"
+        "700g"
       ],
-      "ref_eur": 4.59,
-      "ref_bgn": 8.97,
+      "ref_eur": 9.16,
+      "ref_bgn": 17.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 64,
@@ -1108,10 +1083,9 @@
       "ref_eur": 2.73,
       "ref_bgn": 5.34,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 65,
@@ -1125,10 +1099,9 @@
       "ref_eur": 4.31,
       "ref_bgn": 8.42,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 66,
@@ -1141,10 +1114,9 @@
       "ref_eur": 7.11,
       "ref_bgn": 13.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 67,
@@ -1158,10 +1130,9 @@
       "ref_eur": 7.1,
       "ref_bgn": 13.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 68,
@@ -1174,10 +1145,9 @@
       "ref_eur": 1.97,
       "ref_bgn": 3.85,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 69,
@@ -1189,13 +1159,12 @@
         "harmonica",
         "1l"
       ],
-      "ref_eur": 1.66,
-      "ref_bgn": 3.26,
+      "ref_eur": 2.08,
+      "ref_bgn": 4.07,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 70,
@@ -1210,10 +1179,9 @@
       "ref_eur": 1.2,
       "ref_bgn": 2.35,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 71,
@@ -1228,10 +1196,9 @@
       "ref_eur": 4.03,
       "ref_bgn": 7.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 72,
@@ -1246,10 +1213,9 @@
       "ref_eur": 7.62,
       "ref_bgn": 14.9,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 73,
@@ -1265,10 +1231,9 @@
       "ref_eur": 8.12,
       "ref_bgn": 15.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 74,
@@ -1285,10 +1250,9 @@
       "ref_eur": 7.62,
       "ref_bgn": 14.9,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 75,
@@ -1303,10 +1267,9 @@
       "ref_eur": 8.63,
       "ref_bgn": 16.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 76,
@@ -1323,10 +1286,9 @@
       "ref_eur": 9.12,
       "ref_bgn": 17.84,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 77,
@@ -1341,10 +1303,9 @@
       "ref_eur": 9.12,
       "ref_bgn": 17.84,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 78,
@@ -1359,10 +1320,9 @@
       "ref_eur": 1.28,
       "ref_bgn": 2.5,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 79,
@@ -1376,10 +1336,9 @@
       "ref_eur": 1.01,
       "ref_bgn": 1.98,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 80,
@@ -1394,10 +1353,9 @@
       "ref_eur": 1.01,
       "ref_bgn": 1.98,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 81,
@@ -1411,10 +1369,9 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 82,
@@ -1429,10 +1386,9 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 83,
@@ -1443,13 +1399,12 @@
         "harmonica",
         "300g"
       ],
-      "ref_eur": 3.59,
-      "ref_bgn": 7.02,
+      "ref_eur": 3.99,
+      "ref_bgn": 7.8,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 84,
@@ -1463,10 +1418,9 @@
       "ref_eur": 3.83,
       "ref_bgn": 7.49,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 85,
@@ -1479,10 +1433,9 @@
       "ref_eur": 2.86,
       "ref_bgn": 5.59,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 86,
@@ -1496,51 +1449,14 @@
         "250g"
       ],
       "ref_eur": 4.59,
-      "ref_bgn": 8.97,
+      "ref_bgn": 8.98,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
       "id": 87,
-      "name": "Био Обикновени бисквити с краве масло 150 g",
-      "keywords": [
-        "био",
-        "обикновени",
-        "бисквити",
-        "краве",
-        "масло",
-        "150 g"
-      ],
-      "ref_eur": 2.14,
-      "ref_bgn": 4.19,
-      "url_slug": "",
-      "active": true,
-      "status": "new",
-      "added_date": "2026-02-23"
-    },
-    {
-      "id": 88,
-      "name": "Бял сусамов тахан harmonica 700g",
-      "keywords": [
-        "бял",
-        "сусамов",
-        "тахан",
-        "harmonica",
-        "700g"
-      ],
-      "ref_eur": 9.16,
-      "ref_bgn": 17.91,
-      "url_slug": "",
-      "active": false,
-      "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
-    },
-    {
-      "id": 89,
       "name": "Био Пълнозърнест сусамов тахан harmonica 250g",
       "keywords": [
         "био",
@@ -1553,13 +1469,30 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": false,
-      "status": "new",
-      "added_date": "2026-02-23",
-      "removed_date": "2026-03-01"
+      "active": true,
+      "status": "reactivated",
+      "added_date": "2026-02-23"
     },
     {
-      "id": 90,
+      "id": 88,
+      "name": "Smiles с нахут, ориз с кокосово масло 50g",
+      "keywords": [
+        "smiles",
+        "нахут",
+        "ориз",
+        "кокосово",
+        "масло",
+        "50g"
+      ],
+      "ref_eur": 1.44,
+      "ref_bgn": 2.81,
+      "url_slug": "smiles-s-nahut-oriz-s-kokosovo-maslo-50g",
+      "active": false,
+      "status": "active",
+      "added_date": "2026-02-05"
+    },
+    {
+      "id": 89,
       "name": "Айран harmonica 500ml",
       "keywords": [
         "айран",
@@ -1571,11 +1504,10 @@
       "url_slug": "ayran-harmonica-500ml",
       "active": false,
       "status": "active",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 91,
+      "id": 90,
       "name": "Био Сироп от вишни Harmonica 750 ml",
       "keywords": [
         "био",
@@ -1590,11 +1522,10 @@
       "url_slug": "",
       "active": false,
       "status": "active",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 92,
+      "id": 91,
       "name": "Шипков мармалад с петмез 300g",
       "keywords": [
         "шипков",
@@ -1607,11 +1538,10 @@
       "url_slug": "",
       "active": false,
       "status": "active",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 93,
+      "id": 92,
       "name": "Био Червен домат 500 гр",
       "keywords": [
         "био",
@@ -1627,7 +1557,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 94,
+      "id": 93,
       "name": "Био Морков 0.500 кг",
       "keywords": [
         "био",
@@ -1642,7 +1572,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 95,
+      "id": 94,
       "name": "Био Пресен картоф 1 кг",
       "keywords": [
         "био",
@@ -1658,7 +1588,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 96,
+      "id": 95,
       "name": "Био Пащърнак 0.300 кг",
       "keywords": [
         "био",
@@ -1673,7 +1603,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 97,
+      "id": 96,
       "name": "Био краставица 1 бр",
       "keywords": [
         "био",
@@ -1688,7 +1618,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 98,
+      "id": 97,
       "name": "Био салатка 1 бр",
       "keywords": [
         "био",
@@ -1703,7 +1633,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 99,
+      "id": 98,
       "name": "Био магданоз 1бр.",
       "keywords": [
         "био",
@@ -1718,7 +1648,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 100,
+      "id": 99,
       "name": "Био репички 1 вр.",
       "keywords": [
         "био",
@@ -1733,7 +1663,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 101,
+      "id": 100,
       "name": "Био овесено мляко 1 л",
       "keywords": [
         "био",
@@ -1749,7 +1679,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 102,
+      "id": 101,
       "name": "Био червена леща 1.7 kg",
       "keywords": [
         "био",
@@ -1765,7 +1695,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 103,
+      "id": 102,
       "name": "Био микс от киноа 1.7 kg",
       "keywords": [
         "био",
@@ -1782,7 +1712,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 104,
+      "id": 103,
       "name": "Био боб мунг 1.7 kg",
       "keywords": [
         "био",
@@ -1798,7 +1728,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 105,
+      "id": 104,
       "name": "Зелен чай с мента",
       "keywords": [
         "зелен",
@@ -1813,7 +1743,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 106,
+      "id": 105,
       "name": "Зелен чай Пуканки",
       "keywords": [
         "зелен",
@@ -1828,7 +1758,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 107,
+      "id": 106,
       "name": "Бял чай Silver tips",
       "keywords": [
         "бял",
@@ -1844,7 +1774,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 108,
+      "id": 107,
       "name": "Био зелен чай Мао Фенг",
       "keywords": [
         "био",
@@ -1861,7 +1791,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 109,
+      "id": 108,
       "name": "Био паста раковини 1.5 kg",
       "keywords": [
         "био",
@@ -1877,7 +1807,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 110,
+      "id": 109,
       "name": "Био паста пенне 1.2 kg",
       "keywords": [
         "био",
@@ -1893,7 +1823,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 111,
+      "id": 110,
       "name": "Био кускус 1.7 kg",
       "keywords": [
         "био",
@@ -1908,7 +1838,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 112,
+      "id": 111,
       "name": "Био сок ябълка и портокал 750мл",
       "keywords": [
         "био",
@@ -1925,7 +1855,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 113,
+      "id": 112,
       "name": "Био сок ябълка и лимон 750мл",
       "keywords": [
         "био",
@@ -1942,7 +1872,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 114,
+      "id": 113,
       "name": "Био сок от зелена ябълка 750мл",
       "keywords": [
         "био",
@@ -1957,11 +1887,10 @@
       "url_slug": "bio-sok-ot-zelena-yablka-750ml",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-03-01"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 115,
+      "id": 114,
       "name": "Био елда 1,7 kg",
       "keywords": [
         "био",
@@ -1976,7 +1905,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 116,
+      "id": 115,
       "name": "Био кафява леща 1,7 kg",
       "keywords": [
         "био",
@@ -1992,7 +1921,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 117,
+      "id": 116,
       "name": "Био кафяв ориз1,7 kg",
       "keywords": [
         "био",
@@ -2008,7 +1937,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 118,
+      "id": 117,
       "name": "Био бял ориз 1,7 kg",
       "keywords": [
         "био",
