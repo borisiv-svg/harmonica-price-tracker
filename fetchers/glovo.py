@@ -20,7 +20,7 @@ if FIRECRAWL_AVAILABLE:
 if CURL_CFFI_AVAILABLE:
     from curl_cffi.requests import AsyncSession as CurlAsyncSession
 
-from utils import is_food_product, is_harmonica_product, extract_bgn_price, extract_eur_price, validate_eur_bgn
+from utils import is_food_product, is_harmonica_product, extract_bgn_price, extract_eur_price, extract_price_fallback
 
 
 def _fetch_glovo_via_firecrawl(slug, store_name, query="harmonica"):
@@ -160,17 +160,19 @@ def _parse_glovo_markdown(markdown, store_name, query):
             continue
 
         # Търсим цена в текущия ред или следващите 3 реда
+        # ВАЖНО: Glovo работи в България — ВСИЧКИ цени са в BGN,
+        # дори ако markdown-ът показва € символ (грешен маркер от сайта).
         context = '\n'.join(lines[i:i+4])
         bgn = extract_bgn_price(context)
-        eur_only = extract_eur_price(context)
-
-        if bgn and eur_only:
-            # Кръстосана валидация
-            eur_only, bgn = validate_eur_bgn(eur_only, bgn)
-        elif not bgn and eur_only:
-            # Glovo показва цени в BGN — ако намерим "EUR", вероятно е BGN
-            # Конвертираме обратно за единна обработка
-            bgn = round(eur_only * EUR_BGN_RATE, 2)
+        if not bgn:
+            # Glovo понякога показва BGN цени с € маркер —
+            # третираме ги като BGN, НЕ като EUR
+            eur_val = extract_eur_price(context)
+            if eur_val:
+                bgn = eur_val  # стойността е BGN въпреки € символа
+        if not bgn:
+            # Fallback: число без валутен маркер
+            bgn = extract_price_fallback(context)
 
         if bgn and bgn > 0:
             eur = round(bgn / EUR_BGN_RATE, 2)
@@ -195,6 +197,12 @@ def _parse_glovo_markdown(markdown, store_name, query):
         idx = match.end()
         context = markdown[idx:idx + 200]
         bgn = extract_bgn_price(context)
+        if not bgn:
+            eur_val = extract_eur_price(context)
+            if eur_val:
+                bgn = eur_val  # Glovo: € маркер е BGN
+        if not bgn:
+            bgn = extract_price_fallback(context)
         if bgn and bgn > 0:
             eur = round(bgn / EUR_BGN_RATE, 2)
             seen.add(name_key)
