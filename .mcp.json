@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "obsidian": {
+      "command": "obsidian-mcp-server",
+      "env": {
+        "OBSIDIAN_API_KEY": "50696ff3a3b81a8a79f175b7cde8bd69f7abe9e99d371e51fd92c6bce11d4e5f",
+        "OBSIDIAN_API_URL": "http://127.0.0.1:27124"
+      }
+    }
+  }
+}
