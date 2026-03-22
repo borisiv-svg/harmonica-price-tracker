@@ -12,6 +12,7 @@ from utils import (
     extract_eur_price,
     extract_bgn_price,
     extract_price_fallback,
+    validate_eur_bgn,
     clean_product_name,
     deduplicate_check,
     find_price_bounded,
@@ -72,6 +73,9 @@ def _extract_generic_block_based(markdown, brand_page=False):
             bgn = extract_price_fallback(block)
         if not bgn and not eur:
             continue
+
+        # Кръстосана валидация: ако EUR ≈ BGN, EUR е вероятно BGN стойност
+        eur, bgn = validate_eur_bgn(eur, bgn)
 
         if bgn and not eur:
             eur = round(bgn / EUR_BGN_RATE, 2)

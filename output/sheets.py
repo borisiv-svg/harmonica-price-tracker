@@ -100,7 +100,7 @@ def write_to_sheets(final_products, stats):
 
     all_data = []
 
-    all_data.append([f'HARMONICA - Ценови Тракер v10.10'] + [''] * (len(headers) - 1))
+    all_data.append([f'HARMONICA - Ценови Тракер v10.14'] + [''] * (len(headers) - 1))
 
     meta = [f'Актуализация: {now}', '', f'Курс: 1 EUR = {EUR_BGN_RATE} BGN', '',
             f'Магазини: {len(STORES) + len(GLOVO_STORES)}']
@@ -233,18 +233,9 @@ def write_to_sheets(final_products, stats):
 
         all_data.append(row)
 
-    # Добавяме стрелки (↑/↓) в клетките с отклонение
-    for row_idx, col_idx in deviation_cells_high:
-        if HEADER_ROW <= row_idx < len(all_data):
-            val = all_data[row_idx][col_idx]
-            if val and val != '':
-                all_data[row_idx][col_idx] = f"{val} ↑"
-
-    for row_idx, col_idx in deviation_cells_low:
-        if HEADER_ROW <= row_idx < len(all_data):
-            val = all_data[row_idx][col_idx]
-            if val and val != '':
-                all_data[row_idx][col_idx] = f"{val} ↓"
+    # НЕ добавяме стрелки (↑/↓) в клетките — те превръщат числата в текст
+    # и разбиват числовото форматиране (#,##0.00) и подравняването.
+    # Вместо това разчитаме на цветовото форматиране (червено/синьо) за индикация.
 
     try:
         sheet.clear()

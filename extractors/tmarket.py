@@ -14,6 +14,7 @@ if BS4_AVAILABLE:
 from utils import (
     extract_eur_price,
     extract_bgn_price,
+    validate_eur_bgn,
     deduplicate_check,
     is_food_product,
     is_harmonica_product,
@@ -55,6 +56,7 @@ def extract_tmarket_products(markdown, html_text=None, brand_page=True):
 
         bgn = extract_bgn_price(context)
         eur = extract_eur_price(context)
+        eur, bgn = validate_eur_bgn(eur, bgn)
 
         if bgn and not eur:
             eur = round(bgn / EUR_BGN_RATE, 2)
@@ -88,6 +90,7 @@ def extract_tmarket_products(markdown, html_text=None, brand_page=True):
                 continue
             bgn = extract_bgn_price(text)
             eur = extract_eur_price(text)
+            eur, bgn = validate_eur_bgn(eur, bgn)
             if bgn and not eur:
                 eur = round(bgn / EUR_BGN_RATE, 2)
             if bgn or eur:
