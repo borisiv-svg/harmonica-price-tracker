@@ -94,7 +94,7 @@ def write_to_sheets(final_products, stats):
     headers = ['№', 'Продукт', 'Грамаж', 'Кашон EUR', 'Кашон BGN(лв)']
     for store_key in store_columns:
         headers.append(store_display_names[store_key])
-    headers.extend(['Ср.EUR', 'Статус', 'Откл.%'])
+    headers.extend(['Ср.Маг.EUR', 'Статус', 'Откл.%'])
 
     DEVIATION_COL = len(headers) - 1  # Последната колона
 
@@ -129,7 +129,7 @@ def write_to_sheets(final_products, stats):
         # Добавяме разделител при нова категория
         if cat_name != current_category:
             current_category = cat_name
-            separator_row = ['', cat_name] + [''] * (len(headers) - 2)
+            separator_row = [cat_name] + [''] * (len(headers) - 1)
             all_data.append(separator_row)
             category_separator_rows.append(len(all_data) - 1)  # 0-indexed
 
@@ -147,6 +147,13 @@ def write_to_sheets(final_products, stats):
         kashon_bgn = kashon.get("bgn")
         kashon_eur = kashon.get("eur")
 
+        # Ако имаме EUR но нямаме BGN — изчисляваме BGN от EUR × курс
+        if kashon_eur and not kashon_bgn:
+            kashon_bgn = round(kashon_eur * EUR_BGN_RATE, 2)
+        # Ако имаме BGN но нямаме EUR — изчисляваме EUR от BGN / курс
+        elif kashon_bgn and not kashon_eur:
+            kashon_eur = round(kashon_bgn / EUR_BGN_RATE, 2)
+
         row = [
             product_num,
             product["name"],
@@ -155,10 +162,9 @@ def write_to_sheets(final_products, stats):
             kashon_bgn if kashon_bgn else '',
         ]
 
-        # Събираме всички EUR цени (включително Кашон) за средната
+        # Събираме EUR цени от external stores за средната
+        # (Кашон е reference/производствена цена — не участва в средната на магазините)
         all_prices_eur = []
-        if kashon_eur:
-            all_prices_eur.append(kashon_eur)
 
         store_prices_info = []  # [(col_index, price_eur)] за deviation check
 
@@ -182,7 +188,7 @@ def write_to_sheets(final_products, stats):
             else:
                 row.append('')
 
-        # Средна EUR (от ВСИЧКИ магазини, включително Кашон)
+        # Средна EUR (от external магазини, без Кашон)
         if all_prices_eur:
             avg_eur = round(sum(all_prices_eur) / len(all_prices_eur), 2)
             row.append(avg_eur)
@@ -226,8 +232,8 @@ def write_to_sheets(final_products, stats):
                 max_deviation_pct = round(max_dev, 1)
 
         if max_deviation_pct is not None:
-            sign = "+" if max_deviation_pct > 0 else ""
-            row.append(f"{sign}{max_deviation_pct}%")
+            # Записваме като число (напр. 10.5 за +10.5%) — форматирането е в Sheets
+            row.append(max_deviation_pct)
         else:
             row.append('')
 
@@ -353,6 +359,15 @@ def write_to_sheets(final_products, stats):
                     "fields": "userEnteredFormat(backgroundColor,textFormat)"
                 }
             })
+            # Merge-ваме категорийния ред за по-чист вид
+            format_requests.append({
+                "mergeCells": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": sep_row_idx, "endRowIndex": sep_row_idx + 1,
+                              "startColumnIndex": 0, "endColumnIndex": last_col},
+                    "mergeType": "MERGE_ALL"
+                }
+            })
 
         # Ширини
         col_widths = {0: 35, 1: 250, 2: 55, 3: 80, 4: 80}  # №, Продукт, Грамаж, Кашон EUR, Кашон BGN(лв)
@@ -386,6 +401,22 @@ def write_to_sheets(final_products, stats):
                               "endColumnIndex": price_cols_end},
                     "cell": {"userEnteredFormat": {
                         "numberFormat": {"type": "NUMBER", "pattern": "#,##0.00"},
+                        "horizontalAlignment": "RIGHT",
+                    }},
+                    "fields": "userEnteredFormat(numberFormat,horizontalAlignment)"
+                }
+            })
+
+        # Числово форматиране за Откл.% колона (с +/- знак)
+        if last_row > HEADER_ROW:
+            format_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": sheet.id,
+                              "startRowIndex": HEADER_ROW, "endRowIndex": last_row,
+                              "startColumnIndex": DEVIATION_COL,
+                              "endColumnIndex": DEVIATION_COL + 1},
+                    "cell": {"userEnteredFormat": {
+                        "numberFormat": {"type": "NUMBER", "pattern": "+#,##0.0;-#,##0.0;0.0"},
                         "horizontalAlignment": "RIGHT",
                     }},
                     "fields": "userEnteredFormat(numberFormat,horizontalAlignment)"
