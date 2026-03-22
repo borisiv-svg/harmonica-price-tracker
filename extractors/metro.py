@@ -11,6 +11,7 @@ from utils import (
     extract_eur_price,
     extract_bgn_price,
     extract_price_fallback,
+    validate_eur_bgn,
     clean_product_name,
     deduplicate_check,
     is_food_product,
@@ -76,6 +77,7 @@ def extract_metro_products(markdown):
                 break
 
         if bgn or eur:
+            eur, bgn = validate_eur_bgn(eur, bgn)
             if bgn and not eur:
                 eur = round(bgn / EUR_BGN_RATE, 2)
             products.append({"name": name, "eur": eur, "bgn": bgn})

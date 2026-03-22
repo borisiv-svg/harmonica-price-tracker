@@ -10,6 +10,7 @@ from config import EUR_BGN_RATE, logger
 from utils import (
     extract_eur_price,
     extract_bgn_price,
+    validate_eur_bgn,
     deduplicate_check,
     is_food_product,
     KASHON_BRAND_BLACKLIST,
@@ -51,6 +52,8 @@ def extract_kashon_products(markdown):
             context_back = markdown[max(0, match.start()-150):match.start()]
             eur = extract_eur_price(context_back)
             bgn = extract_bgn_price(context_back)
+
+        eur, bgn = validate_eur_bgn(eur, bgn)
 
         if not eur and bgn:
             eur = round(bgn / EUR_BGN_RATE, 2)
