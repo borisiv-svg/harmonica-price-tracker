@@ -510,6 +510,28 @@ async def main(dry_run=False):
                 bgn = m.get("bgn")
                 if not eur and bgn:
                     eur = round(bgn / EUR_BGN_RATE, 2)
+
+                # Защита: ако store EUR цена е неправдоподобно висока спрямо
+                # Кашон EUR, проверяваме дали /1.9558 дава по-разумна стойност.
+                # Ако да — вероятно е BGN стойност записана като EUR.
+                kashon_data = product.get("kashon")
+                if eur and kashon_data and kashon_data.get("eur"):
+                    kashon_eur = kashon_data["eur"]
+                    if kashon_eur > 0:
+                        ratio = eur / kashon_eur
+                        corrected = round(eur / EUR_BGN_RATE, 2)
+                        corrected_ratio = corrected / kashon_eur
+                        # Корекция ако: store цена е >70% над Кашон И конвертираната
+                        # е по-близо до Кашон (в рамките на 50% markup)
+                        if ratio > 1.70 and corrected_ratio <= 1.50:
+                            logger.warning(
+                                f"BGN-as-EUR fix: {product['name'][:40]} "
+                                f"{store_key} {eur}€ → {corrected}€ "
+                                f"(ratio={ratio:.2f}→{corrected_ratio:.2f}x "
+                                f"Кашон {kashon_eur}€)"
+                            )
+                            eur = corrected
+
                 entry = {"eur": eur}
                 if "in_stock" in m:
                     entry["in_stock"] = m["in_stock"]
