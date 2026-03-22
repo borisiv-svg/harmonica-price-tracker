@@ -14,6 +14,7 @@ if BS4_AVAILABLE:
 from utils import (
     extract_eur_price,
     extract_bgn_price,
+    validate_eur_bgn,
     is_food_product,
 )
 
@@ -91,6 +92,7 @@ def _extract_dm_bs4(html_text):
                 except ValueError:
                     pass
 
+        price_eur, price_bgn = validate_eur_bgn(price_eur, price_bgn)
         if product_name and (price_eur or price_bgn):
             seen.add(name_key)
             products.append({

@@ -169,9 +169,13 @@ def retry_async(max_retries=3, backoff_base=2):
 # =============================================================================
 
 def extract_eur_price(text):
-    """Извлича EUR цена от текст. Поддържа формати: 2.50€, 2,50 €, 2.5€"""
-    # Опит 1: стандартен формат с 2 десетични
-    match = re.search(r'(\d+)[,.](\d{1,2})\s*€', text)
+    """Извлича EUR цена от текст. Поддържа формати: 2.50€, 2,50 €, 2.5€
+    ВАЖНО: Не матчва през нови редове — предотвратява хващане на BGN цена
+    от съседен ред, когато € е на предишния ред.
+    """
+    # Опит 1: стандартен формат с 2 десетични (число€)
+    # [ \t]* вместо \s* — НЕ матчва \n (предотвратява cross-line matching)
+    match = re.search(r'(\d+)[,.](\d{1,2})[ \t]*€', text)
     if match:
         try:
             decimals = match.group(2).ljust(2, '0')  # "5" -> "50"
@@ -181,7 +185,8 @@ def extract_eur_price(text):
         except ValueError:
             logger.debug(f"EUR parse error: {match.group()}")
     # Опит 2: формат €2.50 (валута отпред)
-    match = re.search(r'€\s*(\d+)[,.](\d{1,2})', text)
+    # [ \t]* вместо \s* — НЕ матчва \n
+    match = re.search(r'€[ \t]*(\d+)[,.](\d{1,2})', text)
     if match:
         try:
             decimals = match.group(2).ljust(2, '0')
@@ -223,6 +228,38 @@ def extract_price_fallback(text):
         except ValueError:
             pass
     return None
+
+
+def validate_eur_bgn(eur, bgn):
+    """
+    Кръстосана валидация на EUR и BGN цени.
+    Ако EUR ≈ BGN (ratio ~1.0), EUR вероятно е всъщност BGN стойност.
+    Ако и двете са налични, проверява дали EUR ≈ BGN / 1.9558 (±15%).
+    Връща коригирани (eur, bgn).
+    """
+    if not eur or not bgn:
+        return eur, bgn
+
+    ratio = eur / bgn
+    expected_ratio = 1 / EUR_BGN_RATE  # ~0.5114
+
+    # Ако EUR ≈ BGN (ratio ~1.0 ± 15%), EUR е всъщност BGN стойност
+    if 0.85 <= ratio <= 1.15:
+        logger.debug(f"EUR/BGN ratio={ratio:.2f} ≈ 1.0 → EUR ({eur}) е вероятно BGN, преизчисляване")
+        eur = round(bgn / EUR_BGN_RATE, 2)
+        return eur, bgn
+
+    # Ако ratio е в очаквания диапазон (~0.51 ± 15%), всичко е наред
+    if expected_ratio * 0.85 <= ratio <= expected_ratio * 1.15:
+        return eur, bgn
+
+    # Ако EUR > BGN (ratio > 1.15), EUR е вероятно BGN — конвертираме
+    if ratio > 1.15:
+        logger.debug(f"EUR ({eur}) > BGN ({bgn}) → EUR е вероятно BGN, преизчисляване")
+        eur = round(bgn / EUR_BGN_RATE, 2)
+        return eur, bgn
+
+    return eur, bgn
 
 
 def clean_product_name(name):
@@ -271,6 +308,8 @@ def find_price_bounded(lines, product_idx, max_forward=8):
     bgn = extract_bgn_price(ctx)
     if not bgn and not eur:
         bgn = extract_price_fallback(ctx)
+    # Кръстосана валидация: ако EUR ≈ BGN, EUR е вероятно BGN стойност
+    eur, bgn = validate_eur_bgn(eur, bgn)
     return eur, bgn
 
 

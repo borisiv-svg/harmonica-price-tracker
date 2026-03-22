@@ -12,6 +12,7 @@ from utils import (
     extract_eur_price,
     extract_bgn_price,
     extract_price_fallback,
+    validate_eur_bgn,
     is_food_product,
     is_harmonica_product,
 )
@@ -66,6 +67,7 @@ def extract_randi_products(markdown):
                 break
 
         if bgn or eur:
+            eur, bgn = validate_eur_bgn(eur, bgn)
             if bgn and not eur:
                 eur = round(bgn / EUR_BGN_RATE, 2)
             seen.add(name_key)

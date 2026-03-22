@@ -10,6 +10,7 @@ from config import logger
 from utils import (
     extract_eur_price,
     extract_bgn_price,
+    validate_eur_bgn,
     deduplicate_check,
     is_harmonica_product,
 )
@@ -37,6 +38,7 @@ def extract_ebag_products(markdown):
 
         eur = extract_eur_price(context)
         bgn = extract_bgn_price(context)
+        eur, bgn = validate_eur_bgn(eur, bgn)
 
         if eur or bgn:
             products.append({"name": name, "eur": eur, "bgn": bgn})
