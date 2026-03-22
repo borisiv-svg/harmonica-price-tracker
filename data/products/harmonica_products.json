@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "last_sync": "2026-03-16",
+  "last_sync": "2026-03-22",
   "source": "kashonharmonica.bg",
   "total_products": 118,
   "products": [
@@ -450,8 +450,8 @@
         "harmonica",
         "200g"
       ],
-      "ref_eur": 1.69,
-      "ref_bgn": 3.31,
+      "ref_eur": 2.44,
+      "ref_bgn": 4.77,
       "url_slug": "zakvasena-smetana-12-harmonica-200g",
       "active": true,
       "status": "active",
@@ -686,8 +686,8 @@
         "класически",
         "200г"
       ],
-      "ref_eur": 2.44,
-      "ref_bgn": 4.77,
+      "ref_eur": 4.51,
+      "ref_bgn": 8.83,
       "url_slug": "bio-humus-klasicheski-200gr",
       "active": true,
       "status": "reactivated",
@@ -856,8 +856,8 @@
         "harmonica",
         "750 ml"
       ],
-      "ref_eur": 8.63,
-      "ref_bgn": 16.88,
+      "ref_eur": 9.12,
+      "ref_bgn": 17.84,
       "url_slug": "",
       "active": true,
       "status": "reactivated",
@@ -873,8 +873,8 @@
         "harmonica",
         "200 g"
       ],
-      "ref_eur": 4.51,
-      "ref_bgn": 8.83,
+      "ref_eur": 5.47,
+      "ref_bgn": 10.7,
       "url_slug": "",
       "active": true,
       "status": "reactivated",
@@ -928,8 +928,8 @@
         "harmonica",
         "750 ml"
       ],
-      "ref_eur": 9.12,
-      "ref_bgn": 17.84,
+      "ref_eur": 8.63,
+      "ref_bgn": 16.88,
       "url_slug": "",
       "active": true,
       "status": "reactivated",
@@ -1063,8 +1063,8 @@
         "harmonica",
         "200 g"
       ],
-      "ref_eur": 5.47,
-      "ref_bgn": 10.7,
+      "ref_eur": 7.1,
+      "ref_bgn": 13.88,
       "url_slug": "",
       "active": true,
       "status": "reactivated",
