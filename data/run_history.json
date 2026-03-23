@@ -366,5 +366,45 @@
       "glovo_cba": 13,
       "glovo_fantastico": 62
     }
+  },
+  {
+    "date": "2026-03-23 06:07:42",
+    "total_ref": 89,
+    "total_time": 236.7,
+    "stores": {
+      "ebag": 29,
+      "balev": 21,
+      "tmarket": 0,
+      "metro": 0,
+      "zelen": 0,
+      "randi": 0,
+      "biomarket": 0,
+      "befit": 0,
+      "laika": 0,
+      "glovo_kaufland": 0,
+      "glovo_billa": 0,
+      "glovo_cba": 0,
+      "glovo_fantastico": 0
+    }
+  },
+  {
+    "date": "2026-03-23 06:13:48",
+    "total_ref": 89,
+    "total_time": 364.2,
+    "stores": {
+      "ebag": 26,
+      "balev": 21,
+      "tmarket": 10,
+      "metro": 2,
+      "zelen": 11,
+      "randi": 47,
+      "biomarket": 20,
+      "befit": 0,
+      "laika": 7,
+      "glovo_kaufland": 0,
+      "glovo_billa": 29,
+      "glovo_cba": 12,
+      "glovo_fantastico": 61
+    }
   }
 ]
