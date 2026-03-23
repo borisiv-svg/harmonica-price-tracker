@@ -15,6 +15,7 @@ if BS4_AVAILABLE:
 from utils import (
     extract_eur_price,
     extract_bgn_price,
+    validate_eur_bgn,
     is_food_product,
 )
 
@@ -134,6 +135,7 @@ def _extract_lilly_bs4(html_text):
                 if price:
                     price_bgn = round(float(price), 2)
                     price_eur = round(price_bgn / EUR_BGN_RATE, 2)
+                    price_eur, price_bgn = validate_eur_bgn(price_eur, price_bgn)
                     name_key = name.lower()[:40]
                     if name_key not in seen:
                         seen.add(name_key)

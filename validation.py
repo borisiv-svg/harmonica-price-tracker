@@ -38,7 +38,8 @@ def validate_prices_with_claude(final_products, all_store_keys):
             continue
 
         values = sorted(eur_prices.values())
-        median = values[len(values) // 2]
+        mid = len(values) // 2
+        median = (values[mid] + values[mid - 1]) / 2 if len(values) % 2 == 0 else values[mid]
 
         weight_g = extract_weight_grams(product["name"])
 

@@ -54,6 +54,7 @@ def write_to_sheets(final_products, stats):
     logger.info(f"Google Sheets: записване в '{tab_name}'")
     logger.info(f"Магазини: Кашон + {', '.join(store_display_names[s] for s in store_columns)}")
 
+    creds_path = None
     try:
         creds_json = os.environ.get("GOOGLE_CREDENTIALS")
         if creds_json:
@@ -62,7 +63,6 @@ def write_to_sheets(final_products, stats):
                 f.write(creds_json)
                 creds_path = f.name
             gc = gspread.service_account(filename=creds_path)
-            os.unlink(creds_path)
         else:
             gc = gspread.service_account(filename='credentials.json')
 
@@ -83,6 +83,9 @@ def write_to_sheets(final_products, stats):
     except Exception as e:
         logger.error(f"Google Sheets връзка неуспешна: {e}")
         return False
+    finally:
+        if creds_path and os.path.exists(creds_path):
+            os.unlink(creds_path)
 
     # --- Изграждане на данните ---
     # Колони: №(0) | Продукт(1) | Грамаж(2) | Кашон EUR(3) | Кашон BGN(лв)(4) | Store1(5) | ... | Ср.EUR | Статус | Откл.%
@@ -540,6 +543,7 @@ def append_history_to_sheets(final_products):
     date_str = datetime.now().strftime("%d.%m.%Y")
     time_str = datetime.now().strftime("%H:%M")
 
+    creds_path = None
     try:
         creds_json = os.environ.get("GOOGLE_CREDENTIALS")
         if creds_json:
@@ -548,7 +552,6 @@ def append_history_to_sheets(final_products):
                 f.write(creds_json)
                 creds_path = f.name
             gc = gspread.service_account(filename=creds_path)
-            os.unlink(creds_path)
         else:
             gc = gspread.service_account(filename='credentials.json')
 
@@ -561,6 +564,9 @@ def append_history_to_sheets(final_products):
     except Exception as e:
         logger.error(f"История: Sheets връзка неуспешна: {e}")
         return False
+    finally:
+        if creds_path and os.path.exists(creds_path):
+            os.unlink(creds_path)
 
     # Headers за История таба
     headers = ['Дата', 'Час', 'Продукт', 'Грамаж', 'Кашон EUR']
