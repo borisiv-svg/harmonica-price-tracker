@@ -498,6 +498,10 @@ async def main(dry_run=False):
     # Добавяме Glovo магазините
     all_store_products.update(glovo_all_products)
 
+    # Индекс ref_eur по име за fallback BGN-as-EUR детекция
+    ref_eur_by_name = {ref["name"]: ref.get("ref_eur") for ref in reference_products
+                       if ref.get("ref_eur")}
+
     # External stores — само EUR цени
     for store_key, store_prods in all_store_products.items():
         if not store_prods:
@@ -511,24 +515,31 @@ async def main(dry_run=False):
                 if not eur and bgn:
                     eur = round(bgn / EUR_BGN_RATE, 2)
 
-                # Защита: ако store EUR цена е неправдоподобно висока спрямо
-                # Кашон EUR, проверяваме дали /1.9558 дава по-разумна стойност.
+                # Защита: ако store EUR цена е неправдоподобно висока,
+                # проверяваме дали /1.9558 дава по-разумна стойност.
                 # Ако да — вероятно е BGN стойност записана като EUR.
-                kashon_data = product.get("kashon")
-                if eur and kashon_data and kashon_data.get("eur"):
-                    kashon_eur = kashon_data["eur"]
-                    if kashon_eur > 0:
-                        ratio = eur / kashon_eur
+                # Използваме Кашон EUR, а ако няма — ref_eur от JSON списъка.
+                if eur:
+                    ref_price = None
+                    kashon_data = product.get("kashon")
+                    if kashon_data and kashon_data.get("eur"):
+                        ref_price = kashon_data["eur"]
+                    elif product["name"] in ref_eur_by_name:
+                        ref_price = ref_eur_by_name[product["name"]]
+
+                    if ref_price and ref_price > 0:
+                        ratio = eur / ref_price
                         corrected = round(eur / EUR_BGN_RATE, 2)
-                        corrected_ratio = corrected / kashon_eur
-                        # Корекция ако: store цена е >70% над Кашон И конвертираната
-                        # е по-близо до Кашон (в рамките на 50% markup)
+                        corrected_ratio = corrected / ref_price
+                        # Корекция ако: store цена е >70% над референтна И
+                        # конвертираната е по-близо (в рамките на 50% markup)
                         if ratio > 1.70 and corrected_ratio <= 1.50:
+                            source = "Кашон" if kashon_data and kashon_data.get("eur") else "ref_eur"
                             logger.warning(
                                 f"BGN-as-EUR fix: {product['name'][:40]} "
                                 f"{store_key} {eur}€ → {corrected}€ "
                                 f"(ratio={ratio:.2f}→{corrected_ratio:.2f}x "
-                                f"Кашон {kashon_eur}€)"
+                                f"{source} {ref_price}€)"
                             )
                             eur = corrected
 
@@ -536,6 +547,43 @@ async def main(dry_run=False):
                 if "in_stock" in m:
                     entry["in_stock"] = m["in_stock"]
                 product[store_key] = entry
+
+    # 3.3. Cross-store median валидация — хваща BGN-as-EUR когато нито
+    # Кашон, нито ref_eur са налични, но поне 3 магазина имат цена.
+    # Ако цена е >70% над медианата и /1.9558 дава по-разумна стойност → корекция.
+    cross_store_fixes = 0
+    for product in final_products:
+        prices = {}  # store_key → eur
+        kashon_data = product.get("kashon")
+        if kashon_data and kashon_data.get("eur"):
+            prices["kashon"] = kashon_data["eur"]
+        for sk in all_keys:
+            sd = product.get(sk)
+            if sd and sd.get("eur"):
+                prices[sk] = sd["eur"]
+        if len(prices) < 3:
+            continue
+        sorted_prices = sorted(prices.values())
+        median = sorted_prices[len(sorted_prices) // 2]
+        if median <= 0:
+            continue
+        for sk, price in list(prices.items()):
+            if sk == "kashon":
+                continue  # Кашон е референция, не коригираме
+            ratio = price / median
+            if ratio > 1.70:
+                corrected = round(price / EUR_BGN_RATE, 2)
+                corrected_ratio = corrected / median
+                if corrected_ratio <= 1.50:
+                    logger.warning(
+                        f"Cross-store fix: {product['name'][:40]} "
+                        f"{sk} {price}€ → {corrected}€ "
+                        f"(ratio={ratio:.2f}→{corrected_ratio:.2f}x median {median}€)"
+                    )
+                    product[sk]["eur"] = corrected
+                    cross_store_fixes += 1
+    if cross_store_fixes:
+        logger.info(f"Cross-store median корекции: {cross_store_fixes}")
 
     # 3.5. Claude Sonnet ценова валидация
     logger.info("=" * 40 + " CLAUDE VALIDATION " + "=" * 40)
@@ -627,10 +675,27 @@ async def main(dry_run=False):
         logger.info("DRY RUN: OK")
         return 0
 
-    write_to_sheets(final_products, stats)
+    # Data quality gate: не презаписваме таблицата ако данните са значително
+    # по-лоши от предишното изпълнение (повече от половината магазини без данни).
+    stores_with_data = sum(1 for sk in all_keys if store_counts.get(sk, 0) > 0)
+    total_external_stores = len(all_keys)
+    data_quality_ok = True
+    if total_external_stores > 0 and stores_with_data < total_external_stores * 0.40:
+        logger.warning(
+            f"DATA QUALITY GATE: само {stores_with_data}/{total_external_stores} "
+            f"магазина върнаха данни (<40%) — пропускане на Sheets запис "
+            f"за да не се презапишат предишни добри данни"
+        )
+        data_quality_ok = False
 
-    # 5.5. История tab + local price history
-    append_history_to_sheets(final_products)
+    if data_quality_ok:
+        write_to_sheets(final_products, stats)
+    else:
+        logger.warning("Google Sheets НЕ е обновен поради недостатъчно данни")
+
+    # 5.5. История tab + local price history (записваме винаги за проследяване)
+    if data_quality_ok:
+        append_history_to_sheets(final_products)
     record_prices(final_products)
 
     # 6. Email report
