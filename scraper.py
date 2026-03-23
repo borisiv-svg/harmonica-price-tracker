@@ -564,7 +564,8 @@ async def main(dry_run=False):
         if len(prices) < 3:
             continue
         sorted_prices = sorted(prices.values())
-        median = sorted_prices[len(sorted_prices) // 2]
+        mid = len(sorted_prices) // 2
+        median = (sorted_prices[mid] + sorted_prices[mid - 1]) / 2 if len(sorted_prices) % 2 == 0 else sorted_prices[mid]
         if median <= 0:
             continue
         for sk, price in list(prices.items()):
