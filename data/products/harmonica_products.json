@@ -1,8 +1,8 @@
 {
   "version": "2.0",
-  "last_sync": "2026-03-29",
+  "last_sync": "2026-03-30",
   "source": "kashonharmonica.bg",
-  "total_products": 38,
+  "total_products": 119,
   "products": [
     {
       "id": 1,
@@ -67,7 +67,7 @@
         "30 г"
       ],
       "ref_eur": 0.65,
-      "ref_bgn": 2.74,
+      "ref_bgn": 1.28,
       "url_slug": "bio-vafla-klasika-30-g",
       "active": true,
       "status": "active",
@@ -83,7 +83,7 @@
         "400g"
       ],
       "ref_eur": 6.63,
-      "ref_bgn": 2.74,
+      "ref_bgn": 12.97,
       "url_slug": "sirene-krave-harmonica-400g",
       "active": true,
       "status": "active",
@@ -114,8 +114,8 @@
         "harmonica",
         "80g"
       ],
-      "ref_eur": 2.65,
-      "ref_bgn": 5.18,
+      "ref_eur": 1.15,
+      "ref_bgn": 2.25,
       "url_slug": "pecheni-leshnici-harmonica-80g",
       "active": true,
       "status": "active",
@@ -364,8 +364,8 @@
         "морков",
         "750мл"
       ],
-      "ref_eur": 3.71,
-      "ref_bgn": 7.26,
+      "ref_eur": 9.61,
+      "ref_bgn": 18.8,
       "url_slug": "bio-sok-ot-yablka-i-morkov-750ml",
       "active": true,
       "status": "active",
@@ -434,7 +434,7 @@
         "300 г"
       ],
       "ref_eur": 3.47,
-      "ref_bgn": 11.5,
+      "ref_bgn": 6.79,
       "url_slug": "bio-ketchup-300-gr",
       "active": true,
       "status": "active",
@@ -640,8 +640,8 @@
         "ябълка",
         "750мл"
       ],
-      "ref_eur": 3.45,
-      "ref_bgn": 6.75,
+      "ref_eur": 9.12,
+      "ref_bgn": 17.84,
       "url_slug": "bio-sok-ot-chervena-yablka-750ml",
       "active": true,
       "status": "active",
@@ -657,10 +657,9 @@
       "ref_eur": 1.4,
       "ref_bgn": 2.74,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 40,
@@ -674,10 +673,9 @@
       "ref_eur": 2.44,
       "ref_bgn": 4.77,
       "url_slug": "bio-humus-klasicheski-200gr",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-05"
     },
     {
       "id": 41,
@@ -692,10 +690,9 @@
       "ref_eur": 1.02,
       "ref_bgn": 2.0,
       "url_slug": "bio-tunkvana-vafla-klasika-40-g",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-05"
     },
     {
       "id": 42,
@@ -711,10 +708,9 @@
       "ref_eur": 6.62,
       "ref_bgn": 12.95,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 43,
@@ -730,10 +726,9 @@
       "ref_eur": 6.62,
       "ref_bgn": 12.95,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 44,
@@ -748,10 +743,9 @@
       "ref_eur": 8.13,
       "ref_bgn": 15.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 45,
@@ -765,10 +759,9 @@
       "ref_eur": 1.84,
       "ref_bgn": 3.6,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 46,
@@ -784,10 +777,9 @@
       "ref_eur": 0.74,
       "ref_bgn": 1.44,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 47,
@@ -801,10 +793,9 @@
       "ref_eur": 0.65,
       "ref_bgn": 1.28,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 48,
@@ -818,10 +809,9 @@
       "ref_eur": 8.12,
       "ref_bgn": 15.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 49,
@@ -834,10 +824,9 @@
       "ref_eur": 1.94,
       "ref_bgn": 3.79,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 50,
@@ -852,10 +841,9 @@
       "ref_eur": 9.16,
       "ref_bgn": 17.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 51,
@@ -872,10 +860,9 @@
       "ref_eur": 7.62,
       "ref_bgn": 14.9,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 52,
@@ -890,10 +877,9 @@
       "ref_eur": 4.51,
       "ref_bgn": 8.83,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 53,
@@ -910,10 +896,9 @@
       "ref_eur": 9.63,
       "ref_bgn": 18.83,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 54,
@@ -929,10 +914,9 @@
       "ref_eur": 4.55,
       "ref_bgn": 8.9,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 55,
@@ -948,10 +932,9 @@
       "ref_eur": 4.74,
       "ref_bgn": 9.27,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 56,
@@ -967,10 +950,9 @@
       "ref_eur": 1.12,
       "ref_bgn": 2.2,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 57,
@@ -985,10 +967,9 @@
       "ref_eur": 3.02,
       "ref_bgn": 5.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 58,
@@ -1002,10 +983,9 @@
       "ref_eur": 3.23,
       "ref_bgn": 6.32,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 59,
@@ -1018,10 +998,9 @@
       "ref_eur": 11.08,
       "ref_bgn": 21.67,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 60,
@@ -1036,13 +1015,30 @@
       "ref_eur": 0.91,
       "ref_bgn": 1.78,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 61,
+      "name": "Smiles с нахут, ориз с кокосово масло 50g",
+      "keywords": [
+        "smiles",
+        "нахут",
+        "ориз",
+        "кокосово",
+        "масло",
+        "50g"
+      ],
+      "ref_eur": 1.44,
+      "ref_bgn": 2.81,
+      "url_slug": "smiles-s-nahut-oriz-s-kokosovo-maslo-50g",
+      "active": true,
+      "status": "reactivated",
+      "added_date": "2026-02-05"
+    },
+    {
+      "id": 62,
       "name": "Био пълнозърнест сусамов тахан harmonica 700g",
       "keywords": [
         "био",
@@ -1055,13 +1051,12 @@
       "ref_eur": 9.16,
       "ref_bgn": 17.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 62,
+      "id": 63,
       "name": "Козе сирене harmonica 200 g",
       "keywords": [
         "козе",
@@ -1072,13 +1067,12 @@
       "ref_eur": 5.47,
       "ref_bgn": 10.7,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 63,
+      "id": 64,
       "name": "Био Лешников тахан harmonica 250g",
       "keywords": [
         "био",
@@ -1090,13 +1084,12 @@
       "ref_eur": 9.2,
       "ref_bgn": 17.99,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 64,
+      "id": 65,
       "name": "Бял сусамов тахан harmonica 700g",
       "keywords": [
         "бял",
@@ -1108,13 +1101,12 @@
       "ref_eur": 9.16,
       "ref_bgn": 17.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 65,
+      "id": 66,
       "name": "Прясно мляко harmonica 1l",
       "keywords": [
         "прясно",
@@ -1125,13 +1117,12 @@
       "ref_eur": 2.73,
       "ref_bgn": 5.34,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 66,
+      "id": 67,
       "name": "Яйца harmonica кутия 6 бр",
       "keywords": [
         "яйца",
@@ -1142,13 +1133,12 @@
       "ref_eur": 4.31,
       "ref_bgn": 8.42,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 67,
+      "id": 68,
       "name": "Кашкавал harmonica 300g",
       "keywords": [
         "кашкавал",
@@ -1158,13 +1148,12 @@
       "ref_eur": 7.11,
       "ref_bgn": 13.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 68,
+      "id": 69,
       "name": "Масло краве harmonica 200g",
       "keywords": [
         "масло",
@@ -1175,13 +1164,12 @@
       "ref_eur": 7.1,
       "ref_bgn": 13.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 69,
+      "id": 70,
       "name": "Кефир harmonica 500ml",
       "keywords": [
         "кефир",
@@ -1191,13 +1179,12 @@
       "ref_eur": 1.97,
       "ref_bgn": 3.85,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 70,
+      "id": 71,
       "name": "Боза от ръж harmonica 1l",
       "keywords": [
         "боза",
@@ -1209,13 +1196,12 @@
       "ref_eur": 2.08,
       "ref_bgn": 4.07,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 71,
+      "id": 72,
       "name": "Боза от ръж harmonica 500 ml",
       "keywords": [
         "боза",
@@ -1227,13 +1213,12 @@
       "ref_eur": 1.2,
       "ref_bgn": 2.35,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 72,
+      "id": 73,
       "name": "Кори за баница harmonica 400g",
       "keywords": [
         "кори",
@@ -1245,13 +1230,12 @@
       "ref_eur": 4.03,
       "ref_bgn": 7.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 73,
+      "id": 74,
       "name": "Сироп от Малини harmonica 750ml",
       "keywords": [
         "сироп",
@@ -1263,13 +1247,12 @@
       "ref_eur": 8.12,
       "ref_bgn": 15.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 74,
+      "id": 75,
       "name": "Сироп от мурсалски чай harmonica 750ml",
       "keywords": [
         "сироп",
@@ -1282,13 +1265,12 @@
       "ref_eur": 8.63,
       "ref_bgn": 16.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 75,
+      "id": 76,
       "name": "Сироп от плод на бъз harmonica 750ml",
       "keywords": [
         "сироп",
@@ -1302,13 +1284,12 @@
       "ref_eur": 7.62,
       "ref_bgn": 14.9,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 76,
+      "id": 77,
       "name": "Сироп от Рози harmonica 750ml",
       "keywords": [
         "сироп",
@@ -1320,13 +1301,12 @@
       "ref_eur": 9.12,
       "ref_bgn": 17.84,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 77,
+      "id": 78,
       "name": "Сироп от цвят на бъз harmonica 750ml",
       "keywords": [
         "сироп",
@@ -1337,16 +1317,15 @@
         "harmonica",
         "750ml"
       ],
-      "ref_eur": 8.63,
-      "ref_bgn": 16.88,
+      "ref_eur": 7.62,
+      "ref_bgn": 14.9,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 78,
+      "id": 79,
       "name": "Сироп от ягоди harmonica 750ml",
       "keywords": [
         "сироп",
@@ -1358,13 +1337,12 @@
       "ref_eur": 9.12,
       "ref_bgn": 17.84,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 79,
+      "id": 80,
       "name": "Солети от лимец harmonica 50g",
       "keywords": [
         "солети",
@@ -1376,13 +1354,12 @@
       "ref_eur": 1.15,
       "ref_bgn": 2.25,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 80,
+      "id": 81,
       "name": "Солети пълнозърнести harmonica 60g",
       "keywords": [
         "солети",
@@ -1393,13 +1370,12 @@
       "ref_eur": 0.91,
       "ref_bgn": 1.78,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 81,
+      "id": 82,
       "name": "Солети със сол harmonica 60g",
       "keywords": [
         "солети",
@@ -1411,13 +1387,12 @@
       "ref_eur": 0.91,
       "ref_bgn": 1.78,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 82,
+      "id": 83,
       "name": "Фъстъчено масло harmonica 250g",
       "keywords": [
         "фъстъчено",
@@ -1428,13 +1403,12 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 83,
+      "id": 84,
       "name": "Crunchy фъстъчено масло harmonica 250g",
       "keywords": [
         "crunchy",
@@ -1446,13 +1420,12 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 84,
+      "id": 85,
       "name": "Шипков мармалад harmonica 240g",
       "keywords": [
         "шипков",
@@ -1463,13 +1436,12 @@
       "ref_eur": 3.99,
       "ref_bgn": 7.8,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-03-16",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-03-16"
     },
     {
-      "id": 85,
+      "id": 86,
       "name": "Ябълков оцет harmonica 500ml",
       "keywords": [
         "ябълков",
@@ -1480,13 +1452,12 @@
       "ref_eur": 3.83,
       "ref_bgn": 7.49,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 86,
+      "id": 87,
       "name": "Нахут harmonica 570g",
       "keywords": [
         "нахут",
@@ -1496,13 +1467,12 @@
       "ref_eur": 2.86,
       "ref_bgn": 5.59,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 87,
+      "id": 88,
       "name": "Био Бял сусамов тахан harmonica 250g",
       "keywords": [
         "био",
@@ -1515,13 +1485,12 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.98,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 88,
+      "id": 89,
       "name": "Био Пълнозърнест сусамов тахан harmonica 250g",
       "keywords": [
         "био",
@@ -1534,13 +1503,12 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-23",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-23"
     },
     {
-      "id": 89,
+      "id": 90,
       "name": "Био Сироп от вишни Harmonica 750 ml",
       "keywords": [
         "био",
@@ -1555,11 +1523,10 @@
       "url_slug": "",
       "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 90,
+      "id": 91,
       "name": "Заквасена сметана 12% harmonica 200g",
       "keywords": [
         "заквасена",
@@ -1573,11 +1540,10 @@
       "url_slug": "zakvasena-smetana-12-harmonica-200g",
       "active": false,
       "status": "active",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 91,
+      "id": 92,
       "name": "Шипков мармалад harmonica 300g",
       "keywords": [
         "шипков",
@@ -1590,26 +1556,7 @@
       "url_slug": "",
       "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
-    },
-    {
-      "id": 92,
-      "name": "Smiles с нахут, ориз с кокосово масло 50g",
-      "keywords": [
-        "smiles",
-        "нахут",
-        "ориз",
-        "кокосово",
-        "масло",
-        "50g"
-      ],
-      "ref_eur": 1.44,
-      "ref_bgn": 2.81,
-      "url_slug": "smiles-s-nahut-oriz-s-kokosovo-maslo-50g",
-      "active": false,
-      "status": "active",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-15"
     },
     {
       "id": 93,
@@ -1625,8 +1572,7 @@
       "url_slug": "",
       "active": false,
       "status": "active",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-03-29"
+      "added_date": "2026-02-15"
     },
     {
       "id": 94,
