@@ -1,13 +1,13 @@
 # Core dependencies
-gspread==6.1.0
-google-auth==2.27.0
-google-auth-oauthlib==1.2.0
-python-dotenv==1.0.0
-anthropic==0.79.0
-beautifulsoup4==4.12.3
+gspread==6.2.1
+google-auth==2.49.1
+google-auth-oauthlib==1.3.1
+python-dotenv==1.2.2
+anthropic==0.87.0
+beautifulsoup4==4.14.3
 
 # Primary scraping engine (async, parallel)
-crawl4ai==0.8.0
+crawl4ai==0.8.6
 
 # TLS impersonation for Cloudflare bypass
 curl_cffi==0.14.0
