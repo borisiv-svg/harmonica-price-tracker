@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "last_sync": "2026-04-01",
+  "last_sync": "2026-04-02",
   "source": "kashonharmonica.bg",
   "total_products": 41,
   "products": [
@@ -231,8 +231,8 @@
         "ягоди",
         "240г"
       ],
-      "ref_eur": 3.83,
-      "ref_bgn": 7.49,
+      "ref_eur": 3.45,
+      "ref_bgn": 6.74,
       "url_slug": "bio-sladko-ot-yagodi-240gr",
       "active": true,
       "status": "active",
@@ -248,8 +248,8 @@
         "малини",
         "240г"
       ],
-      "ref_eur": 3.83,
-      "ref_bgn": 7.49,
+      "ref_eur": 3.45,
+      "ref_bgn": 6.74,
       "url_slug": "bio-sladko-ot-malini-240gr",
       "active": true,
       "status": "active",
@@ -265,8 +265,8 @@
         "боровинки",
         "240 г"
       ],
-      "ref_eur": 5.51,
-      "ref_bgn": 10.78,
+      "ref_eur": 4.96,
+      "ref_bgn": 9.7,
       "url_slug": "bio-sladko-ot-borovinki-240-gr",
       "active": true,
       "status": "active",
@@ -494,7 +494,7 @@
       "active": false,
       "status": "active",
       "added_date": "2026-02-05",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 30,
@@ -513,7 +513,7 @@
       "active": false,
       "status": "active",
       "added_date": "2026-02-05",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 31,
@@ -532,7 +532,7 @@
       "active": false,
       "status": "active",
       "added_date": "2026-02-05",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 32,
@@ -548,7 +548,7 @@
       "active": false,
       "status": "active",
       "added_date": "2026-02-05",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 33,
@@ -567,7 +567,7 @@
       "active": false,
       "status": "active",
       "added_date": "2026-02-05",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 34,
@@ -665,7 +665,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 40,
@@ -682,7 +682,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-05",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 41,
@@ -700,7 +700,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-05",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 42,
@@ -719,7 +719,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 43,
@@ -738,7 +738,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 44,
@@ -756,7 +756,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 45,
@@ -773,7 +773,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 46,
@@ -792,7 +792,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 47,
@@ -809,7 +809,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 48,
@@ -826,7 +826,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 49,
@@ -842,7 +842,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 50,
@@ -860,7 +860,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 51,
@@ -880,7 +880,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 52,
@@ -898,7 +898,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 53,
@@ -918,7 +918,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 54,
@@ -937,7 +937,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 55,
@@ -956,7 +956,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 56,
@@ -975,7 +975,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 57,
@@ -993,7 +993,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 58,
@@ -1010,7 +1010,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 59,
@@ -1026,7 +1026,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 60,
@@ -1044,7 +1044,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 61,
@@ -1081,7 +1081,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 63,
@@ -1098,7 +1098,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 64,
@@ -1116,7 +1116,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 65,
@@ -1134,7 +1134,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 66,
@@ -1151,7 +1151,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 67,
@@ -1168,7 +1168,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 68,
@@ -1184,7 +1184,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 69,
@@ -1201,7 +1201,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 70,
@@ -1217,7 +1217,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 71,
@@ -1235,7 +1235,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 72,
@@ -1253,7 +1253,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 73,
@@ -1271,7 +1271,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 74,
@@ -1289,7 +1289,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 75,
@@ -1308,7 +1308,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 76,
@@ -1328,7 +1328,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 77,
@@ -1346,7 +1346,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 78,
@@ -1366,7 +1366,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 79,
@@ -1384,7 +1384,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 80,
@@ -1402,7 +1402,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 81,
@@ -1419,7 +1419,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 82,
@@ -1437,7 +1437,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 83,
@@ -1454,7 +1454,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 84,
@@ -1472,7 +1472,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 85,
@@ -1489,7 +1489,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-03-16",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 86,
@@ -1506,7 +1506,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 87,
@@ -1522,7 +1522,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 88,
@@ -1541,7 +1541,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 89,
@@ -1560,7 +1560,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-23",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 90,
@@ -1579,7 +1579,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 91,
@@ -1597,7 +1597,7 @@
       "active": false,
       "status": "active",
       "added_date": "2026-02-05",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 92,
@@ -1614,7 +1614,7 @@
       "active": false,
       "status": "reactivated",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 93,
@@ -1631,7 +1631,7 @@
       "active": false,
       "status": "active",
       "added_date": "2026-02-15",
-      "removed_date": "2026-04-01"
+      "removed_date": "2026-04-02"
     },
     {
       "id": 94,
