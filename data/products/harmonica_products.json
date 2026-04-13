@@ -1,8 +1,8 @@
 {
   "version": "2.0",
-  "last_sync": "2026-04-12",
+  "last_sync": "2026-04-13",
   "source": "kashonharmonica.bg",
-  "total_products": 39,
+  "total_products": 126,
   "products": [
     {
       "id": 1,
@@ -67,7 +67,7 @@
         "30 г"
       ],
       "ref_eur": 0.65,
-      "ref_bgn": 2.74,
+      "ref_bgn": 1.28,
       "url_slug": "bio-vafla-klasika-30-g",
       "active": true,
       "status": "active",
@@ -83,7 +83,7 @@
         "400g"
       ],
       "ref_eur": 6.63,
-      "ref_bgn": 2.74,
+      "ref_bgn": 12.97,
       "url_slug": "sirene-krave-harmonica-400g",
       "active": true,
       "status": "active",
@@ -114,8 +114,8 @@
         "harmonica",
         "80g"
       ],
-      "ref_eur": 2.65,
-      "ref_bgn": 5.18,
+      "ref_eur": 1.28,
+      "ref_bgn": 2.5,
       "url_slug": "pecheni-leshnici-harmonica-80g",
       "active": true,
       "status": "active",
@@ -364,8 +364,8 @@
         "морков",
         "750мл"
       ],
-      "ref_eur": 3.71,
-      "ref_bgn": 7.26,
+      "ref_eur": 9.61,
+      "ref_bgn": 18.8,
       "url_slug": "bio-sok-ot-yablka-i-morkov-750ml",
       "active": true,
       "status": "active",
@@ -434,7 +434,7 @@
         "300 г"
       ],
       "ref_eur": 3.47,
-      "ref_bgn": 11.5,
+      "ref_bgn": 6.79,
       "url_slug": "bio-ketchup-300-gr",
       "active": true,
       "status": "active",
@@ -553,8 +553,8 @@
         "ябълка",
         "750мл"
       ],
-      "ref_eur": 3.45,
-      "ref_bgn": 6.75,
+      "ref_eur": 9.12,
+      "ref_bgn": 17.84,
       "url_slug": "bio-sok-ot-chervena-yablka-750ml",
       "active": true,
       "status": "active",
@@ -580,21 +580,6 @@
     },
     {
       "id": 35,
-      "name": "Sunny Farm",
-      "keywords": [
-        "sunny",
-        "farm"
-      ],
-      "ref_eur": 1.4,
-      "ref_bgn": 2.74,
-      "url_slug": "",
-      "active": false,
-      "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
-    },
-    {
-      "id": 36,
       "name": "Био Слънчогледово олио за готвене 500 мл",
       "keywords": [
         "био",
@@ -612,7 +597,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 37,
+      "id": 36,
       "name": "Био Оризови топчета с черен шоколад 50 г",
       "keywords": [
         "био",
@@ -630,7 +615,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 38,
+      "id": 37,
       "name": "Био Оризови топчета с млечен шоколад 50 г",
       "keywords": [
         "био",
@@ -648,7 +633,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 39,
+      "id": 38,
       "name": "Био лимонада 330 мл",
       "keywords": [
         "био",
@@ -663,7 +648,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 40,
+      "id": 39,
       "name": "Био тънки претцели с морска сол 80 гр.",
       "keywords": [
         "био",
@@ -681,6 +666,20 @@
       "added_date": "2026-02-05"
     },
     {
+      "id": 40,
+      "name": "Sunny Farm",
+      "keywords": [
+        "sunny",
+        "farm"
+      ],
+      "ref_eur": 1.4,
+      "ref_bgn": 2.74,
+      "url_slug": "",
+      "active": true,
+      "status": "reactivated",
+      "added_date": "2026-02-15"
+    },
+    {
       "id": 41,
       "name": "Био хумус - класически 200гр.",
       "keywords": [
@@ -692,10 +691,9 @@
       "ref_eur": 2.44,
       "ref_bgn": 4.77,
       "url_slug": "bio-humus-klasicheski-200gr",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-05"
     },
     {
       "id": 42,
@@ -710,10 +708,9 @@
       "ref_eur": 1.02,
       "ref_bgn": 2.0,
       "url_slug": "bio-tunkvana-vafla-klasika-40-g",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-05"
     },
     {
       "id": 43,
@@ -729,10 +726,9 @@
       "ref_eur": 6.62,
       "ref_bgn": 12.95,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 44,
@@ -748,10 +744,9 @@
       "ref_eur": 6.62,
       "ref_bgn": 12.95,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 45,
@@ -766,10 +761,9 @@
       "ref_eur": 8.13,
       "ref_bgn": 15.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 46,
@@ -783,10 +777,9 @@
       "ref_eur": 1.84,
       "ref_bgn": 3.6,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 47,
@@ -802,10 +795,9 @@
       "ref_eur": 0.74,
       "ref_bgn": 1.44,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 48,
@@ -819,10 +811,9 @@
       "ref_eur": 0.65,
       "ref_bgn": 1.28,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 49,
@@ -836,10 +827,9 @@
       "ref_eur": 8.12,
       "ref_bgn": 15.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 50,
@@ -852,10 +842,9 @@
       "ref_eur": 1.94,
       "ref_bgn": 3.79,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 51,
@@ -870,10 +859,9 @@
       "ref_eur": 9.16,
       "ref_bgn": 17.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 52,
@@ -890,10 +878,9 @@
       "ref_eur": 7.62,
       "ref_bgn": 14.9,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 53,
@@ -908,10 +895,9 @@
       "ref_eur": 4.51,
       "ref_bgn": 8.83,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 54,
@@ -928,10 +914,9 @@
       "ref_eur": 9.63,
       "ref_bgn": 18.83,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 55,
@@ -947,10 +932,9 @@
       "ref_eur": 4.55,
       "ref_bgn": 8.9,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 56,
@@ -966,10 +950,9 @@
       "ref_eur": 4.74,
       "ref_bgn": 9.27,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 57,
@@ -985,10 +968,9 @@
       "ref_eur": 1.12,
       "ref_bgn": 2.2,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 58,
@@ -1003,10 +985,9 @@
       "ref_eur": 3.02,
       "ref_bgn": 5.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 59,
@@ -1020,10 +1001,9 @@
       "ref_eur": 3.23,
       "ref_bgn": 6.32,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 60,
@@ -1036,10 +1016,9 @@
       "ref_eur": 11.08,
       "ref_bgn": 21.67,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 61,
@@ -1054,10 +1033,9 @@
       "ref_eur": 0.76,
       "ref_bgn": 1.49,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 62,
@@ -1073,10 +1051,9 @@
       "ref_eur": 9.16,
       "ref_bgn": 17.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 63,
@@ -1090,10 +1067,9 @@
       "ref_eur": 5.47,
       "ref_bgn": 10.7,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 64,
@@ -1108,10 +1084,9 @@
       "ref_eur": 9.2,
       "ref_bgn": 17.99,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 65,
@@ -1126,10 +1101,9 @@
       "ref_eur": 9.16,
       "ref_bgn": 17.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 66,
@@ -1143,10 +1117,9 @@
       "ref_eur": 2.73,
       "ref_bgn": 5.34,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 67,
@@ -1160,10 +1133,9 @@
       "ref_eur": 4.31,
       "ref_bgn": 8.42,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 68,
@@ -1176,10 +1148,9 @@
       "ref_eur": 7.11,
       "ref_bgn": 13.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 69,
@@ -1193,10 +1164,9 @@
       "ref_eur": 7.1,
       "ref_bgn": 13.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 70,
@@ -1209,10 +1179,9 @@
       "ref_eur": 1.97,
       "ref_bgn": 3.85,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 71,
@@ -1227,10 +1196,9 @@
       "ref_eur": 2.08,
       "ref_bgn": 4.07,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 72,
@@ -1245,10 +1213,9 @@
       "ref_eur": 1.2,
       "ref_bgn": 2.35,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 73,
@@ -1263,10 +1230,9 @@
       "ref_eur": 4.03,
       "ref_bgn": 7.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 74,
@@ -1281,10 +1247,9 @@
       "ref_eur": 8.12,
       "ref_bgn": 15.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 75,
@@ -1300,10 +1265,9 @@
       "ref_eur": 8.63,
       "ref_bgn": 16.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 76,
@@ -1320,10 +1284,9 @@
       "ref_eur": 7.62,
       "ref_bgn": 14.9,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 77,
@@ -1338,10 +1301,9 @@
       "ref_eur": 9.12,
       "ref_bgn": 17.84,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 78,
@@ -1358,10 +1320,9 @@
       "ref_eur": 7.62,
       "ref_bgn": 14.9,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 79,
@@ -1376,10 +1337,9 @@
       "ref_eur": 9.12,
       "ref_bgn": 17.84,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 80,
@@ -1394,10 +1354,9 @@
       "ref_eur": 1.28,
       "ref_bgn": 2.5,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 81,
@@ -1411,10 +1370,9 @@
       "ref_eur": 1.01,
       "ref_bgn": 1.98,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 82,
@@ -1429,10 +1387,9 @@
       "ref_eur": 1.01,
       "ref_bgn": 1.98,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 83,
@@ -1446,10 +1403,9 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 84,
@@ -1464,10 +1420,9 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 85,
@@ -1481,10 +1436,9 @@
       "ref_eur": 3.59,
       "ref_bgn": 7.02,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-03-16",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-03-16"
     },
     {
       "id": 86,
@@ -1498,10 +1452,9 @@
       "ref_eur": 3.83,
       "ref_bgn": 7.49,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 87,
@@ -1514,10 +1467,9 @@
       "ref_eur": 2.86,
       "ref_bgn": 5.59,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 88,
@@ -1533,10 +1485,9 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.98,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 89,
@@ -1552,10 +1503,9 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-23",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-23"
     },
     {
       "id": 90,
@@ -1573,8 +1523,7 @@
       "url_slug": "",
       "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 91,
@@ -1591,8 +1540,7 @@
       "url_slug": "zakvasena-smetana-12-harmonica-200g",
       "active": false,
       "status": "active",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-05"
     },
     {
       "id": 92,
@@ -1608,8 +1556,7 @@
       "url_slug": "",
       "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 93,
@@ -1625,8 +1572,7 @@
       "url_slug": "",
       "active": false,
       "status": "active",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-02-15"
     },
     {
       "id": 94,
@@ -2054,8 +2000,7 @@
       "url_slug": "kozunak-s-kvas-klasik-400-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-04-01"
     },
     {
       "id": 121,
@@ -2072,8 +2017,7 @@
       "url_slug": "kozunak-s-kvas-ss-stafidi-400-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-04-01"
     },
     {
       "id": 122,
@@ -2090,8 +2034,7 @@
       "url_slug": "kozunak-s-kvas-s-lokum-s-orehi-400-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-04-01"
     },
     {
       "id": 123,
@@ -2107,8 +2050,7 @@
       "url_slug": "kozunak-s-maya-s-shokolad-500-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-04-01"
     },
     {
       "id": 124,
@@ -2126,8 +2068,7 @@
       "url_slug": "kozunak-s-kvas-s-shokolad-i-portokalovi-korichki-400-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-04-01"
     },
     {
       "id": 125,
@@ -2144,8 +2085,7 @@
       "url_slug": "kozunak-s-maya-ss-stafidi-500-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-04-01"
     },
     {
       "id": 126,
@@ -2161,8 +2101,7 @@
       "url_slug": "kozunak-s-maya-klasik-500-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01",
-      "removed_date": "2026-04-12"
+      "added_date": "2026-04-01"
     }
   ]
 }
