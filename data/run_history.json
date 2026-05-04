@@ -726,5 +726,25 @@
       "glovo_cba": 13,
       "glovo_fantastico": 55
     }
+  },
+  {
+    "date": "2026-05-04 08:06:34",
+    "total_ref": 87,
+    "total_time": 424.2,
+    "stores": {
+      "ebag": 24,
+      "balev": 21,
+      "tmarket": 10,
+      "metro": 0,
+      "zelen": 11,
+      "randi": 9,
+      "biomarket": 19,
+      "befit": 0,
+      "laika": 7,
+      "glovo_kaufland": 14,
+      "glovo_billa": 28,
+      "glovo_cba": 13,
+      "glovo_fantastico": 55
+    }
   }
 ]
