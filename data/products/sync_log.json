@@ -396,5 +396,13 @@
     "added": 1,
     "removed": 66,
     "price_changes": 6
+  },
+  {
+    "date": "2026-07-01 10:40",
+    "action": "sync",
+    "total_products": 39,
+    "added": 0,
+    "removed": 65,
+    "price_changes": 4
   }
 ]
