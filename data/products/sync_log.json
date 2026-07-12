@@ -1,13 +1,5 @@
 [
   {
-    "date": "2026-02-06 07:44",
-    "action": "sync",
-    "total_products": 65,
-    "added": 0,
-    "removed": 0,
-    "price_changes": 0
-  },
-  {
     "date": "2026-02-07 07:30",
     "action": "sync",
     "total_products": 65,
@@ -414,5 +406,13 @@
     "added": 0,
     "removed": 65,
     "price_changes": 0
+  },
+  {
+    "date": "2026-07-12 09:00",
+    "action": "sync",
+    "total_products": 39,
+    "added": 0,
+    "removed": 67,
+    "price_changes": 1
   }
 ]
