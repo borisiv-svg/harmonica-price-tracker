@@ -1,0 +1,90 @@
+<!-- eBag search page fragment — структура снета на живо от ebag.bg на 11.08.2026.
+     Класовете са Tailwind (генерирани), затова парсерът НЕ разчита на тях,
+     освен на "line-through" за зачеркнатата стара цена. -->
+<div class="grid">
+
+  <!-- 1. Промо продукт: текуща + зачеркната стара цена -->
+  <article class="relative flex grow flex-col justify-between gap-12 p-8 md:gap-16">
+    <a class="font-medium text-black group flex flex-col gap-8" href="/bio-oranzhada-harmonica/635415?queryID=abc">
+      <div class="relative flex justify-center overflow-hidden rounded-16 bg-white">
+        <picture>
+          <source srcset="i.webp"/>
+          <img class="rounded-16" alt="Био Оранжада Harmonica" loading="lazy" src="i.jpg"/>
+        </picture>
+      </div>
+    </a>
+    <div class="flex items-center gap-8 h-28 w-full">
+      <span class="inline-block rounded-pill border border-gray-60 bg-gray-10 font-semibold text-gray-80">330 мл</span>
+    </div>
+    <a class="font-medium text-black group flex flex-col gap-8" href="/bio-oranzhada-harmonica/635415?queryID=abc">
+      <div class="flex h-78 flex-col gap-4">
+        <h3 class="md:group-hover:underline"><span class="sr-only">Български продукт</span><img class="mr-6 inline align-baseline" alt="" src="flag.svg"/>Био Оранжада Harmonica</h3>
+        <p class="text-2xs text-gray-60">Годно до: 08/12/2027</p>
+      </div>
+    </a>
+    <div class="flex items-baseline gap-4">
+      <span class="flex items-baseline gap-4 text-xl font-semibold md:text-2xl text-red">1,49 €</span>
+      <span class="relative flex items-baseline gap-4 text-sm font-medium line-through md:text-base text-black after:bg-black">2,04 €</span>
+    </div>
+    <button type="button">Добави</button>
+  </article>
+
+  <!-- 2. Редовна цена + единична цена "за бр." -->
+  <article class="relative flex grow flex-col justify-between gap-12 p-8">
+    <a class="group flex flex-col gap-8" href="/bio-iaitsa-harmonica/9279?queryID=abc">
+      <div class="relative flex justify-center overflow-hidden rounded-16 bg-white">
+        <picture><img class="rounded-16" alt="Био Яйца от Свободно Отглеждани Кокошки Harmonica Размер L Кафяви" loading="lazy" src="i.jpg"/></picture>
+      </div>
+    </a>
+    <div class="flex items-center gap-8">
+      <span class="inline-block rounded-pill border border-gray-60">6 бр.</span>
+    </div>
+    <a class="group flex flex-col gap-8" href="/bio-iaitsa-harmonica/9279?queryID=abc">
+      <div class="flex h-78 flex-col gap-4">
+        <h3 class="md:group-hover:underline"><span class="sr-only">Български продукт</span><img class="mr-6 inline align-baseline" alt="" src="flag.svg"/>Био Яйца от Свободно Отглеждани Кокошки Harmonica Размер L Кафяви</h3>
+        <p class="text-2xs text-gray-60">Годно до: 25/08/2026</p>
+      </div>
+    </a>
+    <div class="flex items-baseline gap-4">
+      <span class="flex items-baseline gap-4 text-xl font-semibold md:text-2xl text-black">4,60 €</span>
+      <span class="text-gray-60 text-2xs md:text-sm">0,77 € за бр.</span>
+    </div>
+  </article>
+
+  <!-- 3. Единична цена "за кг", по-висока от основната — не бива да я замести -->
+  <article class="relative flex grow flex-col justify-between gap-12 p-8">
+    <a class="group flex flex-col gap-8" href="/bio-sirene-harmonica-krave/19055">
+      <div class="relative flex justify-center overflow-hidden rounded-16 bg-white">
+        <picture><img alt="Био Сирене Harmonica Краве" loading="lazy" src="i.jpg"/></picture>
+      </div>
+    </a>
+    <a class="group flex flex-col gap-8" href="/bio-sirene-harmonica-krave/19055">
+      <div class="flex h-78 flex-col gap-4">
+        <h3><span class="sr-only">Български продукт</span><img alt="" src="flag.svg"/>Био Сирене Harmonica Краве</h3>
+        <p class="text-2xs text-gray-60">Годно до: 12/11/2026</p>
+      </div>
+    </a>
+    <div class="flex items-baseline gap-4">
+      <span class="flex items-baseline gap-4 text-xl font-semibold md:text-2xl text-black">6,64 €</span>
+      <span class="text-gray-60 text-2xs md:text-sm">16,60 € за кг</span>
+    </div>
+  </article>
+
+  <!-- 4. Чужда марка — трябва да се филтрира -->
+  <article class="relative flex grow flex-col justify-between gap-12 p-8">
+    <a class="group flex flex-col gap-8" href="/dove-shampoan/99999">
+      <div class="relative flex justify-center overflow-hidden rounded-16 bg-white">
+        <picture><img alt="Dove Шампоан 250 мл" loading="lazy" src="i.jpg"/></picture>
+      </div>
+    </a>
+    <a class="group flex flex-col gap-8" href="/dove-shampoan/99999">
+      <div class="flex h-78 flex-col gap-4">
+        <h3>Dove Шампоан 250 мл</h3>
+      </div>
+    </a>
+    <div class="flex items-baseline gap-4">
+      <span class="flex items-baseline gap-4 text-xl font-semibold md:text-2xl text-black">5,99 €</span>
+    </div>
+  </article>
+
+</div>

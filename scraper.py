@@ -342,7 +342,10 @@ async def main(dry_run=False):
     # eBag
     ebag_products = []
     if crawl_results.get("ebag", {}).get("success"):
-        ebag_products = extract_ebag_products(crawl_results["ebag"]["markdown"])
+        ebag_products = extract_ebag_products(
+            crawl_results["ebag"]["markdown"],
+            html_text=crawl_results["ebag"].get("html"),
+        )
         logger.info(f"eBag: {len(ebag_products)} Harmonica products")
 
     # Balev
@@ -633,20 +636,25 @@ async def main(dry_run=False):
         else:
             logger.info(line)
 
-    # Save debug markdown for stores with anomalies
+    # Save debug markdown + HTML for stores with anomalies.
+    # HTML е нужен, защото част от екстракторите (eBag) парсват него, не markdown-а.
     if health_alerts:
         for alert in health_alerts:
             store_key = alert["store"]
             store_data = crawl_results.get(store_key, {})
-            md = store_data.get("markdown", "")
-            if md and len(md) > 100:
+            for content, suffix in (
+                (store_data.get("markdown", ""), "debug.md"),
+                (store_data.get("html", ""), "debug.html"),
+            ):
+                if not content or len(content) <= 100:
+                    continue
                 try:
                     debug_path = os.path.join(
-                        PROJECT_ROOT, "data", f"{store_key}_debug.md")
+                        PROJECT_ROOT, "data", f"{store_key}_{suffix}")
                     os.makedirs(os.path.dirname(debug_path), exist_ok=True)
                     with open(debug_path, "w", encoding="utf-8") as f:
-                        f.write(md)
-                    logger.info(f"  Debug markdown saved: {debug_path}")
+                        f.write(content)
+                    logger.info(f"  Debug saved: {debug_path}")
                 except Exception as e:
                     logger.warning(f"  Debug save failed for {store_key}: {e}")
 

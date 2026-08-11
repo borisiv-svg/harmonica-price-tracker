@@ -209,5 +209,7 @@ jobs:
           path: |
             scraper.log
             data/results.json
+            data/*_debug.md
+            data/*_debug.html
           if-no-files-found: warn
           retention-days: 7

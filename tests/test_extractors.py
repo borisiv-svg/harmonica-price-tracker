@@ -10,6 +10,7 @@ from helpers import load_fixture
 from extractors import (
     extract_kashon_products,
     extract_ebag_products,
+    extract_ebag_from_html,
     extract_balev_products,
     _extract_generic_products,
     extract_metro_products,
@@ -98,6 +99,55 @@ class TestEbagExtractor:
 
     def test_empty_input(self):
         assert extract_ebag_products("") == []
+
+
+class TestEbagHtmlExtractor:
+    """HTML път — редизайнът на eBag от август 2026 (EUR-only, <article> карти)."""
+
+    def test_extracts_harmonica_only(self):
+        html = load_fixture("ebag.html")
+        products = extract_ebag_from_html(html)
+        assert len(products) == 3
+        names = [p["name"].lower() for p in products]
+        assert not any("dove" in n for n in names)
+
+    def test_name_excludes_sr_only_label_and_flag(self):
+        html = load_fixture("ebag.html")
+        products = extract_ebag_from_html(html)
+        oranzhada = _find(products, "оранжада")
+        assert oranzhada is not None
+        assert oranzhada["name"] == "Био Оранжада Harmonica"
+
+    def test_uses_current_price_not_struck_through(self):
+        html = load_fixture("ebag.html")
+        oranzhada = _find(extract_ebag_from_html(html), "оранжада")
+        assert oranzhada["eur"] == 1.49      # не 2.04 (line-through)
+
+    def test_ignores_unit_price(self):
+        html = load_fixture("ebag.html")
+        products = extract_ebag_from_html(html)
+        assert _find(products, "яйца")["eur"] == 4.60    # не 0.77 "за бр."
+        assert _find(products, "сирене")["eur"] == 6.64  # не 16.60 "за кг"
+
+    def test_bgn_is_none(self):
+        # Сайтът вече показва само EUR — не измисляме BGN стойност
+        html = load_fixture("ebag.html")
+        assert all(p["bgn"] is None for p in extract_ebag_from_html(html))
+
+    def test_html_preferred_over_markdown(self):
+        html = load_fixture("ebag.html")
+        md = load_fixture("ebag.md")
+        products = extract_ebag_products(md, html_text=html)
+        assert _find(products, "оранжада") is not None   # само в HTML фикстурата
+
+    def test_falls_back_to_markdown_when_html_empty(self):
+        md = load_fixture("ebag.md")
+        products = extract_ebag_products(md, html_text="<html><body></body></html>")
+        assert len(products) >= 2
+        assert _find(products, "оранжада") is None
+
+    def test_empty_html(self):
+        assert extract_ebag_from_html("") == []
 
 
 # -- Balev --

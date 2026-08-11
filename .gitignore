@@ -189,7 +189,8 @@ cython_debug/
 # .vscode/
 
 # Debug output
-data/zelen_debug.md
+data/*_debug.md
+data/*_debug.html
 
 # Ruff stuff:
 .ruff_cache/

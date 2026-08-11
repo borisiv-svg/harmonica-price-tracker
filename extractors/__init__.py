@@ -6,7 +6,7 @@ Each module handles a specific store's product extraction from markdown/HTML.
 """
 
 from extractors.kashon import extract_kashon_products
-from extractors.ebag import extract_ebag_products
+from extractors.ebag import extract_ebag_products, extract_ebag_from_html
 from extractors.balev import extract_balev_products
 from extractors.generic import _extract_generic_products
 from extractors.metro import extract_metro_products
@@ -18,6 +18,7 @@ from extractors.randi import extract_randi_products
 __all__ = [
     "extract_kashon_products",
     "extract_ebag_products",
+    "extract_ebag_from_html",
     "extract_balev_products",
     "_extract_generic_products",
     "extract_metro_products",
