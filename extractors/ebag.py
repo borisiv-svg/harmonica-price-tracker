@@ -63,7 +63,9 @@ def extract_ebag_from_html(html):
         for tag in article.find_all(["span", "div", "p"]):
             if tag.find(True):                  # само листови елементи
                 continue
-            text = tag.get_text(strip=True)
+            # eBag ползва nbsp между числото и валутата ("1,49\xa0€"), а
+            # extract_eur_price приема само [ \t] — нормализираме интервалите.
+            text = re.sub(r"[\s\u00a0\u202f]+", " ", tag.get_text(strip=True))
             if "€" not in text:
                 continue
             classes = " ".join(tag.get("class") or [])
