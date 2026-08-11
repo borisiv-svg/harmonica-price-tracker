@@ -15,7 +15,7 @@ curl_cffi==0.14.0
 # Firecrawl — JS rendering for DM, Randi, Glovo
 # 1.17.0 is last 1.x release. Code uses FirecrawlApp + .scrape_url()
 # which are 1.x API. 2.x+ has breaking changes.
-firecrawl-py==1.17.0
+firecrawl-py==4.14.1
 
 # Anti-bot (optional)
 capsolver==1.0.7
