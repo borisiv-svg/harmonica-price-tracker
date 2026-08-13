@@ -21,6 +21,48 @@ from utils import (
 )
 
 
+def _multipack_is_priced(article, eur, unit_eur):
+    """
+    Показаната цена за мултипак ли е, вместо за единичната разфасовка?
+
+    Част от продуктите имат превключвател за разфасовка:
+
+        <div role="switch">
+          <span style="transform: translate(calc(100% + 2px));"></span>  ← плъзгачът
+          <button>400 г</button><button>4x400 г</button>
+        </div>
+
+    eBag остойностява САМО избрания вариант — цената на другия се дърпа при клик
+    и изобщо я няма в HTML-а. По подразбиране избран е мултипакът, затова
+    „Био Краве Кисело Мляко 3,6%" излиза с 4,68 € (4×400 г) срещу референтните
+    400 г.
+
+    Разпознаваме случая аритметично: при избран мултипак „N x M" единичната цена
+    („… € за бр.") умножена по N дава показаната цена — 4,68 € = 4 × 1,17 €.
+    Проверката не зависи от Tailwind класове и от позицията на плъзгача, а те са
+    единствените други сигнали в DOM-а (`aria-checked` е "false" и при избран
+    мултипак, т.е. е безполезен).
+
+    Ако eBag някога подразбира единичната разфасовка, равенството няма да важи и
+    цената се приема нормално.
+    """
+    if not unit_eur:
+        return False
+
+    for button in article.find_all("button"):
+        label = re.sub(r"\s+", " ", button.get_text(strip=True))  # \s хваща и nbsp
+        match = re.fullmatch(
+            r"(\d+)\s*[x×]\s*\d+(?:[.,]\d+)?\s*(?:г|гр|мл|кг|л|бр\.?)", label)
+        if not match:
+            continue
+        multiplier = int(match.group(1))
+        # допуск за закръгляне на единичната цена (±0.01 на бройка)
+        if multiplier > 1 and abs(eur - multiplier * unit_eur) <= 0.01 * multiplier:
+            return True
+
+    return False
+
+
 def extract_ebag_from_html(html):
     """
     Извлича продукти от eBag HTML — по една <article> карта на продукт.
@@ -60,6 +102,7 @@ def extract_ebag_from_html(html):
             continue
 
         eur = None
+        unit_eur = None
         for tag in article.find_all(["span", "div", "p"]):
             if tag.find(True):                  # само листови елементи
                 continue
@@ -72,13 +115,26 @@ def extract_ebag_from_html(html):
             if "line-through" in classes:       # зачеркната стара цена
                 continue
             if re.search(r"за\s", text):        # единична цена: "0,77 € за бр."
+                if unit_eur is None:
+                    unit_eur = extract_eur_price(text)
                 continue
-            eur = extract_eur_price(text)
-            if eur:
-                break
+            if eur is None:                     # първата незачеркната цена
+                eur = extract_eur_price(text)
 
-        if eur:
-            products.append({"name": name, "eur": eur, "bgn": None})
+        if not eur:
+            continue
+
+        if _multipack_is_priced(article, eur, unit_eur):
+            logger.info(
+                f"eBag: пропускам цената на „{name}“ — показаните {eur}€ са за "
+                f"мултипак, а единичната разфасовка не е остойностена в HTML-а"
+            )
+            # Продуктът остава в списъка без цена. Ако го махнехме напълно,
+            # референтният запис би се закачил за друг продукт (киселото мляко
+            # хващаше прясното) и грешното отклонение само сменя мястото си.
+            eur = None
+
+        products.append({"name": name, "eur": eur, "bgn": None})
 
     return products
 

@@ -107,7 +107,7 @@ class TestEbagHtmlExtractor:
     def test_extracts_harmonica_only(self):
         html = load_fixture("ebag.html")
         products = extract_ebag_from_html(html)
-        assert len(products) == 3
+        assert len(products) == 5
         names = [p["name"].lower() for p in products]
         assert not any("dove" in n for n in names)
 
@@ -148,6 +148,35 @@ class TestEbagHtmlExtractor:
 
     def test_empty_html(self):
         assert extract_ebag_from_html("") == []
+
+
+class TestEbagMultipackVariants:
+    """Продукти с превключвател за разфасовка — остойностен е само избраният вариант."""
+
+    def test_multipack_price_is_dropped(self):
+        # 4,68 € е за 4x400 г (4 × 1,17 € за бр.), а референтният продукт е 400 г
+        products = extract_ebag_from_html(load_fixture("ebag.html"))
+        mlyako = _find(products, "био краве кисело мляко")
+        assert mlyako is not None, "продуктът трябва да остане в списъка"
+        assert mlyako["eur"] is None, "мултипак цената не бива да се приписва на 400 г"
+
+    def test_product_kept_so_it_holds_its_match_slot(self):
+        # Ако го махнехме напълно, референтният запис за кисело мляко се закача
+        # за прясното мляко и грешното отклонение само сменя мястото си.
+        names = [p["name"] for p in extract_ebag_from_html(load_fixture("ebag.html"))]
+        assert "Био Краве Кисело Мляко Harmonica 3,6%" in names
+
+    def test_single_variant_price_is_kept(self):
+        # Контрола: същият превключвател, но остойностена е единичната разфасовка
+        products = extract_ebag_from_html(load_fixture("ebag.html"))
+        single = _find(products, "био кисело мляко harmonica 2%")
+        assert single is not None
+        assert single["eur"] == 1.30
+
+    def test_plain_products_unaffected(self):
+        products = extract_ebag_from_html(load_fixture("ebag.html"))
+        assert _find(products, "оранжада")["eur"] == 1.49
+        assert _find(products, "яйца")["eur"] == 4.60
 
 
 # -- Balev --

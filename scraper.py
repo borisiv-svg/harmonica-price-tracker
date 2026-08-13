@@ -546,6 +546,11 @@ async def main(dry_run=False):
                             )
                             eur = corrected
 
+                # Match без цена (eBag мултипак) — не записваме магазина, за да
+                # не влиза в броячите като "matched" с празна цена.
+                if eur is None:
+                    continue
+
                 entry = {"eur": eur}
                 if "in_stock" in m:
                     entry["in_stock"] = m["in_stock"]
