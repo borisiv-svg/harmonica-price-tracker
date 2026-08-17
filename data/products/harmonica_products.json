@@ -1,8 +1,8 @@
 {
   "version": "2.0",
-  "last_sync": "2026-08-16",
+  "last_sync": "2026-08-17",
   "source": "kashonharmonica.bg",
-  "total_products": 42,
+  "total_products": 133,
   "products": [
     {
       "id": 1,
@@ -67,7 +67,7 @@
         "30 г"
       ],
       "ref_eur": 0.65,
-      "ref_bgn": 2.74,
+      "ref_bgn": 1.28,
       "url_slug": "bio-vafla-klasika-30-g",
       "active": true,
       "status": "active",
@@ -83,7 +83,7 @@
         "400g"
       ],
       "ref_eur": 6.63,
-      "ref_bgn": 2.74,
+      "ref_bgn": 12.97,
       "url_slug": "sirene-krave-harmonica-400g",
       "active": true,
       "status": "active",
@@ -114,8 +114,8 @@
         "harmonica",
         "80g"
       ],
-      "ref_eur": 2.65,
-      "ref_bgn": 5.18,
+      "ref_eur": 1.28,
+      "ref_bgn": 2.5,
       "url_slug": "pecheni-leshnici-harmonica-80g",
       "active": true,
       "status": "active",
@@ -398,7 +398,7 @@
         "300 г"
       ],
       "ref_eur": 3.47,
-      "ref_bgn": 11.5,
+      "ref_bgn": 6.79,
       "url_slug": "bio-ketchup-300-gr",
       "active": true,
       "status": "active",
@@ -502,8 +502,8 @@
         "ябълка",
         "750мл"
       ],
-      "ref_eur": 3.45,
-      "ref_bgn": 6.75,
+      "ref_eur": 8.65,
+      "ref_bgn": 16.92,
       "url_slug": "bio-sok-ot-chervena-yablka-750ml",
       "active": true,
       "status": "active",
@@ -560,22 +560,6 @@
     },
     {
       "id": 34,
-      "name": "Био лимонада 330 мл",
-      "keywords": [
-        "био",
-        "лимонада",
-        "330 мл"
-      ],
-      "ref_eur": 1.78,
-      "ref_bgn": 3.48,
-      "url_slug": "bio-limonada-330-ml",
-      "active": false,
-      "status": "reactivated",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
-    },
-    {
-      "id": 35,
       "name": "Био тънки претцели с морска сол 80 гр.",
       "keywords": [
         "био",
@@ -593,7 +577,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 36,
+      "id": 35,
       "name": "Айран harmonica 500ml",
       "keywords": [
         "айран",
@@ -608,7 +592,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 37,
+      "id": 36,
       "name": "Био хумус - класически 200гр.",
       "keywords": [
         "био",
@@ -624,7 +608,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 38,
+      "id": 37,
       "name": "Био тунквана вафла Класика 40 г",
       "keywords": [
         "био",
@@ -641,22 +625,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 39,
-      "name": "Sunny Farm",
-      "keywords": [
-        "sunny",
-        "farm"
-      ],
-      "ref_eur": 1.4,
-      "ref_bgn": 2.74,
-      "url_slug": "",
-      "active": false,
-      "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
-    },
-    {
-      "id": 40,
+      "id": 38,
       "name": "Био овесена гранола с ябълки и канела 250гр",
       "keywords": [
         "био",
@@ -674,7 +643,7 @@
       "added_date": "2026-02-15"
     },
     {
-      "id": 41,
+      "id": 39,
       "name": "Био гранола фъстъчено масло и какао 250гр.",
       "keywords": [
         "био",
@@ -692,7 +661,7 @@
       "added_date": "2026-02-15"
     },
     {
-      "id": 42,
+      "id": 40,
       "name": "Био гранола с боровинки и ванилия 250гр.",
       "keywords": [
         "био",
@@ -709,7 +678,88 @@
       "added_date": "2026-02-15"
     },
     {
+      "id": 41,
+      "name": "Пилешка пържола бут охладена 500 гр.",
+      "keywords": [
+        "пилешка",
+        "пържола",
+        "бут",
+        "охладена",
+        "500 г"
+      ],
+      "ref_eur": 12.32,
+      "ref_bgn": 24.09,
+      "url_slug": "pileshka-przhola-ohladena-500-gr",
+      "active": true,
+      "status": "active",
+      "added_date": "2026-08-16"
+    },
+    {
+      "id": 42,
+      "name": "Био Смокини 250гр,",
+      "keywords": [
+        "био",
+        "смокини",
+        "250г"
+      ],
+      "ref_eur": 9.2,
+      "ref_bgn": 17.99,
+      "url_slug": "bio-smokini-250gr",
+      "active": true,
+      "status": "active",
+      "added_date": "2026-08-16"
+    },
+    {
       "id": 43,
+      "name": "Figgo bio farm",
+      "keywords": [
+        "figgo",
+        "bio",
+        "farm"
+      ],
+      "ref_eur": 1.4,
+      "ref_bgn": 2.74,
+      "url_slug": "",
+      "active": true,
+      "status": "new",
+      "added_date": "2026-08-17"
+    },
+    {
+      "id": 44,
+      "name": "Био Оризови топчета с млечен шоколад 50 г",
+      "keywords": [
+        "био",
+        "оризови",
+        "топчета",
+        "млечен",
+        "шоколад",
+        "50 г"
+      ],
+      "ref_eur": 2.55,
+      "ref_bgn": 4.99,
+      "url_slug": "bio-orizovi-topcheta-s-mlechen-shokolad-50-g",
+      "active": true,
+      "status": "reactivated",
+      "added_date": "2026-02-05"
+    },
+    {
+      "id": 45,
+      "name": "Яйца harmonica кутия 6 бр",
+      "keywords": [
+        "яйца",
+        "harmonica",
+        "кутия",
+        "бр"
+      ],
+      "ref_eur": 4.31,
+      "ref_bgn": 8.42,
+      "url_slug": "",
+      "active": true,
+      "status": "reactivated",
+      "added_date": "2026-02-15"
+    },
+    {
+      "id": 46,
       "name": "Био Белени домати 400 гр.",
       "keywords": [
         "био",
@@ -720,13 +770,12 @@
       "ref_eur": 1.84,
       "ref_bgn": 3.6,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 44,
+      "id": 47,
       "name": "Био вафла без добавена захар 30 г",
       "keywords": [
         "био",
@@ -739,13 +788,12 @@
       "ref_eur": 0.74,
       "ref_bgn": 1.44,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 45,
+      "id": 48,
       "name": "Био вафла Лимон 30 г",
       "keywords": [
         "био",
@@ -756,13 +804,12 @@
       "ref_eur": 0.65,
       "ref_bgn": 1.28,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 46,
+      "id": 49,
       "name": "Био сироп от липа",
       "keywords": [
         "био",
@@ -773,13 +820,12 @@
       "ref_eur": 8.12,
       "ref_bgn": 15.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 47,
+      "id": 50,
       "name": "Био бисквитки harmonica",
       "keywords": [
         "био",
@@ -789,13 +835,12 @@
       "ref_eur": 1.94,
       "ref_bgn": 3.79,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 48,
+      "id": 51,
       "name": "Био Фъстъчено масло Harmonica 700 g",
       "keywords": [
         "био",
@@ -807,13 +852,12 @@
       "ref_eur": 9.16,
       "ref_bgn": 17.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 49,
+      "id": 52,
       "name": "Био Сироп от лимони с джинджифил Harmonica 750 ml",
       "keywords": [
         "био",
@@ -827,13 +871,12 @@
       "ref_eur": 7.77,
       "ref_bgn": 15.19,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 50,
+      "id": 53,
       "name": "Био Пасирани домати с босилек Harmonica 680 g",
       "keywords": [
         "био",
@@ -846,13 +889,12 @@
       "ref_eur": 3.02,
       "ref_bgn": 5.91,
       "url_slug": "",
-      "active": false,
-      "status": "new",
-      "added_date": "2026-08-11",
-      "removed_date": "2026-08-16"
+      "active": true,
+      "status": "reactivated",
+      "added_date": "2026-08-11"
     },
     {
-      "id": 51,
+      "id": 54,
       "name": "Био Сушени сливи Harmonica 200 g",
       "keywords": [
         "био",
@@ -864,13 +906,12 @@
       "ref_eur": 4.51,
       "ref_bgn": 8.83,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 52,
+      "id": 55,
       "name": "Био Сироп от бъзак с мед Harmonica 500 ml",
       "keywords": [
         "био",
@@ -884,13 +925,12 @@
       "ref_eur": 9.63,
       "ref_bgn": 18.83,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 53,
+      "id": 56,
       "name": "Био Пюре от коприва Harmonica 540 g",
       "keywords": [
         "био",
@@ -903,13 +943,12 @@
       "ref_eur": 4.55,
       "ref_bgn": 8.9,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 54,
+      "id": 57,
       "name": "Био Сироп от вишни Harmonica 750 ml",
       "keywords": [
         "био",
@@ -922,13 +961,12 @@
       "ref_eur": 8.21,
       "ref_bgn": 16.06,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 55,
+      "id": 58,
       "name": "Био тунквана вафла Choco Coco 40 г",
       "keywords": [
         "био",
@@ -941,13 +979,12 @@
       "ref_eur": 1.12,
       "ref_bgn": 2.2,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 56,
+      "id": 59,
       "name": "Био Пасирани домати Harmonica 680 g",
       "keywords": [
         "био",
@@ -959,13 +996,12 @@
       "ref_eur": 3.02,
       "ref_bgn": 5.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 57,
+      "id": 60,
       "name": "Кокосово масло Harmonica 240g",
       "keywords": [
         "кокосово",
@@ -976,13 +1012,12 @@
       "ref_eur": 3.23,
       "ref_bgn": 6.32,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 58,
+      "id": 61,
       "name": "Гхи harmonica 215g",
       "keywords": [
         "гхи",
@@ -992,13 +1027,12 @@
       "ref_eur": 11.08,
       "ref_bgn": 21.67,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 59,
+      "id": 62,
       "name": "Претцели със сол harmonica 60g",
       "keywords": [
         "претцели",
@@ -1010,13 +1044,12 @@
       "ref_eur": 1.01,
       "ref_bgn": 1.98,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 60,
+      "id": 63,
       "name": "Био пълнозърнест сусамов тахан harmonica 700g",
       "keywords": [
         "био",
@@ -1029,13 +1062,12 @@
       "ref_eur": 9.16,
       "ref_bgn": 17.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 61,
+      "id": 64,
       "name": "Козе сирене harmonica 200 g",
       "keywords": [
         "козе",
@@ -1046,13 +1078,12 @@
       "ref_eur": 5.47,
       "ref_bgn": 10.7,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 62,
+      "id": 65,
       "name": "Био Лешников тахан harmonica 250g",
       "keywords": [
         "био",
@@ -1061,16 +1092,15 @@
         "harmonica",
         "250g"
       ],
-      "ref_eur": 9.2,
-      "ref_bgn": 17.99,
+      "ref_eur": 4.59,
+      "ref_bgn": 8.98,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 63,
+      "id": 66,
       "name": "Бял сусамов тахан harmonica 700g",
       "keywords": [
         "бял",
@@ -1082,13 +1112,12 @@
       "ref_eur": 9.16,
       "ref_bgn": 17.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 64,
+      "id": 67,
       "name": "Прясно мляко harmonica 1l",
       "keywords": [
         "прясно",
@@ -1099,30 +1128,12 @@
       "ref_eur": 2.73,
       "ref_bgn": 5.34,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 65,
-      "name": "Яйца harmonica кутия 6 бр",
-      "keywords": [
-        "яйца",
-        "harmonica",
-        "кутия",
-        "бр"
-      ],
-      "ref_eur": 4.31,
-      "ref_bgn": 8.42,
-      "url_slug": "",
-      "active": false,
-      "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
-    },
-    {
-      "id": 66,
+      "id": 68,
       "name": "Кашкавал harmonica 300g",
       "keywords": [
         "кашкавал",
@@ -1132,13 +1143,12 @@
       "ref_eur": 7.11,
       "ref_bgn": 13.91,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 67,
+      "id": 69,
       "name": "Масло краве harmonica 200g",
       "keywords": [
         "масло",
@@ -1149,13 +1159,12 @@
       "ref_eur": 7.1,
       "ref_bgn": 13.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 68,
+      "id": 70,
       "name": "Кефир harmonica 500ml",
       "keywords": [
         "кефир",
@@ -1165,13 +1174,12 @@
       "ref_eur": 1.97,
       "ref_bgn": 3.85,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 69,
+      "id": 71,
       "name": "Боза от ръж harmonica 1l",
       "keywords": [
         "боза",
@@ -1183,13 +1191,12 @@
       "ref_eur": 2.08,
       "ref_bgn": 4.07,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 70,
+      "id": 72,
       "name": "Боза от ръж harmonica 500 ml",
       "keywords": [
         "боза",
@@ -1201,13 +1208,12 @@
       "ref_eur": 1.2,
       "ref_bgn": 2.35,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 71,
+      "id": 73,
       "name": "Кори за баница harmonica 400g",
       "keywords": [
         "кори",
@@ -1219,13 +1225,12 @@
       "ref_eur": 4.03,
       "ref_bgn": 7.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 72,
+      "id": 74,
       "name": "Сироп от Малини harmonica 750ml",
       "keywords": [
         "сироп",
@@ -1237,13 +1242,12 @@
       "ref_eur": 7.62,
       "ref_bgn": 14.9,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 73,
+      "id": 75,
       "name": "Сироп от мурсалски чай harmonica 750ml",
       "keywords": [
         "сироп",
@@ -1256,13 +1260,12 @@
       "ref_eur": 8.12,
       "ref_bgn": 15.88,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 74,
+      "id": 76,
       "name": "Сироп от плод на бъз harmonica 750ml",
       "keywords": [
         "сироп",
@@ -1276,13 +1279,12 @@
       "ref_eur": 7.62,
       "ref_bgn": 14.9,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 75,
+      "id": 77,
       "name": "Сироп от Рози harmonica 750ml",
       "keywords": [
         "сироп",
@@ -1294,13 +1296,12 @@
       "ref_eur": 7.77,
       "ref_bgn": 15.19,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 76,
+      "id": 78,
       "name": "Сироп от цвят на бъз harmonica 750ml",
       "keywords": [
         "сироп",
@@ -1314,13 +1315,12 @@
       "ref_eur": 8.21,
       "ref_bgn": 16.06,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 77,
+      "id": 79,
       "name": "Сироп от ягоди harmonica 750ml",
       "keywords": [
         "сироп",
@@ -1332,13 +1332,12 @@
       "ref_eur": 8.21,
       "ref_bgn": 16.06,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 78,
+      "id": 80,
       "name": "Солети от лимец harmonica 50g",
       "keywords": [
         "солети",
@@ -1350,13 +1349,12 @@
       "ref_eur": 1.28,
       "ref_bgn": 2.5,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 79,
+      "id": 81,
       "name": "Солети пълнозърнести harmonica 60g",
       "keywords": [
         "солети",
@@ -1367,13 +1365,12 @@
       "ref_eur": 1.01,
       "ref_bgn": 1.98,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 80,
+      "id": 82,
       "name": "Солети със сол harmonica 60g",
       "keywords": [
         "солети",
@@ -1385,13 +1382,12 @@
       "ref_eur": 1.01,
       "ref_bgn": 1.98,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 81,
+      "id": 83,
       "name": "Фъстъчено масло harmonica 250g",
       "keywords": [
         "фъстъчено",
@@ -1402,13 +1398,12 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 82,
+      "id": 84,
       "name": "Crunchy фъстъчено масло harmonica 250g",
       "keywords": [
         "crunchy",
@@ -1420,13 +1415,12 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 83,
+      "id": 85,
       "name": "Шипков мармалад harmonica 240g",
       "keywords": [
         "шипков",
@@ -1437,13 +1431,12 @@
       "ref_eur": 3.99,
       "ref_bgn": 7.8,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-03-16",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-03-16"
     },
     {
-      "id": 84,
+      "id": 86,
       "name": "Ябълков оцет harmonica 500ml",
       "keywords": [
         "ябълков",
@@ -1454,13 +1447,12 @@
       "ref_eur": 3.83,
       "ref_bgn": 7.49,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 85,
+      "id": 87,
       "name": "Нахут harmonica 570g",
       "keywords": [
         "нахут",
@@ -1470,13 +1462,12 @@
       "ref_eur": 2.86,
       "ref_bgn": 5.59,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 86,
+      "id": 88,
       "name": "Био Бял сусамов тахан harmonica 250g",
       "keywords": [
         "био",
@@ -1487,15 +1478,14 @@
         "250g"
       ],
       "ref_eur": 4.59,
-      "ref_bgn": 8.98,
+      "ref_bgn": 8.97,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 87,
+      "id": 89,
       "name": "Био Пълнозърнест сусамов тахан harmonica 250g",
       "keywords": [
         "био",
@@ -1508,13 +1498,41 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": false,
+      "active": true,
       "status": "reactivated",
-      "added_date": "2026-02-23",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-23"
     },
     {
-      "id": 88,
+      "id": 90,
+      "name": "Био лимонада 330 мл",
+      "keywords": [
+        "био",
+        "лимонада",
+        "330 мл"
+      ],
+      "ref_eur": 1.78,
+      "ref_bgn": 3.48,
+      "url_slug": "bio-limonada-330-ml",
+      "active": false,
+      "status": "reactivated",
+      "added_date": "2026-02-05"
+    },
+    {
+      "id": 91,
+      "name": "Sunny Farm",
+      "keywords": [
+        "sunny",
+        "farm"
+      ],
+      "ref_eur": 1.4,
+      "ref_bgn": 2.74,
+      "url_slug": "",
+      "active": false,
+      "status": "reactivated",
+      "added_date": "2026-02-15"
+    },
+    {
+      "id": 92,
       "name": "Био сок от ябълка и морков 750мл",
       "keywords": [
         "био",
@@ -1529,11 +1547,10 @@
       "url_slug": "bio-sok-ot-yablka-i-morkov-750ml",
       "active": false,
       "status": "active",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 89,
+      "id": 93,
       "name": "Био Оризови топчета с черен шоколад 50 г",
       "keywords": [
         "био",
@@ -1548,29 +1565,10 @@
       "url_slug": "bio-orizovi-topcheta-s-cheren-shokolad-50-g",
       "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
-    },
-    {
-      "id": 90,
-      "name": "Био Оризови топчета с млечен шоколад 50 г",
-      "keywords": [
-        "био",
-        "оризови",
-        "топчета",
-        "млечен",
-        "шоколад",
-        "50 г"
-      ],
-      "ref_eur": 2.55,
-      "ref_bgn": 4.99,
-      "url_slug": "bio-orizovi-topcheta-s-mlechen-shokolad-50-g",
-      "active": false,
-      "status": "reactivated",
       "added_date": "2026-02-05"
     },
     {
-      "id": 91,
+      "id": 94,
       "name": "Био Черен сусамов тахан Harmonica 250 g",
       "keywords": [
         "био",
@@ -1585,11 +1583,10 @@
       "url_slug": "",
       "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 92,
+      "id": 95,
       "name": "Био майонеза 210 g",
       "keywords": [
         "био",
@@ -1601,11 +1598,10 @@
       "url_slug": "bio-mayoneza-210-g",
       "active": false,
       "status": "active",
-      "added_date": "2026-06-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-06-05"
     },
     {
-      "id": 93,
+      "id": 96,
       "name": "Smiles с нахут, ориз и морска сол 50g",
       "keywords": [
         "smiles",
@@ -1620,11 +1616,10 @@
       "url_slug": "smiles-s-nahut-oriz-i-morska-sol-50g",
       "active": false,
       "status": "active",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 94,
+      "id": 97,
       "name": "Smiles с нахут, ориз с кокосово масло 50g",
       "keywords": [
         "smiles",
@@ -1639,11 +1634,10 @@
       "url_slug": "smiles-s-nahut-oriz-s-kokosovo-maslo-50g",
       "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 95,
+      "id": 98,
       "name": "Заквасена сметана 12% harmonica 200g",
       "keywords": [
         "заквасена",
@@ -1657,11 +1651,10 @@
       "url_slug": "zakvasena-smetana-12-harmonica-200g",
       "active": false,
       "status": "active",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 96,
+      "id": 99,
       "name": "Шипков мармалад harmonica 300g",
       "keywords": [
         "шипков",
@@ -1674,11 +1667,10 @@
       "url_slug": "",
       "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 97,
+      "id": 100,
       "name": "Шипков мармалад с петмез 300g",
       "keywords": [
         "шипков",
@@ -1691,11 +1683,10 @@
       "url_slug": "",
       "active": false,
       "status": "active",
-      "added_date": "2026-02-15",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-15"
     },
     {
-      "id": 98,
+      "id": 101,
       "name": "Био Червен домат 500 гр",
       "keywords": [
         "био",
@@ -1708,11 +1699,10 @@
       "url_slug": "bio-cherven-domat-500-gr",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 99,
+      "id": 102,
       "name": "Био Морков 0.500 кг",
       "keywords": [
         "био",
@@ -1724,11 +1714,10 @@
       "url_slug": "bio-morkov-0500-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 100,
+      "id": 103,
       "name": "Био Пресен картоф 1 кг",
       "keywords": [
         "био",
@@ -1741,11 +1730,10 @@
       "url_slug": "bio-presen-kartof-1-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 101,
+      "id": 104,
       "name": "Био Пащърнак 0.300 кг",
       "keywords": [
         "био",
@@ -1757,11 +1745,10 @@
       "url_slug": "bio-pashchrnak-0300-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 102,
+      "id": 105,
       "name": "Био краставица 1 бр",
       "keywords": [
         "био",
@@ -1773,11 +1760,10 @@
       "url_slug": "bio-krastavica-1-br",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 103,
+      "id": 106,
       "name": "Био салатка 1 бр",
       "keywords": [
         "био",
@@ -1789,11 +1775,10 @@
       "url_slug": "bio-salatka-1-br",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 104,
+      "id": 107,
       "name": "Био магданоз 1бр.",
       "keywords": [
         "био",
@@ -1805,11 +1790,10 @@
       "url_slug": "bio-magdanoz-1br",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 105,
+      "id": 108,
       "name": "Био репички 1 вр.",
       "keywords": [
         "био",
@@ -1821,11 +1805,10 @@
       "url_slug": "bio-repichki-1-vr",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 106,
+      "id": 109,
       "name": "Био овесено мляко 1 л",
       "keywords": [
         "био",
@@ -1838,11 +1821,10 @@
       "url_slug": "bio-oveseno-mlyako-1-l",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 107,
+      "id": 110,
       "name": "Био червена леща 1.7 kg",
       "keywords": [
         "био",
@@ -1858,7 +1840,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 108,
+      "id": 111,
       "name": "Био микс от киноа 1.7 kg",
       "keywords": [
         "био",
@@ -1872,11 +1854,10 @@
       "url_slug": "bio-miks-ot-kinoa-17-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 109,
+      "id": 112,
       "name": "Био боб мунг 1.7 kg",
       "keywords": [
         "био",
@@ -1892,7 +1873,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 110,
+      "id": 113,
       "name": "Зелен чай с мента",
       "keywords": [
         "зелен",
@@ -1907,7 +1888,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 111,
+      "id": 114,
       "name": "Зелен чай Пуканки",
       "keywords": [
         "зелен",
@@ -1922,7 +1903,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 112,
+      "id": 115,
       "name": "Бял чай Silver tips",
       "keywords": [
         "бял",
@@ -1938,7 +1919,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 113,
+      "id": 116,
       "name": "Био зелен чай Мао Фенг",
       "keywords": [
         "био",
@@ -1955,7 +1936,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 114,
+      "id": 117,
       "name": "Био паста раковини 1.5 kg",
       "keywords": [
         "био",
@@ -1968,11 +1949,10 @@
       "url_slug": "bio-pasta-rakovini-15-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 115,
+      "id": 118,
       "name": "Био паста пенне 1.2 kg",
       "keywords": [
         "био",
@@ -1988,7 +1968,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 116,
+      "id": 119,
       "name": "Био кускус 1.7 kg",
       "keywords": [
         "био",
@@ -2003,7 +1983,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 117,
+      "id": 120,
       "name": "Био сок ябълка и портокал 750мл",
       "keywords": [
         "био",
@@ -2017,11 +1997,10 @@
       "url_slug": "bio-sok-yablka-i-portokal-750ml",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 118,
+      "id": 121,
       "name": "Био сок ябълка и лимон 750мл",
       "keywords": [
         "био",
@@ -2038,7 +2017,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 119,
+      "id": 122,
       "name": "Био сок от зелена ябълка 750мл",
       "keywords": [
         "био",
@@ -2053,11 +2032,10 @@
       "url_slug": "bio-sok-ot-zelena-yablka-750ml",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 120,
+      "id": 123,
       "name": "Био елда 1,7 kg",
       "keywords": [
         "био",
@@ -2072,7 +2050,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 121,
+      "id": 124,
       "name": "Био кафява леща 1,7 kg",
       "keywords": [
         "био",
@@ -2088,7 +2066,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 122,
+      "id": 125,
       "name": "Био кафяв ориз1,7 kg",
       "keywords": [
         "био",
@@ -2104,7 +2082,7 @@
       "added_date": "2026-02-05"
     },
     {
-      "id": 123,
+      "id": 126,
       "name": "Био бял ориз 1,7 kg",
       "keywords": [
         "био",
@@ -2117,11 +2095,10 @@
       "url_slug": "bio-byal-oriz-17-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-02-05"
     },
     {
-      "id": 124,
+      "id": 127,
       "name": "Козунак с квас класик 400 гр.",
       "keywords": [
         "козунак",
@@ -2134,11 +2111,10 @@
       "url_slug": "kozunak-s-kvas-klasik-400-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-04-01"
     },
     {
-      "id": 125,
+      "id": 128,
       "name": "Козунак с квас със стафиди 400 гр.",
       "keywords": [
         "козунак",
@@ -2152,11 +2128,10 @@
       "url_slug": "kozunak-s-kvas-ss-stafidi-400-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-04-01"
     },
     {
-      "id": 126,
+      "id": 129,
       "name": "Козунак с квас с локум с орехи 400 гр.",
       "keywords": [
         "козунак",
@@ -2170,11 +2145,10 @@
       "url_slug": "kozunak-s-kvas-s-lokum-s-orehi-400-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-04-01"
     },
     {
-      "id": 127,
+      "id": 130,
       "name": "Козунак с мая с шоколад 500 гр.",
       "keywords": [
         "козунак",
@@ -2187,11 +2161,10 @@
       "url_slug": "kozunak-s-maya-s-shokolad-500-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-04-01"
     },
     {
-      "id": 128,
+      "id": 131,
       "name": "Козунак с квас с шоколад и портокалови корички 400 гр.",
       "keywords": [
         "козунак",
@@ -2206,11 +2179,10 @@
       "url_slug": "kozunak-s-kvas-s-shokolad-i-portokalovi-korichki-400-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-04-01"
     },
     {
-      "id": 129,
+      "id": 132,
       "name": "Козунак с мая със стафиди 500 гр.",
       "keywords": [
         "козунак",
@@ -2224,11 +2196,10 @@
       "url_slug": "kozunak-s-maya-ss-stafidi-500-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01",
-      "removed_date": "2026-08-16"
+      "added_date": "2026-04-01"
     },
     {
-      "id": 130,
+      "id": 133,
       "name": "Козунак с мая класик 500 гр.",
       "keywords": [
         "козунак",
@@ -2241,37 +2212,7 @@
       "url_slug": "kozunak-s-maya-klasik-500-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01",
-      "removed_date": "2026-08-16"
-    },
-    {
-      "id": 131,
-      "name": "Пилешка пържола бут охладена 500 гр.",
-      "keywords": [
-        "пилешка",
-        "пържола",
-        "бут",
-        "охладена",
-        "500 г"
-      ],
-      "ref_eur": 12.32,
-      "ref_bgn": 24.09,
-      "url_slug": "pileshka-przhola-ohladena-500-gr",
-      "active": true,
-      "added_date": "2026-08-16"
-    },
-    {
-      "id": 132,
-      "name": "Био Смокини 250гр,",
-      "keywords": [
-        "смокини",
-        "250г"
-      ],
-      "ref_eur": 3.12,
-      "ref_bgn": 6.1,
-      "url_slug": "bio-smokini-250gr",
-      "active": true,
-      "added_date": "2026-08-16"
+      "added_date": "2026-04-01"
     }
   ]
 }
