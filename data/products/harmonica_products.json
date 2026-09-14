@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "last_sync": "2026-09-07",
+  "last_sync": "2026-09-14",
   "source": "kashonharmonica.bg",
   "total_products": 134,
   "products": [
@@ -661,22 +661,6 @@
     },
     {
       "id": 40,
-      "name": "Био хумус \\- класически 200гр.",
-      "keywords": [
-        "био",
-        "хумус",
-        "класически",
-        "200г"
-      ],
-      "ref_eur": 2.44,
-      "ref_bgn": 4.77,
-      "url_slug": "",
-      "active": false,
-      "status": "new",
-      "added_date": "2026-08-31"
-    },
-    {
-      "id": 41,
       "name": "Био Оризови топчета с черен шоколад 50 г",
       "keywords": [
         "био",
@@ -689,9 +673,25 @@
       "ref_eur": 2.55,
       "ref_bgn": 4.99,
       "url_slug": "bio-orizovi-topcheta-s-cheren-shokolad-50-g",
-      "active": false,
+      "active": true,
       "status": "reactivated",
       "added_date": "2026-02-05"
+    },
+    {
+      "id": 41,
+      "name": "Био хумус \\- класически 200гр.",
+      "keywords": [
+        "био",
+        "хумус",
+        "класически",
+        "200г"
+      ],
+      "ref_eur": 2.44,
+      "ref_bgn": 4.77,
+      "url_slug": "",
+      "active": true,
+      "status": "reactivated",
+      "added_date": "2026-08-31"
     },
     {
       "id": 42,
