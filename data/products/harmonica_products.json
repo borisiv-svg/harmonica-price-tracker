@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "last_sync": "2026-09-21",
+  "last_sync": "2026-09-28",
   "source": "kashonharmonica.bg",
   "total_products": 136,
   "products": [
@@ -98,8 +98,8 @@
         "harmonica",
         "80g"
       ],
-      "ref_eur": 1.28,
-      "ref_bgn": 2.5,
+      "ref_eur": 2.38,
+      "ref_bgn": 4.65,
       "url_slug": "pecheni-leshnici-harmonica-80g",
       "active": true,
       "status": "active",
@@ -115,8 +115,8 @@
         "chocobiotik",
         "40 г"
       ],
-      "ref_eur": 1.12,
-      "ref_bgn": 2.2,
+      "ref_eur": 1.02,
+      "ref_bgn": 2.0,
       "url_slug": "bio-tunkvana-vafla-chocobiotik-40-g",
       "active": true,
       "status": "active",
@@ -131,8 +131,8 @@
         "harmonica",
         "400g"
       ],
-      "ref_eur": 4.03,
-      "ref_bgn": 7.88,
+      "ref_eur": 1.84,
+      "ref_bgn": 3.6,
       "url_slug": "plnozrnesti-kori-harmonica-400g",
       "active": true,
       "status": "active",
@@ -1462,8 +1462,8 @@
       "ref_eur": 2.38,
       "ref_bgn": 4.65,
       "url_slug": "pecheni-bademi-harmonica-80g",
-      "active": false,
-      "status": "active",
+      "active": true,
+      "status": "reactivated",
       "added_date": "2026-02-05"
     },
     {
