@@ -1,8 +1,8 @@
 {
   "version": "2.0",
-  "last_sync": "2026-09-28",
+  "last_sync": "2026-10-03",
   "source": "kashonharmonica.bg",
-  "total_products": 136,
+  "total_products": 25,
   "products": [
     {
       "id": 1,
@@ -67,7 +67,7 @@
         "30 г"
       ],
       "ref_eur": 0.65,
-      "ref_bgn": 1.28,
+      "ref_bgn": 2.74,
       "url_slug": "bio-vafla-klasika-30-g",
       "active": true,
       "status": "active",
@@ -83,7 +83,7 @@
         "400g"
       ],
       "ref_eur": 6.63,
-      "ref_bgn": 12.97,
+      "ref_bgn": 1.28,
       "url_slug": "sirene-krave-harmonica-400g",
       "active": true,
       "status": "active",
@@ -98,8 +98,8 @@
         "harmonica",
         "80g"
       ],
-      "ref_eur": 2.38,
-      "ref_bgn": 4.65,
+      "ref_eur": 2.65,
+      "ref_bgn": 5.18,
       "url_slug": "pecheni-leshnici-harmonica-80g",
       "active": true,
       "status": "active",
@@ -115,8 +115,8 @@
         "chocobiotik",
         "40 г"
       ],
-      "ref_eur": 1.02,
-      "ref_bgn": 2.0,
+      "ref_eur": 1.12,
+      "ref_bgn": 2.2,
       "url_slug": "bio-tunkvana-vafla-chocobiotik-40-g",
       "active": true,
       "status": "active",
@@ -131,8 +131,8 @@
         "harmonica",
         "400g"
       ],
-      "ref_eur": 1.84,
-      "ref_bgn": 3.6,
+      "ref_eur": 4.03,
+      "ref_bgn": 7.88,
       "url_slug": "plnozrnesti-kori-harmonica-400g",
       "active": true,
       "status": "active",
@@ -417,9 +417,10 @@
       "ref_eur": 3.43,
       "ref_bgn": 6.71,
       "url_slug": "bio-myusli-ss-smokini-i-chernici-300-gr",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 26,
@@ -434,9 +435,10 @@
       "ref_eur": 3.43,
       "ref_bgn": 6.71,
       "url_slug": "bio-myusli-s-leshnici-i-bademi-300-gr",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 27,
@@ -449,9 +451,10 @@
       "ref_eur": 3.47,
       "ref_bgn": 6.79,
       "url_slug": "bio-ketchup-300-gr",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 28,
@@ -468,9 +471,10 @@
       "ref_eur": 2.55,
       "ref_bgn": 4.99,
       "url_slug": "bio-orizovi-topcheta-s-byal-shokolad-i-malina-50g",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 29,
@@ -483,9 +487,10 @@
       "ref_eur": 1.48,
       "ref_bgn": 2.89,
       "url_slug": "ayran-harmonica-500ml",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 30,
@@ -501,9 +506,10 @@
       "ref_eur": 1.34,
       "ref_bgn": 2.62,
       "url_slug": "bio-tunkvana-vafla-bez-zahar-40g",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 31,
@@ -519,9 +525,10 @@
       "ref_eur": 4.22,
       "ref_bgn": 8.25,
       "url_slug": "bio-slnchogledovo-olio-za-gotvene-500-ml",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 32,
@@ -537,9 +544,10 @@
       "ref_eur": 2.55,
       "ref_bgn": 4.99,
       "url_slug": "bio-orizovi-topcheta-s-mlechen-shokolad-50-g",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 33,
@@ -555,9 +563,10 @@
       "ref_eur": 1.28,
       "ref_bgn": 2.5,
       "url_slug": "bio-tnki-pretceli-s-morska-sol-80-gr",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 34,
@@ -571,9 +580,10 @@
       "ref_eur": 2.44,
       "ref_bgn": 4.77,
       "url_slug": "bio-humus-klasicheski-200gr",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 35,
@@ -588,9 +598,10 @@
       "ref_eur": 1.02,
       "ref_bgn": 2.0,
       "url_slug": "bio-tunkvana-vafla-klasika-40-g",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 36,
@@ -606,9 +617,10 @@
       "ref_eur": 6.62,
       "ref_bgn": 12.95,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 37,
@@ -624,9 +636,10 @@
       "ref_eur": 5.96,
       "ref_bgn": 11.66,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 38,
@@ -642,9 +655,10 @@
       "ref_eur": 2.55,
       "ref_bgn": 4.99,
       "url_slug": "bio-orizovi-topcheta-s-cheren-shokolad-50-g",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 39,
@@ -658,9 +672,10 @@
       "ref_eur": 2.08,
       "ref_bgn": 4.07,
       "url_slug": "pileshki-vodenichki-ohladeni-1-kg",
-      "active": true,
+      "active": false,
       "status": "active",
-      "added_date": "2026-09-20"
+      "added_date": "2026-09-20",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 40,
@@ -671,9 +686,10 @@
       "ref_eur": 1.4,
       "ref_bgn": 2.74,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "new",
-      "added_date": "2026-09-21"
+      "added_date": "2026-09-21",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 41,
@@ -685,9 +701,10 @@
       "ref_eur": 1.4,
       "ref_bgn": 2.74,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 42,
@@ -701,9 +718,10 @@
       "ref_eur": 4.31,
       "ref_bgn": 8.42,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 43,
@@ -718,9 +736,10 @@
       "ref_eur": 7.32,
       "ref_bgn": 14.32,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 44,
@@ -734,9 +753,10 @@
       "ref_eur": 1.84,
       "ref_bgn": 3.6,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 45,
@@ -752,9 +772,10 @@
       "ref_eur": 0.74,
       "ref_bgn": 1.44,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 46,
@@ -768,9 +789,10 @@
       "ref_eur": 0.65,
       "ref_bgn": 1.28,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 47,
@@ -784,9 +806,10 @@
       "ref_eur": 8.12,
       "ref_bgn": 15.88,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 48,
@@ -799,9 +822,10 @@
       "ref_eur": 7.11,
       "ref_bgn": 13.91,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 49,
@@ -814,9 +838,10 @@
       "ref_eur": 1.74,
       "ref_bgn": 3.41,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 50,
@@ -831,9 +856,10 @@
       "ref_eur": 9.16,
       "ref_bgn": 17.91,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 51,
@@ -850,9 +876,10 @@
       "ref_eur": 9.61,
       "ref_bgn": 18.8,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 52,
@@ -868,9 +895,10 @@
       "ref_eur": 3.02,
       "ref_bgn": 5.91,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-08-11"
+      "added_date": "2026-08-11",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 53,
@@ -885,9 +913,10 @@
       "ref_eur": 4.51,
       "ref_bgn": 8.83,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 54,
@@ -904,9 +933,10 @@
       "ref_eur": 9.63,
       "ref_bgn": 18.83,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 55,
@@ -922,9 +952,10 @@
       "ref_eur": 4.55,
       "ref_bgn": 8.9,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 56,
@@ -940,9 +971,10 @@
       "ref_eur": 8.63,
       "ref_bgn": 16.88,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 57,
@@ -958,9 +990,10 @@
       "ref_eur": 1.12,
       "ref_bgn": 2.2,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 58,
@@ -975,9 +1008,10 @@
       "ref_eur": 3.02,
       "ref_bgn": 5.91,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 59,
@@ -991,9 +1025,10 @@
       "ref_eur": 3.23,
       "ref_bgn": 6.32,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 60,
@@ -1006,9 +1041,10 @@
       "ref_eur": 11.08,
       "ref_bgn": 21.67,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 61,
@@ -1023,9 +1059,10 @@
       "ref_eur": 1.01,
       "ref_bgn": 1.98,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 62,
@@ -1041,9 +1078,10 @@
       "ref_eur": 9.16,
       "ref_bgn": 17.91,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 63,
@@ -1057,9 +1095,10 @@
       "ref_eur": 5.47,
       "ref_bgn": 10.7,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 64,
@@ -1074,9 +1113,10 @@
       "ref_eur": 9.2,
       "ref_bgn": 17.99,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 65,
@@ -1091,9 +1131,10 @@
       "ref_eur": 9.16,
       "ref_bgn": 17.91,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 66,
@@ -1109,9 +1150,10 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-23"
+      "added_date": "2026-02-23",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 67,
@@ -1125,9 +1167,10 @@
       "ref_eur": 7.1,
       "ref_bgn": 13.88,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 68,
@@ -1140,9 +1183,10 @@
       "ref_eur": 1.97,
       "ref_bgn": 3.85,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 69,
@@ -1157,9 +1201,10 @@
       "ref_eur": 2.08,
       "ref_bgn": 4.07,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 70,
@@ -1174,9 +1219,10 @@
       "ref_eur": 1.2,
       "ref_bgn": 2.35,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 71,
@@ -1191,9 +1237,10 @@
       "ref_eur": 4.03,
       "ref_bgn": 7.88,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 72,
@@ -1208,9 +1255,10 @@
       "ref_eur": 9.12,
       "ref_bgn": 17.84,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 73,
@@ -1226,9 +1274,10 @@
       "ref_eur": 7.62,
       "ref_bgn": 14.9,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 74,
@@ -1245,9 +1294,10 @@
       "ref_eur": 8.12,
       "ref_bgn": 15.88,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 75,
@@ -1262,9 +1312,10 @@
       "ref_eur": 8.63,
       "ref_bgn": 16.88,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 76,
@@ -1281,9 +1332,10 @@
       "ref_eur": 7.62,
       "ref_bgn": 14.9,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 77,
@@ -1298,9 +1350,10 @@
       "ref_eur": 9.12,
       "ref_bgn": 17.84,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 78,
@@ -1315,9 +1368,10 @@
       "ref_eur": 1.15,
       "ref_bgn": 2.25,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 79,
@@ -1331,9 +1385,10 @@
       "ref_eur": 1.01,
       "ref_bgn": 1.98,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 80,
@@ -1348,9 +1403,10 @@
       "ref_eur": 0.91,
       "ref_bgn": 1.78,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 81,
@@ -1364,9 +1420,10 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 82,
@@ -1381,9 +1438,10 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.97,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 83,
@@ -1397,9 +1455,10 @@
       "ref_eur": 3.99,
       "ref_bgn": 7.8,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-03-16"
+      "added_date": "2026-03-16",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 84,
@@ -1413,9 +1472,10 @@
       "ref_eur": 3.83,
       "ref_bgn": 7.49,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 85,
@@ -1428,9 +1488,10 @@
       "ref_eur": 2.86,
       "ref_bgn": 5.59,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 86,
@@ -1446,9 +1507,10 @@
       "ref_eur": 4.59,
       "ref_bgn": 8.98,
       "url_slug": "",
-      "active": true,
+      "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 87,
@@ -1479,7 +1541,8 @@
       "url_slug": "bio-smokini-250gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-08-16"
+      "added_date": "2026-08-16",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 89,
@@ -1495,7 +1558,8 @@
       "url_slug": "",
       "active": false,
       "status": "reactivated",
-      "added_date": "2026-08-31"
+      "added_date": "2026-08-31",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 90,
@@ -1511,7 +1575,8 @@
       "url_slug": "bio-byal-bob-13-kg",
       "active": false,
       "status": "active",
-      "added_date": "2026-02-22"
+      "added_date": "2026-02-22",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 91,
@@ -1529,7 +1594,8 @@
       "url_slug": "bio-sok-ot-chervena-yablka-750ml",
       "active": false,
       "status": "active",
-      "added_date": "2026-03-22"
+      "added_date": "2026-03-22",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 92,
@@ -1546,7 +1612,8 @@
       "url_slug": "pileshka-przhola-ohladena-500-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-08-16"
+      "added_date": "2026-08-16",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 93,
@@ -1561,7 +1628,8 @@
       "url_slug": "",
       "active": false,
       "status": "new",
-      "added_date": "2026-08-17"
+      "added_date": "2026-08-17",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 94,
@@ -1577,7 +1645,8 @@
       "url_slug": "",
       "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 95,
@@ -1592,7 +1661,8 @@
       "url_slug": "bio-limonada-330-ml",
       "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 96,
@@ -1610,7 +1680,8 @@
       "url_slug": "bio-sok-ot-yablka-i-morkov-750ml",
       "active": false,
       "status": "active",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 97,
@@ -1628,7 +1699,8 @@
       "url_slug": "",
       "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 98,
@@ -1643,7 +1715,8 @@
       "url_slug": "bio-mayoneza-210-g",
       "active": false,
       "status": "active",
-      "added_date": "2026-06-05"
+      "added_date": "2026-06-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 99,
@@ -1661,7 +1734,8 @@
       "url_slug": "smiles-s-nahut-oriz-i-morska-sol-50g",
       "active": false,
       "status": "active",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 100,
@@ -1679,7 +1753,8 @@
       "url_slug": "smiles-s-nahut-oriz-s-kokosovo-maslo-50g",
       "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 101,
@@ -1696,7 +1771,8 @@
       "url_slug": "zakvasena-smetana-12-harmonica-200g",
       "active": false,
       "status": "active",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 102,
@@ -1712,7 +1788,8 @@
       "url_slug": "",
       "active": false,
       "status": "reactivated",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 103,
@@ -1728,7 +1805,8 @@
       "url_slug": "",
       "active": false,
       "status": "active",
-      "added_date": "2026-02-15"
+      "added_date": "2026-02-15",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 104,
@@ -1744,7 +1822,8 @@
       "url_slug": "bio-cherven-domat-500-gr",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 105,
@@ -1759,7 +1838,8 @@
       "url_slug": "bio-morkov-0500-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 106,
@@ -1775,7 +1855,8 @@
       "url_slug": "bio-presen-kartof-1-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 107,
@@ -1790,7 +1871,8 @@
       "url_slug": "bio-pashchrnak-0300-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 108,
@@ -1805,7 +1887,8 @@
       "url_slug": "bio-krastavica-1-br",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 109,
@@ -1820,7 +1903,8 @@
       "url_slug": "bio-salatka-1-br",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 110,
@@ -1835,7 +1919,8 @@
       "url_slug": "bio-magdanoz-1br",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 111,
@@ -1850,7 +1935,8 @@
       "url_slug": "bio-repichki-1-vr",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 112,
@@ -1866,7 +1952,8 @@
       "url_slug": "bio-oveseno-mlyako-1-l",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 113,
@@ -1899,7 +1986,8 @@
       "url_slug": "bio-miks-ot-kinoa-17-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 115,
@@ -1930,7 +2018,8 @@
       "url_slug": "zelen-chay-s-menta",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 117,
@@ -1945,7 +2034,8 @@
       "url_slug": "zelen-chay-pukanki",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 118,
@@ -1961,7 +2051,8 @@
       "url_slug": "byal-chay-silver-tips",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 119,
@@ -1978,7 +2069,8 @@
       "url_slug": "bio-zelen-chay-mao-feng",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 120,
@@ -1994,7 +2086,8 @@
       "url_slug": "bio-pasta-rakovini-15-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 121,
@@ -2010,7 +2103,8 @@
       "url_slug": "bio-pasta-penne-12-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 122,
@@ -2025,7 +2119,8 @@
       "url_slug": "bio-kuskus-17-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 123,
@@ -2042,7 +2137,8 @@
       "url_slug": "bio-sok-yablka-i-portokal-750ml",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 124,
@@ -2059,7 +2155,8 @@
       "url_slug": "bio-sok-yablka-i-limon-750ml",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 125,
@@ -2077,7 +2174,8 @@
       "url_slug": "bio-sok-ot-zelena-yablka-750ml",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 126,
@@ -2092,7 +2190,8 @@
       "url_slug": "bio-elda-17-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 127,
@@ -2108,7 +2207,8 @@
       "url_slug": "bio-kafyava-leshcha-17-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 128,
@@ -2124,7 +2224,8 @@
       "url_slug": "bio-kafyav-oriz17-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 129,
@@ -2140,7 +2241,8 @@
       "url_slug": "bio-byal-oriz-17-kg",
       "active": false,
       "status": "removed",
-      "added_date": "2026-02-05"
+      "added_date": "2026-02-05",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 130,
@@ -2156,7 +2258,8 @@
       "url_slug": "kozunak-s-kvas-klasik-400-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01"
+      "added_date": "2026-04-01",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 131,
@@ -2173,7 +2276,8 @@
       "url_slug": "kozunak-s-kvas-ss-stafidi-400-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01"
+      "added_date": "2026-04-01",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 132,
@@ -2190,7 +2294,8 @@
       "url_slug": "kozunak-s-kvas-s-lokum-s-orehi-400-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01"
+      "added_date": "2026-04-01",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 133,
@@ -2206,7 +2311,8 @@
       "url_slug": "kozunak-s-maya-s-shokolad-500-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01"
+      "added_date": "2026-04-01",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 134,
@@ -2224,7 +2330,8 @@
       "url_slug": "kozunak-s-kvas-s-shokolad-i-portokalovi-korichki-400-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01"
+      "added_date": "2026-04-01",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 135,
@@ -2241,7 +2348,8 @@
       "url_slug": "kozunak-s-maya-ss-stafidi-500-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01"
+      "added_date": "2026-04-01",
+      "removed_date": "2026-10-03"
     },
     {
       "id": 136,
@@ -2257,7 +2365,8 @@
       "url_slug": "kozunak-s-maya-klasik-500-gr",
       "active": false,
       "status": "active",
-      "added_date": "2026-04-01"
+      "added_date": "2026-04-01",
+      "removed_date": "2026-10-03"
     }
   ]
 }
