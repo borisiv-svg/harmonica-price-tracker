@@ -1,5 +1,21 @@
 # CLAUDE.md — Harmonica Price Tracker
 
+## ⏸ Status: PAUSED since 2026-11-25
+
+The tracker is not in use right now. All repo automation is stopped; code, data and secrets are untouched. The rest of this file describes the tracker as it ran until then.
+
+- **Production Weekly Scraper** and **Monthly Product Sync** workflows are disabled in GitHub Actions (last runs: 2026-11-23 and 2026-11-22). Re-enable: Actions → the workflow → "Enable workflow".
+- **Dependabot** config (`.github/dependabot.yml`) was removed in commit `ca6f0a9`; restore it by reverting that commit.
+
+**Do not re-enable before fixing these** (found in the 2026-11-25 review):
+
+1. `CLAUDE_MODEL` — `claude-sonnet-4-5-20250929` retires on 2026-11-30; switch to `claude-sonnet-5-5`.
+2. Firecrawl v1 shuts down on 2026-12-10 — migrate to v2 (`firecrawl-py` 4.x, `Firecrawl().scrape(...)` with keyword arguments, `max_age=0`, no `"amount"` on scroll actions; update the smoke test in `production.yml`).
+3. Glovo prices are halved — Glovo now shows EUR, but the code still divides by the BGN rate (wrong since 2026-08-11 for Billa/Fantastico, since September for CBA/Kaufland). The "All Glovo prices are BGN" rule below is outdated.
+4. Kashon (master source) moved to WooCommerce: the old URL now lands on `/magazin/` with 12 of 98 products per page and numbered pagination; the scraper only reads page 1. Only 38 of 136 products are active.
+5. Monthly sync: cron `0 7 1-7 * 0` fires on days 1–7 AND every Sunday, and a partial Kashon load deactivates the rest of the product list.
+6. Six stores return 0 products: T-Market, BeFit, Zelen, Glovo Fantastico, Bio-Market, Glovo Kaufland.
+
 ## What this is
 
 Weekly price scraper for **Harmonica-brand products** (130 tracked, 87 currently active) across 14+ Bulgarian online stores. Runs every Monday 07:00 EET via GitHub Actions. Outputs to Google Sheets → email to Galya and the sales team.
